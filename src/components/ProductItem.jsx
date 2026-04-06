@@ -1,0 +1,222 @@
+import '../styles/ProductItem.css'
+
+export default function ProductItem({
+  material,
+  canEdit = false,
+  isEditing = false,
+  draft = null,
+  categorias = [],
+  monedas = [],
+  proveedores = [],
+  unidades = [],
+  saving = false,
+  onEdit,
+  onCancel,
+  onSave,
+  onDraftChange,
+  uploading = false,
+  onImageUpload,
+}) {
+  const stockValue = Number(material.stock) || 0
+  const stockSeguridadValue = Number(material.stock_seguridad) || 0
+  const costoUnitarioValue = isEditing ? Number(draft?.costo_unitario) || 0 : Number(material.costo_unitario) || 0
+  const costoConIgvValue = isEditing ? Number((costoUnitarioValue * 1.18).toFixed(2)) : Number(material.costo_con_igv) || 0
+  const monedaLabel = material.moneda || material.moneda_nombre || material.moneda_codigo || '-'
+  const categoriaId = isEditing ? String(draft?.id_categoria || '') : String(material.id_categoria || '')
+  const proveedorId = isEditing ? String(draft?.id_proveedor || '') : String(material.id_proveedor || '')
+  const unidadId = isEditing ? String(draft?.id_unidad || '') : String(material.id_unidad || '')
+  const monedaId = isEditing ? String(draft?.id_moneda || '') : String(material.moneda_id || '')
+  const imagePreview = isEditing ? String(draft?.imagen || '').trim() : String(material.imagen || '').trim()
+
+  const categoryLabel = material.categoria || 'Sin categoria'
+  const providerLabel = material.proveedor || material.nombre_proveedor || '-'
+  const unitLabel = material.unidad_medida || material.unidad || '-'
+
+  const resolveProveedorLabel = (item) => String(item?.razon_social || item?.nombre || item?.proveedor || '').trim() || `Proveedor ${item?.id || ''}`
+  const resolveUnitLabel = (item) => String(item?.nombre || item?.unidad || '').trim() || `Unidad ${item?.id || ''}`
+  const resolveCategoryLabel = (item) => String(item?.nombre || item?.categoria || '').trim() || `Categoria ${item?.id || ''}`
+  const resolveMonedaLabel = (item) => String(item?.nombre || item?.moneda || '').trim() || `Moneda ${item?.id || ''}`
+
+  return (
+    <tr className={`product-item ${isEditing ? 'editing' : ''} ${saving ? 'saving' : ''}`}>
+      <td className="product-name">{material.id_material}</td>
+      <td className="product-name">
+        {isEditing ? (
+          <input
+            className="edit-input"
+            type="text"
+            value={draft?.nombre || ''}
+            onChange={(event) => onDraftChange?.('nombre', event.target.value)}
+          />
+        ) : (
+          material.nombre_producto || material.nombre || '-'
+        )}
+      </td>
+      <td className="product-description-cell">
+        {isEditing ? (
+          <input
+            className="edit-input"
+            type="text"
+            value={draft?.descripcion || ''}
+            onChange={(event) => onDraftChange?.('descripcion', event.target.value)}
+          />
+        ) : (
+          <span className="product-description-text" title={material.descripcion || ''}>
+            {material.descripcion || '-'}
+          </span>
+        )}
+      </td>
+      <td className="product-category-cell">
+        {isEditing ? (
+          <select
+            className="edit-select"
+            value={categoriaId}
+            onChange={(event) => onDraftChange?.('id_categoria', event.target.value)}
+          >
+            <option value="">Sin categoria</option>
+            {categorias.map((categoria) => (
+              <option key={categoria.id} value={categoria.id}>
+                {resolveCategoryLabel(categoria)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="product-category">{categoryLabel}</span>
+        )}
+      </td>
+      <td>
+        {isEditing ? (
+          <select
+            className="edit-select"
+            value={unidadId}
+            onChange={(event) => onDraftChange?.('id_unidad', event.target.value)}
+          >
+            <option value="">Selecciona unidad</option>
+            {unidades.map((unidad) => (
+              <option key={unidad.id} value={unidad.id}>
+                {resolveUnitLabel(unidad)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          unitLabel
+        )}
+      </td>
+      <td>
+        {isEditing ? (
+          <select
+            className="edit-select"
+            value={proveedorId}
+            onChange={(event) => onDraftChange?.('id_proveedor', event.target.value)}
+          >
+            <option value="">Selecciona proveedor</option>
+            {proveedores.map((proveedor) => (
+              <option key={proveedor.id} value={proveedor.id}>
+                {resolveProveedorLabel(proveedor)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="product-provider-text" title={providerLabel}>{providerLabel}</span>
+        )}
+      </td>
+      <td className="product-quantity"><span className="quantity-badge">{stockValue}</span></td>
+      <td>{stockSeguridadValue}</td>
+      <td>{material.ubicacion}</td>
+      <td>
+        {isEditing ? (
+          <input
+            className="edit-input"
+            type="number"
+            min="0"
+            step="0.01"
+            value={draft?.costo_unitario || ''}
+            onChange={(event) => onDraftChange?.('costo_unitario', event.target.value)}
+          />
+        ) : (
+          `$${costoUnitarioValue.toFixed(2)}`
+        )}
+      </td>
+      <td>${costoConIgvValue.toFixed(2)}</td>
+      <td className="product-currency-cell">
+        {isEditing ? (
+          <select
+            className="edit-select"
+            value={monedaId}
+            onChange={(event) => onDraftChange?.('id_moneda', event.target.value)}
+          >
+            <option value="">Sin moneda</option>
+            {monedas.map((moneda) => (
+              <option key={moneda.id} value={moneda.id}>
+                {resolveMonedaLabel(moneda)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="product-currency">{monedaLabel}</span>
+        )}
+      </td>
+      <td className="product-image-cell">
+        {isEditing ? (
+          <div className="product-image-editor">
+            {imagePreview ? (
+              <img className="material-image-preview" src={imagePreview} alt={material.nombre || 'Material'} />
+            ) : (
+              <span className="product-image-empty">Sin imagen</span>
+            )}
+            <input
+              className="edit-file-input"
+              type="file"
+              accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                onImageUpload?.(file)
+                event.target.value = ''
+              }}
+              disabled={uploading || saving}
+            />
+            {uploading && <span className="product-image-uploading">Subiendo...</span>}
+          </div>
+        ) : imagePreview ? (
+          <img className="material-image-thumb" src={imagePreview} alt={material.nombre || 'Material'} />
+        ) : (
+          <span className="product-image-empty">Sin imagen</span>
+        )}
+      </td>
+      {canEdit && (
+        <td className="product-actions-cell">
+          {isEditing ? (
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="btn-save"
+                onClick={onSave}
+                disabled={saving}
+              >
+                {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={onCancel}
+                disabled={saving}
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="btn-edit"
+                onClick={onEdit}
+              >
+                Editar
+              </button>
+            </div>
+          )}
+        </td>
+      )}
+    </tr>
+  )
+}

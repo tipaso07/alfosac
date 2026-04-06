@@ -1,0 +1,230 @@
+.providers-view-section {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.providers-view-section .section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.providers-view-section .section-header h1 {
+  margin-right: auto;
+}
+
+.add-provider-btn {
+  border: 1px solid #0f766e;
+  background: #ecfeff;
+  color: #115e59;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.add-provider-btn:hover {
+  background: #cffafe;
+}
+
+.providers-search-row {
+  margin-bottom: 10px;
+}
+
+.providers-search-row input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.providers-hint {
+  color: var(--text-secondary);
+}
+
+.providers-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.providers-table-wrap {
+  overflow: auto;
+}
+
+.providers-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.providers-table th,
+.providers-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 9px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.providers-table th {
+  background: #f8fafc;
+}
+
+.provider-cell-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  color: var(--text-primary);
+  font: inherit;
+  min-height: 24px;
+}
+
+.provider-cell-btn.editable {
+  cursor: pointer;
+}
+
+.provider-cell-btn.editable:hover {
+  color: #0f766e;
+}
+
+.providers-table input,
+.providers-table select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.providers-saving {
+  color: #b45309;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.providers-ready {
+  color: #166534;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.provider-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 16px;
+}
+
+.provider-modal {
+  width: min(560px, 100%);
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+
+.provider-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.provider-modal-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.provider-modal-head button {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-primary);
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.provider-modal-form {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.provider-modal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.provider-modal-form label:nth-child(1),
+.provider-modal-form label:nth-child(2),
+.provider-modal-form label:nth-child(6) {
+  grid-column: span 2;
+}
+
+.provider-modal-form input,
+.provider-modal-form select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.providers-error-inline {
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.provider-modal-actions {
+  grid-column: span 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.provider-modal-actions button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.provider-modal-actions button[type='submit'] {
+  border-color: #0f766e;
+  background: #ecfeff;
+  color: #115e59;
+}
+
+@media (max-width: 700px) {
+  .provider-modal-form {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-modal-form label:nth-child(1),
+  .provider-modal-form label:nth-child(2),
+  .provider-modal-form label:nth-child(6),
+  .provider-modal-actions {
+    grid-column: span 1;
+  }
+}

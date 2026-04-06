@@ -1,0 +1,246 @@
+.my-po-section {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.my-po-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.my-po-filters button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.my-po-filters button.active {
+  background: var(--primary-color);
+  color: #fff;
+  border-color: var(--primary-color);
+}
+
+.my-po-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.my-po-list {
+  display: grid;
+  gap: 10px;
+}
+
+.my-po-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.my-po-summary-line {
+  margin: 3px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.my-po-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.my-po-status {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-po-status.aprobada {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.my-po-status.por_recibir {
+  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
+}
+
+.my-po-status.recibida {
+  background: rgba(2, 132, 199, 0.18);
+  color: #0c4a6e;
+}
+
+.my-po-edit-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.my-po-edit-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.my-po-edit-grid input,
+.my-po-edit-grid select,
+.my-po-edit-grid textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.supplier-field small {
+  color: var(--text-secondary);
+}
+
+.supplier-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 190px;
+  overflow: auto;
+  background: #fff;
+}
+
+.supplier-options li + li {
+  border-top: 1px solid #eef2f7;
+}
+
+.supplier-options button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.supplier-options button:hover {
+  background: #f8fafc;
+}
+
+.supplier-options small {
+  color: #475569;
+}
+
+.currency-field small {
+  color: var(--text-secondary);
+}
+
+.provider-summary {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.provider-summary h4 {
+  margin: 0 0 2px;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.provider-summary p {
+  margin: 0;
+}
+
+.percent-input {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.percent-input input {
+  border: none;
+  border-radius: 0;
+}
+
+.percent-input span {
+  padding: 0 10px;
+  color: #475569;
+  font-weight: 600;
+  background: #f8fafc;
+  border-left: 1px solid var(--border);
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.full-row {
+  grid-column: 1 / -1;
+}
+
+.my-po-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.my-po-actions button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.my-po-actions .btn-generate {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.my-po-actions .btn-download {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.my-po-actions .btn-receive {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.my-po-card-actions {
+  margin-top: 10px;
+}
+
+.btn-detail {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .my-po-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}

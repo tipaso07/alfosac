@@ -1,0 +1,88 @@
+.service-request-section {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.service-request-form {
+  display: grid;
+  gap: 12px;
+}
+
+.service-user-info {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.service-request-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.service-provider-autocomplete {
+  position: relative;
+}
+
+.service-request-form input,
+.service-request-form select,
+.service-request-form textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  font-weight: 500;
+}
+
+.service-provider-suggestions {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  max-height: 220px;
+  overflow: auto;
+  position: absolute;
+  width: 100%;
+  z-index: 20;
+}
+
+.service-provider-suggestions li + li {
+  border-top: 1px solid #e5e7eb;
+}
+
+.service-provider-suggestions button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.service-provider-suggestions button:hover {
+  background: #f8fafc;
+}
+
+.service-request-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.single-column-grid {
+  grid-template-columns: minmax(220px, 320px);
+}
+
+.service-request-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.service-request-error {
+  color: #b91c1c;
+  font-weight: 700;
+}

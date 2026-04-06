@@ -1,0 +1,128 @@
+.my-req-section {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.my-req-status-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.my-req-status-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.my-req-status-btn.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.my-req-date-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.my-req-date-field {
+  display: grid;
+  gap: 6px;
+}
+
+.my-req-date-field span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.my-req-date-field input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.my-req-clear-dates {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  background: #fff;
+  color: var(--text-primary);
+}
+
+.my-req-list {
+  display: grid;
+  gap: 10px;
+}
+
+.my-req-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.my-req-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.my-req-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.my-req-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-req-badge.estado-pendiente {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+
+.my-req-badge.estado-aprobado {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.my-req-badge.estado-rechazado {
+  background: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+}
+
+.my-req-badge.entrega-por_recoger {
+  background: rgba(30, 64, 175, 0.12);
+  color: #1d4ed8;
+}
+
+.my-req-badge.entrega-entregado {
+  background: rgba(5, 150, 105, 0.12);
+  color: #047857;
+}
+
+@media (max-width: 768px) {
+  .my-req-date-grid {
+    grid-template-columns: 1fr;
+  }
+}

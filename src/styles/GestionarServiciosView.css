@@ -1,0 +1,95 @@
+.service-manage-section {
+  margin-top: 18px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.service-status-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.service-priority-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.service-status-tabs button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
+.service-status-tabs button.active {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.service-priority-tabs button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
+.service-priority-tabs button.active {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+.service-manage-list {
+  display: grid;
+  gap: 12px;
+}
+
+.service-manage-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.service-manage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.service-status {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.service-status.pendiente {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.service-status.aprobado {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.service-status.rechazado {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.service-manage-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

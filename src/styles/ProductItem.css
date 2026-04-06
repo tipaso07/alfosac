@@ -1,0 +1,110 @@
+/* Product Item Row Styles */
+.product-item {
+  transition: background-color 0.2s ease;
+}
+
+.product-item:hover {
+  background-color: #f8fafc;
+}
+
+.product-item.editing {
+  background-color: #fffbeb;
+}
+
+.product-item.saving {
+  opacity: 0.9;
+}
+
+.product-item.editing td {
+  padding: 10px;
+}
+
+.product-description-cell,
+.product-provider-text {
+  max-width: 240px;
+}
+
+.product-description-text,
+.product-provider-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.edit-select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.edit-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.action-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
+.product-actions-cell {
+  min-width: 150px;
+}
+
+.product-image-cell {
+  min-width: 120px;
+}
+
+.product-image-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.material-image-thumb,
+.material-image-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.edit-file-input {
+  width: 100%;
+  font-size: 12px;
+}
+
+.product-image-empty {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.product-image-uploading {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+}
