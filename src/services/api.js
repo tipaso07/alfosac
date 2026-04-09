@@ -49,8 +49,13 @@ export const fetchStats = async () => {
   return response.json();
 };
 
-export const fetchAdminDashboard = async () => {
-  const response = await fetch(API_ENDPOINTS.ADMIN_DASHBOARD, {
+export const fetchAdminDashboard = async ({ fecha_inicio = '', fecha_fin = '' } = {}) => {
+  const params = new URLSearchParams();
+  if (String(fecha_inicio || '').trim()) params.set('fecha_inicio', String(fecha_inicio).trim());
+  if (String(fecha_fin || '').trim()) params.set('fecha_fin', String(fecha_fin).trim());
+  const query = params.toString();
+
+  const response = await fetch(`${API_ENDPOINTS.ADMIN_DASHBOARD}${query ? `?${query}` : ''}`, {
     headers: buildHeaders(),
   });
 
@@ -197,6 +202,27 @@ export const updateRequerimientoEntrega = async (id, estado_entrega, receptor_us
   return response.json();
 };
 
+export const agregarComentarioRequerimiento = async (id, contenido) => {
+  const response = await fetch(`${API_ENDPOINTS.REQUERIMIENTOS}/${id}/comentarios`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ contenido }),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al agregar comentario en requerimiento';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const fetchReceptoresByRequerimiento = async (idRequerimiento, query = '') => {
   const params = new URLSearchParams();
   if (query) params.set('query', query);
@@ -328,6 +354,94 @@ export const updateProveedor = async (id, payload) => {
       if (data?.error) msg = data.error;
     } catch {
       // ignore parse error
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const fetchProveedorCalificaciones = async (id) => {
+  const response = await fetch(`${API_BASE_URL}/proveedores/${id}/calificaciones`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al obtener calificaciones del proveedor';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const fetchPromediosCalificacionProveedores = async () => {
+  const response = await fetch(`${API_BASE_URL}/proveedores/calificaciones/promedios`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al obtener promedios de calificacion de proveedores';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const fetchMiCalificacionProveedor = async (id, { tipo = 'proveedor', id_referencia = null } = {}) => {
+  const params = new URLSearchParams();
+  if (tipo) params.set('tipo', String(tipo));
+  if (Number(id_referencia || 0) > 0) params.set('id_referencia', String(Number(id_referencia)));
+
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/proveedores/${id}/calificaciones${query ? `?${query}` : ''}`,
+    { headers: buildHeaders() }
+  );
+
+  if (!response.ok) {
+    let msg = 'Error al verificar calificacion del proveedor';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  return {
+    ya_calificado: Boolean(data?.ya_calificado),
+    detalle: data,
+  };
+};
+
+export const guardarCalificacionProveedor = async (id, payload) => {
+  const response = await fetch(`${API_BASE_URL}/proveedores/${id}/calificaciones`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al guardar calificacion del proveedor';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
     }
     throw new Error(msg);
   }
@@ -553,6 +667,27 @@ export const updateServicioAprobacion = async (id, estado_aprobacion) => {
   return response.json();
 };
 
+export const agregarComentarioServicio = async (id, contenido) => {
+  const response = await fetch(`${API_BASE_URL}/servicios/${id}/comentarios`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ contenido }),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al agregar comentario en servicio';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const updateServicioEstado = async (id, estado_servicio) => {
   const response = await fetch(`${API_BASE_URL}/servicios/${id}/estado`, {
     method: 'PUT',
@@ -645,6 +780,27 @@ export const updateCompraEstado = async (id, estado) => {
   return response.json();
 };
 
+export const agregarComentarioCompra = async (id, contenido) => {
+  const response = await fetch(`${API_BASE_URL}/compras/${id}/comentarios`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ contenido }),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al agregar comentario en compra';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const completarCompraDatos = async (id, payload) => {
   const response = await fetch(`${API_BASE_URL}/compras/${id}/completar-datos`, {
     method: 'PATCH',
@@ -725,6 +881,27 @@ export const confirmarEntregaAreaCompra = async (id, payload) => {
 
   if (!response.ok) {
     let msg = 'Error al confirmar entrega al area';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const marcarRecibidoEnAlmacen = async (id) => {
+  const response = await fetch(`${API_BASE_URL}/compras/${id}/marcar-recibido-almacen`, {
+    method: 'PATCH',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al marcar compra como recibida en almacen';
     try {
       const data = await response.json();
       if (data?.error) msg = data.error;

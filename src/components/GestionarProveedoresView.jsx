@@ -7,6 +7,7 @@ import {
   fetchProveedores,
   updateProveedor,
 } from '../services/api'
+import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const initialForm = {
   nombre: '',
@@ -73,7 +74,7 @@ const normalizeFormFromProvider = (provider = {}) => ({
   tipo_retencion: String(provider.tipo_retencion || 'RETENCION').toUpperCase() || 'RETENCION',
 })
 
-export default function GestionarProveedoresView({ canEdit = false, onCreated }) {
+export default function GestionarProveedoresView({ canEdit = false, currentUserRoleId = null, onCreated }) {
   const [form, setForm] = useState(initialForm)
   const [providers, setProviders] = useState([])
   const [monedas, setMonedas] = useState([])
@@ -91,6 +92,7 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
   const [editingCell, setEditingCell] = useState(null)
   const [drafts, setDrafts] = useState({})
   const [savingByProvider, setSavingByProvider] = useState({})
+  const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9 || canEdit
 
   useEffect(() => {
     const load = async () => {
@@ -540,16 +542,29 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
               <th>Area destino</th>
               <th>Categoria</th>
               <th>Tipo</th>
+              <th>Calificación promedio</th>
+              <th>Alertas</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={12}>No hay proveedores para mostrar.</td>
+                <td colSpan={14}>No hay proveedores para mostrar.</td>
               </tr>
             )}
             {rows.map((provider) => (
+              (() => {
+                const ratingState = evaluateProviderRatingState({
+                  promedio: provider.calificacion_promedio,
+                  total: provider.calificacion_total,
+                  alertaCritica: provider.alerta_critica,
+                })
+                const averageText = Number(provider.calificacion_total || 0) > 0
+                  ? `⭐ ${Number(provider.calificacion_promedio || 0).toFixed(1)} / 5`
+                  : 'Sin calificaciones'
+
+                return (
               <tr key={provider.id}>
                 <td>{provider.id}</td>
                 <td>{renderInlineCell(provider, 'nombre')}</td>
@@ -562,6 +577,25 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
                 <td>{renderInlineCell(provider, 'id_area_destino')}</td>
                 <td>{renderInlineCell(provider, 'categoria')}</td>
                 <td>{renderInlineCell(provider, 'tipo')}</td>
+                <td>
+                  <div className="provider-rating-cell">
+                    <span>{averageText}</span>
+                    <span className={`provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="provider-alerts">
+                    {ratingState.showLowAlert && (
+                      <p className="provider-warning">Se recomienda evaluar cambio de proveedor</p>
+                    )}
+                    {canSeeCriticalAlert && ratingState.showCriticalAlert && (
+                      <p className="provider-critical">Proveedor con calificacion critica, se recomienda contactar</p>
+                    )}
+                    {!ratingState.showLowAlert && !(canSeeCriticalAlert && ratingState.showCriticalAlert) && (
+                      <span className="provider-ready">Sin alertas</span>
+                    )}
+                  </div>
+                </td>
                 <td>
                   <div className="row-actions">
                     <button
@@ -578,6 +612,8 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
                   </div>
                 </td>
               </tr>
+                )
+              })()
             ))}
           </tbody>
         </table>

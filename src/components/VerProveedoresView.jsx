@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import '../styles/VerProveedoresView.css'
-import { createProveedor, fetchMonedas, fetchProveedores, updateProveedor } from '../services/api'
+import {
+  createProveedor,
+  fetchMonedas,
+  fetchProveedores,
+  fetchProveedorCalificaciones,
+  guardarCalificacionProveedor,
+  updateProveedor,
+} from '../services/api'
+import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const initialCreateForm = {
   nombre: '',
@@ -24,10 +32,16 @@ export default function VerProveedoresView({ canEdit = false }) {
   const [createForm, setCreateForm] = useState(initialCreateForm)
   const [creating, setCreating] = useState(false)
   const [createErrors, setCreateErrors] = useState({})
+  const [ratingModalProvider, setRatingModalProvider] = useState(null)
+  const [ratingLoading, setRatingLoading] = useState(false)
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const [ratingSuccess, setRatingSuccess] = useState('')
+  const [ratingDetail, setRatingDetail] = useState(null)
+  const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
 
   useEffect(() => {
     let cancelled = false
-
     const run = async () => {
       try {
         setLoading(true)
@@ -43,17 +57,15 @@ export default function VerProveedoresView({ canEdit = false }) {
         if (!cancelled) setLoading(false)
       }
     }
-
-    const t = setTimeout(run, 250)
+    const timer = setTimeout(run, 250)
     return () => {
       cancelled = true
-      clearTimeout(t)
+      clearTimeout(timer)
     }
   }, [query])
 
   useEffect(() => {
     let cancelled = false
-
     const loadMonedas = async () => {
       try {
         const data = await fetchMonedas()
@@ -62,7 +74,6 @@ export default function VerProveedoresView({ canEdit = false }) {
         if (!cancelled) setMonedas([])
       }
     }
-
     loadMonedas()
     return () => {
       cancelled = true
@@ -70,6 +81,9 @@ export default function VerProveedoresView({ canEdit = false }) {
   }, [])
 
   const rows = useMemo(() => providers, [providers])
+  const renderStars = (value) => Array.from({ length: 5 }).map((_, index) => (
+    <span key={index} className={index < Number(value || 0) ? 'star-on' : 'star-off'}>★</span>
+  ))
 
   const validateCreateForm = (form) => {
     const next = {}
@@ -99,6 +113,11 @@ export default function VerProveedoresView({ canEdit = false }) {
     setCreateErrors({})
   }
 
+  const refreshProviders = async () => {
+    const refreshed = await fetchProveedores(String(query || '').trim())
+    setProviders(Array.isArray(refreshed) ? refreshed : [])
+  }
+
   const submitCreateProvider = async (event) => {
     event.preventDefault()
     const errors = validateCreateForm(createForm)
@@ -116,9 +135,7 @@ export default function VerProveedoresView({ canEdit = false }) {
         email: String(createForm.email || '').trim(),
         id_moneda: Number(createForm.moneda_id),
       })
-
-      const refreshed = await fetchProveedores(String(query || '').trim())
-      setProviders(Array.isArray(refreshed) ? refreshed : [])
+      await refreshProviders()
       closeCreateModal(true)
     } catch (err) {
       setError(err.message || 'Error al crear proveedor')
@@ -130,7 +147,6 @@ export default function VerProveedoresView({ canEdit = false }) {
   const getDraftValue = (provider, field) => {
     const providerDraft = drafts[provider.id] || {}
     if (field in providerDraft) return providerDraft[field]
-
     if (field === 'contacto') return provider.persona_responsable || ''
     if (field === 'email') return provider.correo || ''
     if (field === 'moneda_id') return Number(provider.id_moneda || 0) || ''
@@ -140,10 +156,7 @@ export default function VerProveedoresView({ canEdit = false }) {
   const setDraftValue = (providerId, field, value) => {
     setDrafts((prev) => ({
       ...prev,
-      [providerId]: {
-        ...(prev[providerId] || {}),
-        [field]: value,
-      },
+      [providerId]: { ...(prev[providerId] || {}), [field]: value },
     }))
   }
 
@@ -162,7 +175,6 @@ export default function VerProveedoresView({ canEdit = false }) {
     try {
       setSavingByProvider((prev) => ({ ...prev, [provider.id]: true }))
       const updated = await updateProveedor(provider.id, payload)
-
       setProviders((prev) => prev.map((p) => (p.id === provider.id ? updated : p)))
       setDrafts((prev) => {
         const next = { ...prev }
@@ -194,8 +206,6 @@ export default function VerProveedoresView({ canEdit = false }) {
       && editingCell.field === field
 
     if (field === 'moneda_id') {
-      const displayMoneda = provider.moneda_nombre || 'N/D'
-
       if (isEditing) {
         return (
           <select
@@ -210,21 +220,13 @@ export default function VerProveedoresView({ canEdit = false }) {
             disabled={Boolean(savingByProvider[provider.id])}
           >
             <option value="">Selecciona moneda</option>
-            {monedas.map((m) => (
-              <option key={m.id} value={m.id}>{m.nombre}</option>
-            ))}
+            {monedas.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
           </select>
         )
       }
-
       return (
-        <button
-          type="button"
-          className={`provider-cell-btn ${canEdit ? 'editable' : ''}`}
-          onClick={() => startEdit(provider.id, field)}
-          disabled={!canEdit || Boolean(savingByProvider[provider.id])}
-        >
-          {displayMoneda}
+        <button type="button" className={`provider-cell-btn ${canEdit ? 'editable' : ''}`} onClick={() => startEdit(provider.id, field)} disabled={!canEdit || Boolean(savingByProvider[provider.id])}>
+          {provider.moneda_nombre || fallback}
         </button>
       )
     }
@@ -252,15 +254,71 @@ export default function VerProveedoresView({ canEdit = false }) {
     }
 
     return (
-      <button
-        type="button"
-        className={`provider-cell-btn ${canEdit ? 'editable' : ''}`}
-        onClick={() => startEdit(provider.id, field)}
-        disabled={!canEdit || Boolean(savingByProvider[provider.id])}
-      >
+      <button type="button" className={`provider-cell-btn ${canEdit ? 'editable' : ''}`} onClick={() => startEdit(provider.id, field)} disabled={!canEdit || Boolean(savingByProvider[provider.id])}>
         {sourceValue || fallback}
       </button>
     )
+  }
+
+  const openRatingModal = async (provider) => {
+    setRatingModalProvider(provider)
+    setRatingError('')
+    setRatingSuccess('')
+    setRatingDetail(null)
+    setRatingLoading(true)
+    try {
+      const detail = await fetchProveedorCalificaciones(provider.id)
+      setRatingDetail(detail)
+      setRatingForm({
+        puntuacion: Number(detail?.mi_calificacion || provider.mi_calificacion || 5) || 5,
+        comentario: String(detail?.mi_comentario || provider.mi_comentario || '').trim(),
+      })
+    } catch (err) {
+      setRatingError(err.message || 'Error al cargar calificaciones del proveedor')
+      setRatingForm({ puntuacion: Number(provider.mi_calificacion || 5) || 5, comentario: String(provider.mi_comentario || '').trim() })
+    } finally {
+      setRatingLoading(false)
+    }
+  }
+
+  const closeRatingModal = () => {
+    if (ratingSaving) return
+    setRatingModalProvider(null)
+    setRatingLoading(false)
+    setRatingSaving(false)
+    setRatingError('')
+    setRatingSuccess('')
+    setRatingDetail(null)
+    setRatingForm({ puntuacion: 5, comentario: '' })
+  }
+
+  const submitRating = async (event) => {
+    event.preventDefault()
+    if (!ratingModalProvider) return
+
+    const score = Number(ratingForm.puntuacion || 0)
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      setRatingError('Selecciona una puntuacion entre 1 y 5')
+      return
+    }
+
+    try {
+      setRatingSaving(true)
+      setRatingError('')
+      setRatingSuccess('')
+      await guardarCalificacionProveedor(ratingModalProvider.id, {
+        puntuacion: score,
+        comentario: String(ratingForm.comentario || '').trim(),
+      })
+      await refreshProviders()
+      const detail = await fetchProveedorCalificaciones(ratingModalProvider.id)
+      setRatingDetail(detail)
+      setRatingSuccess('Calificacion guardada correctamente')
+    } catch (err) {
+      setRatingError(err.message || 'Error al guardar calificacion')
+    } finally {
+      setRatingSaving(false)
+    }
   }
 
   return (
@@ -269,25 +327,14 @@ export default function VerProveedoresView({ canEdit = false }) {
         <h1>Proveedores</h1>
         <p>Total: {rows.length}</p>
         {canEdit && (
-          <button
-            type="button"
-            className="add-provider-btn"
-            onClick={openCreateModal}
-          >
-            + Agregar proveedor
-          </button>
+          <button type="button" className="add-provider-btn" onClick={openCreateModal}>+ Agregar proveedor</button>
         )}
       </div>
 
       {!canEdit && <p className="providers-hint">Modo lectura: solo el rol Compras puede editar.</p>}
 
       <div className="providers-search-row">
-        <input
-          type="text"
-          placeholder="Buscar por nombre, razon social o RUC"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <input type="text" placeholder="Buscar por nombre, razon social o RUC" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
 
       {loading && <p className="providers-hint">Buscando proveedores...</p>}
@@ -306,11 +353,20 @@ export default function VerProveedoresView({ canEdit = false }) {
                 <th>Telefono</th>
                 <th>Email</th>
                 <th>Moneda</th>
+                <th>Calificacion</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((provider) => (
+                (() => {
+                  const ratingState = evaluateProviderRatingState({
+                    promedio: provider.calificacion_promedio,
+                    total: provider.calificacion_total,
+                    alertaCritica: provider.alerta_critica,
+                  })
+
+                  return (
                 <tr key={provider.id}>
                   <td>{renderCell(provider, 'nombre')}</td>
                   <td>{renderCell(provider, 'ruc')}</td>
@@ -319,11 +375,21 @@ export default function VerProveedoresView({ canEdit = false }) {
                   <td>{renderCell(provider, 'email')}</td>
                   <td>{renderCell(provider, 'moneda_id')}</td>
                   <td>
-                    {savingByProvider[provider.id]
-                      ? <span className="providers-saving">Guardando...</span>
-                      : <span className="providers-ready">Listo</span>}
+                    <div className="provider-rating-summary">
+                      <div className="provider-rating-stars">{renderStars(Math.round(Number(provider.calificacion_promedio || 0)))}</div>
+                      <small>{ratingState.averageLabel} ({Number(provider.calificacion_total || 0)})</small>
+                      <small className={`provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="provider-actions-stack">
+                      {savingByProvider[provider.id] ? <span className="providers-saving">Guardando...</span> : <span className="providers-ready">Listo</span>}
+                      <button type="button" className="provider-rate-btn" onClick={() => openRatingModal(provider)}>Calificar</button>
+                    </div>
                   </td>
                 </tr>
+                  )
+                })()
               ))}
             </tbody>
           </table>
@@ -337,69 +403,125 @@ export default function VerProveedoresView({ canEdit = false }) {
               <h2>Agregar proveedor</h2>
               <button type="button" onClick={closeCreateModal} disabled={creating}>×</button>
             </div>
-
             <form className="provider-modal-form" onSubmit={submitCreateProvider}>
               <label>
                 Nombre *
-                <input
-                  value={createForm.nombre}
-                  onChange={(e) => updateCreateForm({ nombre: e.target.value })}
-                />
+                <input value={createForm.nombre} onChange={(e) => updateCreateForm({ nombre: e.target.value })} />
                 {createErrors.nombre && <small className="providers-error-inline">{createErrors.nombre}</small>}
               </label>
-
               <label>
                 RUC *
-                <input
-                  value={createForm.ruc}
-                  onChange={(e) => updateCreateForm({ ruc: e.target.value })}
-                />
+                <input value={createForm.ruc} onChange={(e) => updateCreateForm({ ruc: e.target.value })} />
                 {createErrors.ruc && <small className="providers-error-inline">{createErrors.ruc}</small>}
               </label>
-
               <label>
                 Contacto
-                <input
-                  value={createForm.contacto}
-                  onChange={(e) => updateCreateForm({ contacto: e.target.value })}
-                />
+                <input value={createForm.contacto} onChange={(e) => updateCreateForm({ contacto: e.target.value })} />
               </label>
-
               <label>
                 Telefono
-                <input
-                  value={createForm.telefono}
-                  onChange={(e) => updateCreateForm({ telefono: e.target.value })}
-                />
+                <input value={createForm.telefono} onChange={(e) => updateCreateForm({ telefono: e.target.value })} />
               </label>
-
               <label>
                 Email
-                <input
-                  value={createForm.email}
-                  onChange={(e) => updateCreateForm({ email: e.target.value })}
-                />
+                <input value={createForm.email} onChange={(e) => updateCreateForm({ email: e.target.value })} />
               </label>
-
               <label>
                 Moneda *
-                <select
-                  value={createForm.moneda_id}
-                  onChange={(e) => updateCreateForm({ moneda_id: e.target.value })}
-                >
+                <select value={createForm.moneda_id} onChange={(e) => updateCreateForm({ moneda_id: e.target.value })}>
                   <option value="">Selecciona moneda</option>
-                  {monedas.map((m) => (
-                    <option key={m.id} value={m.id}>{m.nombre}</option>
-                  ))}
+                  {monedas.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
                 </select>
                 {createErrors.moneda_id && <small className="providers-error-inline">{createErrors.moneda_id}</small>}
               </label>
-
               <div className="provider-modal-actions">
                 <button type="button" onClick={closeCreateModal} disabled={creating}>Cancelar</button>
                 <button type="submit" disabled={creating}>{creating ? 'Guardando...' : 'Guardar proveedor'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {ratingModalProvider && (
+        <div className="provider-modal-backdrop" onClick={closeRatingModal}>
+          <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="provider-modal-head">
+              <h2>Calificar proveedor</h2>
+              <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
+            </div>
+            <div className="provider-rating-header">
+              <h3>{ratingModalProvider.razon_social || ratingModalProvider.nombre || 'Proveedor'}</h3>
+              <p>
+                Promedio: <strong>{Number(ratingModalProvider.calificacion_promedio || 0).toFixed(1)} / 5</strong> - {Number(ratingModalProvider.calificacion_total || 0)} calificaciones
+              </p>
+            </div>
+            {ratingLoading ? <p className="providers-hint">Cargando calificaciones...</p> : null}
+            {ratingError ? <p className="providers-error">{ratingError}</p> : null}
+            {ratingSuccess ? <p className="provider-success">{ratingSuccess}</p> : null}
+            <form className="provider-rating-form" onSubmit={submitRating}>
+              <div className="provider-rating-stars-picker" aria-label="Selecciona puntuacion">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rating-star-btn ${Number(ratingForm.puntuacion || 0) >= score ? 'active' : ''}`}
+                    onClick={() => setRatingForm((prev) => ({ ...prev, puntuacion: score }))}
+                    disabled={ratingSaving}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <label>
+                Puntuacion
+                <select
+                  value={ratingForm.puntuacion}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+              <label>
+                Comentario
+                <textarea
+                  value={ratingForm.comentario}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Escribe una observacion opcional"
+                  rows={4}
+                  disabled={ratingSaving}
+                />
+              </label>
+              <div className="provider-modal-actions">
+                <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Cancelar</button>
+                <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
+              </div>
+            </form>
+            <div className="provider-rating-list">
+              <h4>Ultimas calificaciones</h4>
+              <p className="providers-hint">Ordenadas por fecha (mas recientes primero).</p>
+              {(ratingDetail?.calificaciones || []).length === 0 ? (
+                <p className="providers-hint">Aun no hay calificaciones registradas.</p>
+              ) : (
+                <ul>
+                  {(ratingDetail?.calificaciones || []).map((item) => (
+                    <li key={item.id} className="provider-rating-item">
+                      <div className="provider-rating-item-head">
+                        <strong>{item.usuario || 'Usuario'}</strong>
+                        <span>{item.fecha ? new Date(item.fecha).toLocaleString() : 'Sin fecha'}</span>
+                      </div>
+                      <div className="provider-rating-item-score">{renderStars(Number(item.puntuacion || 0))}</div>
+                      {item.comentario ? <p>{item.comentario}</p> : <p className="providers-hint">Sin comentario</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       )}

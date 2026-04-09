@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { guardarCalificacionProveedor } from '../services/api'
 import '../styles/HistorialServiciosView.css'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -7,22 +8,37 @@ const getFlow = (servicio) => normalize(servicio.estado_flujo || servicio.estado
 
 const isRealizado = (servicio) => {
   const flow = getFlow(servicio)
-  return flow === 'REALIZADO' || normalize(servicio.estado_servicio) === 'REALIZADO'
+  return ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(flow) || ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(normalize(servicio.estado_servicio))
 }
 
 const isAprobado = (servicio) => normalize(servicio.estado_aprobacion) === 'APROBADO'
+
+const isRated = (servicio, ratedById = {}) => Boolean(ratedById[servicio?.id]) || Boolean(servicio?.calificacion_servicio_existe)
+
+const canRateProvider = (servicio, ratedById = {}) => {
+  const providerId = Number(servicio?.proveedor_id || 0)
+  return Boolean(providerId) && isRealizado(servicio) && !isRated(servicio, ratedById)
+}
 
 const parseDate = (value) => {
   const parsed = new Date(value || '')
   return Number.isFinite(parsed.getTime()) ? parsed : null
 }
 
-export default function HistorialServiciosView({ servicios = [] }) {
+export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null }) {
   const [areaFilter, setAreaFilter] = useState('TODAS')
   const [prioridadFilter, setPrioridadFilter] = useState('TODAS')
   const [fromDate, setFromDate] = useState('')
   const [toDateFilter, setToDateFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [ratingService, setRatingService] = useState(null)
+  const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const [ratingNotice, setRatingNotice] = useState('')
+  const [ratedByServiceId, setRatedByServiceId] = useState({})
+  const [ratingSnapshotByServiceId, setRatingSnapshotByServiceId] = useState({})
+  const canCurrentUserRate = useMemo(() => [5, 7, 8, 9].includes(Number(currentUserRoleId || 0)), [currentUserRoleId])
 
   const serviciosRealizados = useMemo(() => {
     return (servicios || [])
@@ -75,6 +91,75 @@ export default function HistorialServiciosView({ servicios = [] }) {
       return true
     })
   }, [serviciosRealizados, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
+
+  const openRatingModal = (servicio) => {
+    if (!canCurrentUserRate || !canRateProvider(servicio, ratedByServiceId)) return
+    setRatingService(servicio)
+    setRatingError('')
+    setRatingForm({ puntuacion: 5, comentario: '' })
+  }
+
+  const closeRatingModal = () => {
+    if (ratingSaving) return
+    setRatingService(null)
+    setRatingError('')
+    setRatingForm({ puntuacion: 5, comentario: '' })
+  }
+
+  const submitRating = async (event) => {
+    event.preventDefault()
+    if (!ratingService) return
+
+    if (!canCurrentUserRate) {
+      setRatingError('No autorizado')
+      return
+    }
+
+    const providerId = Number(ratingService.proveedor_id || 0)
+    const puntuacion = Number(ratingForm.puntuacion || 0)
+
+    if (!Number.isInteger(providerId) || providerId <= 0) {
+      setRatingError('No se pudo resolver el proveedor de este servicio')
+      return
+    }
+
+    if (!Number.isInteger(puntuacion) || puntuacion < 1 || puntuacion > 5) {
+      setRatingError('Selecciona una puntuacion entre 1 y 5')
+      return
+    }
+
+    try {
+      setRatingSaving(true)
+      setRatingError('')
+      await guardarCalificacionProveedor(providerId, {
+        tipo: 'servicio',
+        id_referencia: Number(ratingService.id || 0),
+        puntuacion,
+        comentario: String(ratingForm.comentario || '').trim(),
+      })
+      setRatedByServiceId((prev) => ({ ...prev, [ratingService.id]: true }))
+      setRatingSnapshotByServiceId((prev) => ({
+        ...prev,
+        [ratingService.id]: {
+          puntuacion,
+          comentario: String(ratingForm.comentario || '').trim(),
+        },
+      }))
+      setRatingNotice('Proveedor ya calificado')
+      closeRatingModal()
+    } catch (error) {
+      const message = String(error?.message || 'Error al guardar la calificacion')
+      if (message.toLowerCase().includes('ya calificaste')) {
+        setRatedByServiceId((prev) => ({ ...prev, [ratingService.id]: true }))
+        setRatingNotice('Proveedor ya calificado')
+        closeRatingModal()
+      } else {
+        setRatingError(message)
+      }
+    } finally {
+      setRatingSaving(false)
+    }
+  }
 
   return (
     <section className="hs-section">
@@ -139,12 +224,103 @@ export default function HistorialServiciosView({ servicios = [] }) {
               <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
               <p><strong>Prioridad:</strong> {servicio.prioridad || 'SIN PRIORIDAD'}</p>
               <p><strong>Proveedor:</strong> {servicio.proveedor || 'Sin proveedor'}</p>
+              {(() => {
+                const snapshot = ratingSnapshotByServiceId[servicio.id] || null
+                const score = Number(snapshot?.puntuacion ?? servicio.calificacion_servicio_puntuacion ?? 0)
+                const comment = String(snapshot?.comentario ?? servicio.calificacion_servicio_comentario ?? '').trim()
+                const hasRating = score > 0 || isRated(servicio, ratedByServiceId)
+
+                if (!hasRating) {
+                  return <p><strong>Calificación proveedor:</strong> Sin calificación</p>
+                }
+
+                return (
+                  <>
+                    <p><strong>Calificación proveedor:</strong> ⭐ {score.toFixed(0)} / 5</p>
+                    {comment ? <p><strong>Comentario:</strong> {comment}</p> : null}
+                  </>
+                )
+              })()}
               <p><strong>Fecha:</strong> {parseDate(servicio.fecha)?.toLocaleDateString() || 'Sin fecha'}</p>
               <p><strong>Total:</strong> {Number(servicio.total || servicio.costo || 0).toFixed(2)} {servicio.moneda || ''}</p>
+
+              {canCurrentUserRate && isRealizado(servicio) && (
+                <div className="hs-rating-box">
+                  {isRated(servicio, ratedByServiceId) ? (
+                    <span className="hs-rated-text">Proveedor ya calificado</span>
+                  ) : (
+                    canRateProvider(servicio, ratedByServiceId) && (
+                      <button
+                        type="button"
+                        className="hs-rating-button"
+                        onClick={() => openRatingModal(servicio)}
+                      >
+                        Calificar proveedor
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
             </article>
           ))}
         </div>
       )}
+
+      {ratingService && (
+        <div className="hs-modal-backdrop" onClick={closeRatingModal}>
+          <div className="hs-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="hs-modal-head">
+              <h2>Calificar proveedor</h2>
+              <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
+            </div>
+
+            <p className="hs-modal-description">
+              Servicio #{ratingService.id} para {ratingService.proveedor || 'proveedor'}.
+            </p>
+
+            {ratingError ? <p className="hs-modal-error">{ratingError}</p> : null}
+
+            <form className="hs-modal-form" onSubmit={submitRating}>
+              <label>
+                Puntuacion
+                <select
+                  value={ratingForm.puntuacion}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label>
+                Comentario
+                <textarea
+                  rows={4}
+                  value={ratingForm.comentario}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Comentario opcional"
+                  disabled={ratingSaving}
+                />
+              </label>
+
+              <div className="hs-modal-actions">
+                <button type="button" className="hs-modal-secondary" onClick={closeRatingModal} disabled={ratingSaving}>
+                  Cancelar
+                </button>
+                <button type="submit" className="hs-modal-primary" disabled={ratingSaving}>
+                  {ratingSaving ? 'Guardando...' : 'Guardar calificacion'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {ratingNotice ? <p className="hs-notice">{ratingNotice}</p> : null}
     </section>
   )
 }

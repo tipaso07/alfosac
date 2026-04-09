@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import '../styles/GestionarComprasView.css'
+import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
 const getStageStatus = (compra) => {
@@ -8,8 +9,9 @@ const getStageStatus = (compra) => {
   return normalize(compra?.estado)
 }
 
-export default function GestionarComprasView({ compras = [], onChangeEstado }) {
+export default function GestionarComprasView({ compras = [], currentUserRoleId = null, onChangeEstado }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
+  const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9
 
   const pending = useMemo(() => compras
     .filter((compra) => getStageStatus(compra) === 'PENDIENTE')
@@ -56,6 +58,14 @@ export default function GestionarComprasView({ compras = [], onChangeEstado }) {
       ) : (
         <div className="purchase-manage-list">
           {view.data.map((compra) => (
+            (() => {
+              const ratingState = evaluateProviderRatingState({
+                promedio: compra.calificacion_promedio,
+                total: compra.calificacion_total,
+                alertaCritica: compra.alerta_critica,
+              })
+
+              return (
             <article className="purchase-manage-card" key={compra.id}>
               <div className="purchase-manage-head">
                 <h3>Compra #{compra.id}</h3>
@@ -67,6 +77,16 @@ export default function GestionarComprasView({ compras = [], onChangeEstado }) {
               <p><strong>Usuario:</strong> {compra.usuario || `ID ${compra.id_usuario}`}</p>
               <p><strong>Area solicitante:</strong> {compra.area_solicitante || 'Sin area'}</p>
               <p><strong>Fecha:</strong> {compra.fecha_creacion ? new Date(compra.fecha_creacion).toLocaleString() : 'Sin fecha'}</p>
+              <div className="purchase-rating-state">
+                <p><strong>Estado proveedor:</strong> {ratingState.averageLabel}</p>
+                <span className={`purchase-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span>
+              </div>
+              {ratingState.showLowAlert && (
+                <p className="purchase-alert-warning">Se recomienda evaluar cambio de proveedor</p>
+              )}
+              {canSeeCriticalAlert && ratingState.showCriticalAlert && (
+                <p className="purchase-alert-critical">Proveedor con calificacion critica, se recomienda contactar</p>
+              )}
 
               <div>
                 <strong>Materiales solicitados:</strong>
@@ -92,6 +112,8 @@ export default function GestionarComprasView({ compras = [], onChangeEstado }) {
                 </div>
               )}
             </article>
+              )
+            })()
           ))}
         </div>
       )}

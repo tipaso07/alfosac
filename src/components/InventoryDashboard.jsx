@@ -13,6 +13,7 @@ import GestionarProveedoresView from './GestionarProveedoresView'
 import DeliveryManager from './DeliveryManager'
 import MisOrdenesCompraView from './MisOrdenesCompraView'
 import MisOrdenesServiciosView from './MisOrdenesServiciosView'
+import MisRequerimientosView from './MisRequerimientosView'
 import MovimientosView from './MovimientosView'
 import AjustesView from './AjustesView'
 import AdminDashboardView from './AdminDashboardView'
@@ -42,6 +43,7 @@ import {
   descargarOrdenCompraPdf,
   confirmarRecepcionCompra,
   confirmarEntregaAreaCompra,
+  marcarRecibidoEnAlmacen,
   updateRequerimientoEntrega,
   fetchCurrentUser,
   fetchCategorias,
@@ -52,6 +54,9 @@ import {
   uploadMaterialImage,
   updateCurrentUserPhoto,
   fetchAdminDashboard,
+  agregarComentarioRequerimiento,
+  agregarComentarioCompra,
+  agregarComentarioServicio,
 } from '../services/api'
 
 const TAB_ROUTES = {
@@ -83,7 +88,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [searchTerm, setSearchTerm] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('Todos')
   const [requerimientos, setRequerimientos] = useState([])
-  const [_misRequerimientos, setMisRequerimientos] = useState([])
+  const [misRequerimientos, setMisRequerimientos] = useState([])
   const [compras, setCompras] = useState([])
   const [misCompras, setMisCompras] = useState([])
   const [movimientos, setMovimientos] = useState([])
@@ -104,6 +109,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [activeOrdersView, setActiveOrdersView] = useState('compras')
   const [adminDashboardData, setAdminDashboardData] = useState(null)
   const [adminDashboardLoading, setAdminDashboardLoading] = useState(false)
+  const [adminDashboardDateRange, setAdminDashboardDateRange] = useState({ fecha_inicio: '', fecha_fin: '' })
 
   const isUnauthorizedError = useCallback((err) => Number(err?.status || 0) === 401, [])
   const isForbiddenError = useCallback((err) => Number(err?.status || 0) === 403, [])
@@ -185,7 +191,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           pendientes: 0,
           completados: 0,
         }),
-        roleId === 8 ? loadOptionalData(fetchAdminDashboard, null) : Promise.resolve(null),
+        roleId === 8
+          ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRange), null)
+          : Promise.resolve(null),
         loadOptionalData(fetchRequerimientos, []),
         loadOptionalData(fetchMisRequerimientos, []),
         loadOptionalData(fetchCompras, []),
@@ -229,10 +237,18 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }, [isUnauthorizedError, loadOptionalData, onAuthExpired])
 
-  const handleRefreshAdminDashboard = async () => {
+  const handleRefreshAdminDashboard = async ({ fecha_inicio = null, fecha_fin = null, auto = true } = {}) => {
+    const nextRange = {
+      fecha_inicio: fecha_inicio == null ? adminDashboardDateRange.fecha_inicio : String(fecha_inicio || ''),
+      fecha_fin: fecha_fin == null ? adminDashboardDateRange.fecha_fin : String(fecha_fin || ''),
+    }
+    setAdminDashboardDateRange(nextRange)
+
+    if (!auto) return
+
     try {
       setAdminDashboardLoading(true)
-      const data = await fetchAdminDashboard()
+      const data = await fetchAdminDashboard(nextRange)
       setAdminDashboardData(data)
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -385,6 +401,66 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       }
       console.error('Error generando orden de compra:', err)
       setError(err.message || 'Error al generar orden de compra')
+      throw err
+    }
+  }
+
+  const handleMarcarRecibidoAlmacen = async (id) => {
+    try {
+      await marcarRecibidoEnAlmacen(id)
+      await loadData()
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        if (onAuthExpired) onAuthExpired()
+        return
+      }
+      console.error('Error marcando compra como recibida en almacen:', err)
+      setError(err.message || 'Error al marcar compra como recibida en almacen')
+      throw err
+    }
+  }
+
+  const handleAgregarComentarioCompra = async (id, contenido) => {
+    try {
+      await agregarComentarioCompra(id, contenido)
+      await loadData()
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        if (onAuthExpired) onAuthExpired()
+        return
+      }
+      console.error('Error agregando comentario en compra:', err)
+      setError(err.message || 'Error al agregar comentario en compra')
+      throw err
+    }
+  }
+
+  const handleAgregarComentarioRequerimiento = async (id, contenido) => {
+    try {
+      await agregarComentarioRequerimiento(id, contenido)
+      await loadData()
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        if (onAuthExpired) onAuthExpired()
+        return
+      }
+      console.error('Error agregando comentario en requerimiento:', err)
+      setError(err.message || 'Error al agregar comentario en requerimiento')
+      throw err
+    }
+  }
+
+  const handleAgregarComentarioServicio = async (id, contenido) => {
+    try {
+      await agregarComentarioServicio(id, contenido)
+      await loadData()
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        if (onAuthExpired) onAuthExpired()
+        return
+      }
+      console.error('Error agregando comentario en servicio:', err)
+      setError(err.message || 'Error al agregar comentario en servicio')
       throw err
     }
   }
@@ -637,7 +713,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         <main className="main-content">
           {activeTab === 'admin-dashboard' && allowedTabs.includes('admin-dashboard') && (
             <AdminDashboardView
-              data={adminDashboardData}
+              data={{ ...(adminDashboardData || {}), filtro_fechas: adminDashboardDateRange }}
               loading={adminDashboardLoading}
               onRefresh={handleRefreshAdminDashboard}
             />
@@ -677,7 +753,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
             />
           )}
           {activeTab === 'manage-providers' && allowedTabs.includes('manage-providers') && (
-            <GestionarProveedoresView canEdit={currentUserRoleId === 8 || currentUserRoleId === 9} onCreated={loadData} />
+            <GestionarProveedoresView
+              canEdit={currentUserRoleId === 8 || currentUserRoleId === 9}
+              currentUserRoleId={currentUserRoleId}
+              onCreated={loadData}
+            />
           )}
           {activeTab === 'request-service' && allowedTabs.includes('request-service') && (
             <SolicitarServicioForm
@@ -700,6 +780,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               {activeRequestsView === 'compras' && (
                 <GestionarComprasView
                   compras={compras}
+                  currentUserRoleId={currentUserRoleId}
                   onChangeEstado={handleCompraStatus}
                 />
               )}
@@ -720,14 +801,21 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <button type="button" className={activeOrdersView === 'servicios' ? 'active' : ''} onClick={() => setActiveOrdersView('servicios')}>
                   Mis ordenes de servicios
                 </button>
+                <button type="button" className={activeOrdersView === 'requerimientos' ? 'active' : ''} onClick={() => setActiveOrdersView('requerimientos')}>
+                  Mis requerimientos
+                </button>
               </div>
 
               {activeOrdersView === 'compras' && (
                 <MisOrdenesCompraView
                   compras={misCompras}
+                  currentUserRoleId={currentUserRoleId}
                   onCompletarDatos={handleCompletarCompra}
                   onGenerarOrden={handleGenerarOrdenCompra}
                   onDescargarPdf={handleDescargarOrdenCompraPdf}
+                  onMarcarRecibidoAlmacen={handleMarcarRecibidoAlmacen}
+                  onMarcarEntregado={handleConfirmarEntregaAreaCompra}
+                  onAgregarComentario={handleAgregarComentarioCompra}
                 />
               )}
 
@@ -736,10 +824,19 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                   servicios={misServicios}
                   proveedores={proveedores}
                   monedas={monedas}
+                  currentUserRoleId={currentUserRoleId}
                   onCompletarDatos={handleCompletarServicio}
                   onGenerarOrden={handleGenerarOrdenServicio}
                   onDescargarPdf={handleDescargarOrdenServicioPdf}
                   onMarcarRealizado={handleServicioRealizado}
+                  onAgregarComentario={handleAgregarComentarioServicio}
+                />
+              )}
+
+              {activeOrdersView === 'requerimientos' && (
+                <MisRequerimientosView
+                  requerimientos={misRequerimientos}
+                  onAgregarComentario={handleAgregarComentarioRequerimiento}
                 />
               )}
             </div>
@@ -755,7 +852,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
             />
           )}
           {activeTab === 'services-history' && allowedTabs.includes('services-history') && (
-            <HistorialServiciosView servicios={servicios} />
+            <HistorialServiciosView servicios={servicios} currentUserRoleId={currentUserRoleId} />
           )}
           {activeTab === 'movements' && allowedTabs.includes('movements') && (
             <MovimientosView movimientos={movimientos} />

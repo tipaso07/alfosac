@@ -1,11 +1,11 @@
 export const getModulesByRole = (rolId) => {
   switch (rolId) {
     case 4:
-      return [1, 2, 3, 4, 11]
+      return [1, 2, 3, 4, 11, 13]
     case 5:
     case 6:
     case 7:
-      return [1, 2, 3, 4, 5, 11]
+      return [1, 2, 3, 4, 5, 11, 13]
     case 8:
       return [12, 1, 2, 3, 4, 5, 6, 7, 13, 8, 10, 11]
     case 9:

@@ -1,7 +1,15 @@
 import { useMemo, useState } from 'react'
 import '../styles/MisOrdenesServiciosView.css'
+import { fetchMiCalificacionProveedor, guardarCalificacionProveedor } from '../services/api'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
+const sortCommentsByDateAsc = (comments = []) => {
+  return [...(comments || [])].sort((a, b) => {
+    const left = new Date(a?.fecha || 0).getTime()
+    const right = new Date(b?.fecha || 0).getTime()
+    return left - right
+  })
+}
 const toNumber = (value) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -49,10 +57,12 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
 export default function MisOrdenesServiciosView({
   servicios = [],
   proveedores = [],
+  currentUserRoleId,
   onCompletarDatos,
   onGenerarOrden,
   onDescargarPdf,
   onMarcarRealizado,
+  onAgregarComentario,
 }) {
   const [activeSection, setActiveSection] = useState('completar')
   const [expandedId, setExpandedId] = useState(null)
@@ -63,6 +73,49 @@ export default function MisOrdenesServiciosView({
   const [realizadosPrioridadFilter, setRealizadosPrioridadFilter] = useState('TODAS')
   const [realizadosFromDate, setRealizadosFromDate] = useState('')
   const [realizadosToDate, setRealizadosToDate] = useState('')
+  const [commentDraftByService, setCommentDraftByService] = useState({})
+  const [commentStatusByService, setCommentStatusByService] = useState({})
+  const [ratingService, setRatingService] = useState(null)
+  const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const [ratingNotice, setRatingNotice] = useState('')
+  const currentUserId = useMemo(() => Number(localStorage.getItem('userId') || 0), [])
+  const canRateProviders = Number(currentUserRoleId || 0) === 6
+
+  const getCommentPhotoSrc = (comment) => {
+    const raw = String(comment?.foto || '').trim()
+    if (!raw) return ''
+    if (raw.startsWith('data:image/')) return raw
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+    return `data:image/png;base64,${raw}`
+  }
+
+  const isOwnComment = (comment) => {
+    const authorId = Number(comment?.usuario_id || 0)
+    return authorId > 0 && authorId === currentUserId
+  }
+
+  const getVisibleComments = (servicio) => {
+    const rows = Array.isArray(servicio?.comentarios_historial) ? servicio.comentarios_historial : []
+    const filtered = rows.filter((item) => {
+      const entityId = Number(item?.id_entidad || 0)
+      return !entityId || entityId === Number(servicio?.id || 0)
+    })
+
+    const seen = new Set()
+    const deduped = filtered.filter((item) => {
+      const idKey = Number(item?.id || 0)
+      const fingerprint = idKey > 0
+        ? `id:${idKey}`
+        : `fp:${Number(item?.usuario_id || 0)}|${String(item?.fecha || '')}|${String(item?.contenido || '').trim()}`
+      if (seen.has(fingerprint)) return false
+      seen.add(fingerprint)
+      return true
+    })
+
+    return sortCommentsByDateAsc(deduped)
+  }
 
   const serviceProviders = useMemo(() => {
     return [...(proveedores || [])].sort((a, b) => {
@@ -246,6 +299,101 @@ export default function MisOrdenesServiciosView({
     }
   }
 
+  const handleAgregarComentario = async (servicio) => {
+    const contenido = String(commentDraftByService[servicio.id] || '').trim()
+    if (!contenido) {
+      setCommentStatusByService((prev) => ({ ...prev, [servicio.id]: { type: 'error', message: 'Escribe un comentario antes de enviarlo' } }))
+      return
+    }
+
+    try {
+      setCommentStatusByService((prev) => ({ ...prev, [servicio.id]: { type: 'info', message: 'Enviando comentario...' } }))
+      if (onAgregarComentario) {
+        await onAgregarComentario(servicio.id, contenido)
+      }
+      setCommentDraftByService((prev) => ({ ...prev, [servicio.id]: '' }))
+      setCommentStatusByService((prev) => ({ ...prev, [servicio.id]: { type: 'success', message: 'Comentario enviado' } }))
+    } catch (err) {
+      setCommentStatusByService((prev) => ({
+        ...prev,
+        [servicio.id]: { type: 'error', message: err?.message || 'Error al agregar comentario del servicio' },
+      }))
+    }
+  }
+
+  const closeRatingModal = () => {
+    if (ratingSaving) return
+    setRatingService(null)
+    setRatingError('')
+    setRatingForm({ puntuacion: 5, comentario: '' })
+  }
+
+  const openRatingAfterFinalize = (servicio) => {
+    if (!canRateProviders) return
+    setRatingNotice('')
+    const providerId = Number(servicio.proveedor_id || 0)
+    if (!providerId) return
+    return fetchMiCalificacionProveedor(providerId, {
+      tipo: 'servicio',
+      id_referencia: Number(servicio.id || 0),
+    })
+      .then((existing) => {
+        if (existing?.ya_calificado) {
+          setRatingNotice('Ya calificaste este proveedor')
+          return
+        }
+        setRatingService(servicio)
+        setRatingError('')
+        setRatingForm({ puntuacion: 5, comentario: '' })
+      })
+      .catch((err) => {
+        setError(err?.message || 'Error al verificar calificacion del proveedor')
+      })
+  }
+
+  const submitServiceRating = async (event) => {
+    event.preventDefault()
+    if (!ratingService) return
+    if (!canRateProviders) {
+      setRatingError('Solo el gerente de area puede calificar proveedores')
+      return
+    }
+
+    const providerId = Number(ratingService.proveedor_id || 0)
+    const score = Number(ratingForm.puntuacion || 0)
+    if (!providerId) {
+      setRatingError('No se pudo resolver el proveedor de este servicio')
+      return
+    }
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      setRatingError('Selecciona una puntuacion entre 1 y 5')
+      return
+    }
+
+    try {
+      setRatingSaving(true)
+      setRatingError('')
+      await guardarCalificacionProveedor(providerId, {
+        tipo: 'servicio',
+        id_referencia: Number(ratingService.id || 0),
+        puntuacion: score,
+        comentario: String(ratingForm.comentario || '').trim(),
+      })
+      setRatingNotice('Calificacion guardada correctamente')
+      closeRatingModal()
+    } catch (err) {
+      const message = err.message || 'Error al guardar la calificacion'
+      if (String(message).toLowerCase().includes('ya calificaste')) {
+        closeRatingModal()
+        setRatingNotice('Ya calificaste este proveedor')
+      } else {
+        setRatingError(message)
+      }
+    } finally {
+      setRatingSaving(false)
+    }
+  }
+
   const renderServicioCard = (servicio, mode = 'completar') => {
     const draft = getDraft(servicio)
     const providerOptions = getProviderOptions(servicio.id)
@@ -315,7 +463,10 @@ export default function MisOrdenesServiciosView({
             <button
               type="button"
               className="btn-receive"
-              onClick={() => onMarcarRealizado(servicio.id).catch((err) => setError(err?.message || 'Error al marcar realizado'))}
+              onClick={() =>
+                onMarcarRealizado(servicio.id)
+                  .catch((err) => setError(err?.message || 'Error al marcar realizado'))
+              }
             >
               Marcar como REALIZADO
             </button>
@@ -428,6 +579,59 @@ export default function MisOrdenesServiciosView({
             </div>
           </div>
         )}
+
+        <div className="my-so-comments-box">
+          <strong>Comentarios</strong>
+          {getVisibleComments(servicio).length === 0 ? (
+            <p className="my-so-summary-line">Sin comentarios registrados.</p>
+          ) : (
+            <ul className="my-so-comments-list">
+              {getVisibleComments(servicio).map((item, idx) => (
+                <li key={`${servicio.id}-comment-${idx}`} className={`my-so-chat-item ${isOwnComment(item) ? 'is-own' : 'is-other'}`}>
+                  <div className="my-so-chat-meta">
+                    <div className="my-so-chat-user">
+                      {getCommentPhotoSrc(item) ? (
+                        <img className="my-so-chat-avatar" src={getCommentPhotoSrc(item)} alt={item.usuario || 'Usuario'} />
+                      ) : (
+                        <span className="my-so-chat-avatar my-so-chat-avatar-placeholder">{String(item.usuario || 'U').trim().charAt(0).toUpperCase() || 'U'}</span>
+                      )}
+                      <strong>{item.usuario || 'Usuario'}</strong>
+                    </div>
+                    <span>{item.fecha ? new Date(item.fecha).toLocaleString() : 'Sin fecha'}</span>
+                  </div>
+                  <p className="my-so-chat-message">{item.contenido}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="my-so-comments-form">
+            <textarea
+              value={commentDraftByService[servicio.id] || ''}
+              onChange={(event) => {
+                const value = event.target.value
+                setCommentDraftByService((prev) => ({ ...prev, [servicio.id]: value }))
+                if (String(value || '').trim()) {
+                  setCommentStatusByService((prev) => ({ ...prev, [servicio.id]: null }))
+                }
+              }}
+              placeholder="Escribe un comentario"
+            />
+            <button
+              type="button"
+              className="btn-generate"
+              onClick={() => handleAgregarComentario(servicio)}
+              disabled={!String(commentDraftByService[servicio.id] || '').trim()}
+            >
+              Enviar
+            </button>
+            {commentStatusByService[servicio.id]?.message ? (
+              <p className={`my-so-comment-feedback ${commentStatusByService[servicio.id]?.type || 'info'}`}>
+                {commentStatusByService[servicio.id].message}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </article>
     )
   }
@@ -484,6 +688,7 @@ export default function MisOrdenesServiciosView({
       )}
 
       {error && <p className="my-so-error">{error}</p>}
+      {ratingNotice ? <p className="my-so-comment-feedback success">{ratingNotice}</p> : null}
 
       {serviciosAprobados.length === 0 ? (
         <div className="empty-state">No tienes servicios aprobados para gestionar.</div>
@@ -494,6 +699,70 @@ export default function MisOrdenesServiciosView({
             : activeSection === 'pendientes'
               ? serviciosPendientes.map((servicio) => renderServicioCard(servicio, 'pendientes'))
               : serviciosRealizadosFiltrados.map((servicio) => renderServicioCard(servicio, 'realizados'))}
+        </div>
+      )}
+
+      {ratingService && (
+        <div className="provider-modal-backdrop" onClick={closeRatingModal}>
+          <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="provider-modal-head">
+              <h2>Calificar proveedor</h2>
+              <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
+            </div>
+            <div className="provider-rating-header">
+              <h3>{ratingService.proveedor_nombre || ratingService.proveedor || 'Proveedor'}</h3>
+              <p>Completa una calificación breve después de finalizar el servicio.</p>
+            </div>
+
+            {ratingError ? <p className="providers-error">{ratingError}</p> : null}
+
+            <form className="provider-rating-form" onSubmit={submitServiceRating}>
+              <div className="provider-rating-stars-picker" aria-label="Selecciona puntuacion">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rating-star-btn ${Number(ratingForm.puntuacion || 0) >= score ? 'active' : ''}`}
+                    onClick={() => setRatingForm((prev) => ({ ...prev, puntuacion: score }))}
+                    disabled={ratingSaving}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+
+              <label>
+                Puntuacion
+                <select
+                  value={ratingForm.puntuacion}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label>
+                Comentario
+                <textarea
+                  value={ratingForm.comentario}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Comentario opcional"
+                  rows={4}
+                  disabled={ratingSaving}
+                />
+              </label>
+
+              <div className="provider-modal-actions">
+                <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Omitir</button>
+                <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </section>

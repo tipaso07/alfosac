@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import '../styles/MisOrdenesCompraView.css'
-import { fetchProveedores } from '../services/api'
+import {
+  fetchMiCalificacionProveedor,
+  fetchProveedores,
+  fetchReceptoresByCompra,
+  guardarCalificacionProveedor,
+  marcarRecibidoEnAlmacen,
+} from '../services/api'
+import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const emptyForm = {
   id_proveedor: '',
@@ -76,26 +83,95 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
 
 export default function MisOrdenesCompraView({
   compras,
+  currentUserRoleId,
   onCompletarDatos,
   onGenerarOrden,
   onDescargarPdf,
+  onMarcarRecibidoAlmacen,
+  onMarcarEntregado,
+  onAgregarComentario,
 }) {
-  const [activeFilter, setActiveFilter] = useState('APROBADAS')
+  const [activeFilter, setActiveFilter] = useState('POR_RECIBIR')
   const [error, setError] = useState('')
   const [loadingByCompra, setLoadingByCompra] = useState({})
   const [formsByCompra, setFormsByCompra] = useState({})
   const [expandedByCompra, setExpandedByCompra] = useState({})
   const [supplierOptionsByCompra, setSupplierOptionsByCompra] = useState({})
   const [supplierLoadingByCompra, setSupplierLoadingByCompra] = useState({})
+  const [receptorQueryByCompra, setReceptorQueryByCompra] = useState({})
+  const [receptorOptionsByCompra, setReceptorOptionsByCompra] = useState({})
+  const [receptorLoadingByCompra, setReceptorLoadingByCompra] = useState({})
+  const [receptorSelectedByCompra, setReceptorSelectedByCompra] = useState({})
+  const [entregaFlowOpenByCompra, setEntregaFlowOpenByCompra] = useState({})
+  const [commentDraftByCompra, setCommentDraftByCompra] = useState({})
+  const [commentStatusByCompra, setCommentStatusByCompra] = useState({})
+  const [ratingCompra, setRatingCompra] = useState(null)
+  const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const [ratingNotice, setRatingNotice] = useState('')
+  const currentUserId = useMemo(() => Number(localStorage.getItem('userId') || 0), [])
+  const canRateProviders = Number(currentUserRoleId || 0) === 6
+  const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9
 
   const normalize = (value) => String(value || '').trim().toUpperCase()
+  const sortCommentsByDateAsc = (comments = []) => {
+    return [...(comments || [])].sort((a, b) => {
+      const left = new Date(a?.fecha || 0).getTime()
+      const right = new Date(b?.fecha || 0).getTime()
+      return left - right
+    })
+  }
+
+  const getVisibleComments = (compra) => {
+    const rows = Array.isArray(compra?.comentarios_historial) ? compra.comentarios_historial : []
+    const filtered = rows.filter((item) => {
+      const entityId = Number(item?.id_entidad || 0)
+      return !entityId || entityId === Number(compra?.id || 0)
+    })
+
+    const seen = new Set()
+    const deduped = filtered.filter((item) => {
+      const idKey = Number(item?.id || 0)
+      const fingerprint = idKey > 0
+        ? `id:${idKey}`
+        : `fp:${Number(item?.usuario_id || 0)}|${String(item?.fecha || '')}|${String(item?.contenido || '').trim()}`
+      if (seen.has(fingerprint)) return false
+      seen.add(fingerprint)
+      return true
+    })
+
+    return sortCommentsByDateAsc(deduped)
+  }
+
+  const getReceptorPhotoSrc = (receptor) => {
+    const raw = String(receptor?.foto || receptor?.imagen || '').trim()
+    if (!raw) return ''
+    if (raw.startsWith('data:image/')) return raw
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+    return `data:image/png;base64,${raw}`
+  }
+
+  const getCommentPhotoSrc = (comment) => {
+    const raw = String(comment?.foto || '').trim()
+    if (!raw) return ''
+    if (raw.startsWith('data:image/')) return raw
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+    return `data:image/png;base64,${raw}`
+  }
+
+  const isOwnComment = (comment) => {
+    const authorId = Number(comment?.usuario_id || 0)
+    return authorId > 0 && authorId === currentUserId
+  }
 
   const filtered = useMemo(() => {
     return (compras || []).filter((compra) => {
       const estado = normalize(compra.estado)
       if (activeFilter === 'APROBADAS') return estado === 'APROBADA'
-      if (activeFilter === 'POR_RECIBIR') return ['POR_RECIBIR'].includes(estado)
-      if (activeFilter === 'RECIBIDAS') return ['RECIBIDA', 'RECIBIDO'].includes(estado)
+      if (activeFilter === 'POR_RECIBIR') return estado === 'POR_RECIBIR'
+      if (activeFilter === 'RECIBIDO_EN_ALMACEN') return estado === 'RECIBIDO_EN_ALMACEN'
+      if (activeFilter === 'ENTREGADO') return estado === 'ENTREGADO'
       return true
     })
   }, [activeFilter, compras])
@@ -107,8 +183,10 @@ export default function MisOrdenesCompraView({
 
     const estado = compra?.estado
     const normalized = normalize(estado)
-    if (normalized === 'POR_RECIBIR') return 'PENDIENTE DE ENTREGA'
+    if (normalized === 'POR_RECIBIR') return 'POR RECIBIR'
+    if (normalized === 'RECIBIDO_EN_ALMACEN') return 'RECIBIDO EN ALMACEN'
     if (normalized === 'RECIBIDA' || normalized === 'RECIBIDO') return 'RECIBIDA'
+    if (normalized === 'ENTREGADO') return 'ENTREGADO'
     if (normalized === 'APROBADA') return 'APROBADA'
     return estado || 'N/D'
   }
@@ -152,6 +230,10 @@ export default function MisOrdenesCompraView({
       comentarios: compra.comentarios || '',
       recibido_por: compra.recibido_por || '',
       id_area_final: compra.id_area_final || compra.id_area_solicitante || '',
+      calificacion_promedio: Number(compra.calificacion_promedio || 0) || 0,
+      calificacion_total: Number(compra.calificacion_total || 0) || 0,
+      alerta_cambio_proveedor: Boolean(compra.alerta_cambio_proveedor),
+      alerta_critica: Boolean(compra.alerta_critica),
     }
   }
 
@@ -220,6 +302,10 @@ export default function MisOrdenesCompraView({
         ['RETENCION', 'DETRACCION'].includes(normalize(proveedor.tipo_retencion || ''))
           ? normalize(proveedor.tipo_retencion)
           : 'RETENCION',
+      calificacion_promedio: Number(proveedor.calificacion_promedio || 0) || 0,
+      calificacion_total: Number(proveedor.calificacion_total || 0) || 0,
+      alerta_cambio_proveedor: Boolean(proveedor.alerta_cambio_proveedor),
+      alerta_critica: Boolean(proveedor.alerta_critica),
     })
 
     setSupplierOptionsByCompra((prev) => ({ ...prev, [compraId]: [] }))
@@ -349,6 +435,197 @@ export default function MisOrdenesCompraView({
     setExpandedByCompra((prev) => ({ ...prev, [compraId]: !prev[compraId] }))
   }
 
+  const handleMarcarRecibidoAlmacen = async (compra) => {
+    setError('')
+    setRatingNotice('')
+    try {
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: true }))
+      if (onMarcarRecibidoAlmacen) {
+        await onMarcarRecibidoAlmacen(compra.id)
+      } else {
+        await marcarRecibidoEnAlmacen(compra.id)
+      }
+      const proveedorId = Number(compra.id_proveedor || 0)
+      if (proveedorId && canRateProviders) {
+        const existing = await fetchMiCalificacionProveedor(proveedorId, {
+          tipo: 'compra',
+          id_referencia: Number(compra.id || 0),
+        })
+        if (existing?.ya_calificado) {
+          setRatingNotice('Ya calificaste este proveedor')
+          return
+        }
+        setRatingCompra(compra)
+        setRatingForm({ puntuacion: 5, comentario: '' })
+        setRatingError('')
+      }
+    } catch (err) {
+      setError(err.message || 'Error al marcar compra como recibida en almacen')
+    } finally {
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: false }))
+    }
+  }
+
+  const canMarcarRecibidoAlmacen = (compra) => {
+    const estado = normalize(compra.estado)
+    return estado === 'POR_RECIBIR'
+  }
+
+  const canMarcarEntregado = (compra) => {
+    const estado = normalize(compra.estado)
+    if (estado !== 'RECIBIDO_EN_ALMACEN') return false
+
+    const idAreaFinal = Number(compra.id_area_final || 0)
+    const idAreaSolicitante = Number(compra.id_area_solicitante || 0)
+    const isGeneralDestination = idAreaFinal === 0 || idAreaFinal === idAreaSolicitante
+
+    return !isGeneralDestination
+  }
+
+  const searchReceptoresCompra = async (compraId, rawQuery) => {
+    const query = String(rawQuery || '')
+    setReceptorQueryByCompra((prev) => ({ ...prev, [compraId]: query }))
+
+    const selected = receptorSelectedByCompra[compraId]
+    const selectedLabel = selected ? `${selected.nombre || ''} - DNI ${selected.dni || ''}`.trim() : ''
+    if (!selected || normalize(selectedLabel) !== normalize(query)) {
+      setReceptorSelectedByCompra((prev) => ({ ...prev, [compraId]: null }))
+    }
+
+    if (!query.trim()) {
+      setReceptorOptionsByCompra((prev) => ({ ...prev, [compraId]: [] }))
+      return
+    }
+
+    try {
+      setReceptorLoadingByCompra((prev) => ({ ...prev, [compraId]: true }))
+      const options = await fetchReceptoresByCompra(compraId, query.trim())
+      setReceptorOptionsByCompra((prev) => ({ ...prev, [compraId]: Array.isArray(options) ? options : [] }))
+    } catch (err) {
+      setError(err.message || 'Error al buscar receptor por DNI')
+      setReceptorOptionsByCompra((prev) => ({ ...prev, [compraId]: [] }))
+    } finally {
+      setReceptorLoadingByCompra((prev) => ({ ...prev, [compraId]: false }))
+    }
+  }
+
+  const selectReceptorCompra = (compraId, receptor) => {
+    const label = String(receptor.nombre || '').trim()
+    setReceptorSelectedByCompra((prev) => ({ ...prev, [compraId]: receptor }))
+    setReceptorQueryByCompra((prev) => ({ ...prev, [compraId]: label }))
+    setReceptorOptionsByCompra((prev) => ({ ...prev, [compraId]: [] }))
+  }
+
+  const openEntregaFlow = (compraId) => {
+    setEntregaFlowOpenByCompra((prev) => ({ ...prev, [compraId]: true }))
+  }
+
+  const closeEntregaFlow = (compraId) => {
+    setEntregaFlowOpenByCompra((prev) => ({ ...prev, [compraId]: false }))
+    setReceptorOptionsByCompra((prev) => ({ ...prev, [compraId]: [] }))
+  }
+
+  const handleMarcarEntregado = async (compra) => {
+    setError('')
+    const receptor = receptorSelectedByCompra[compra.id]
+    const receptorUserId = Number(receptor?.id || 0)
+    const receptorDni = String(receptor?.dni || '').trim()
+    if (!receptorUserId) {
+      setError('Debes seleccionar un receptor valido (DNI) para marcar como entregado')
+      return
+    }
+    if (!receptorDni) {
+      setError('Debes seleccionar un receptor con DNI valido para marcar como entregado')
+      return
+    }
+
+    try {
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: true }))
+      if (onMarcarEntregado) {
+        await onMarcarEntregado(compra.id, receptorUserId)
+      }
+    } catch (err) {
+      setError(err.message || 'Error al marcar compra como entregada')
+    } finally {
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: false }))
+    }
+  }
+
+  const handleAgregarComentario = async (compra) => {
+    const contenido = String(commentDraftByCompra[compra.id] || '').trim()
+    if (!contenido) {
+      setCommentStatusByCompra((prev) => ({ ...prev, [compra.id]: { type: 'error', message: 'Escribe un comentario antes de enviar' } }))
+      return
+    }
+
+    try {
+      setCommentStatusByCompra((prev) => ({ ...prev, [compra.id]: { type: 'info', message: 'Enviando comentario...' } }))
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: true }))
+      if (onAgregarComentario) {
+        await onAgregarComentario(compra.id, contenido)
+      }
+      setCommentDraftByCompra((prev) => ({ ...prev, [compra.id]: '' }))
+      setCommentStatusByCompra((prev) => ({ ...prev, [compra.id]: { type: 'success', message: 'Comentario enviado' } }))
+    } catch (err) {
+      setCommentStatusByCompra((prev) => ({
+        ...prev,
+        [compra.id]: { type: 'error', message: err.message || 'Error al agregar comentario' },
+      }))
+    } finally {
+      setLoadingByCompra((prev) => ({ ...prev, [compra.id]: false }))
+    }
+  }
+
+  const closeRatingModal = () => {
+    if (ratingSaving) return
+    setRatingCompra(null)
+    setRatingError('')
+    setRatingForm({ puntuacion: 5, comentario: '' })
+  }
+
+  const submitPurchaseRating = async (event) => {
+    event.preventDefault()
+    if (!ratingCompra) return
+    if (!canRateProviders) {
+      setRatingError('Solo el gerente de area puede calificar proveedores')
+      return
+    }
+
+    const proveedorId = Number(ratingCompra.id_proveedor || 0)
+    const score = Number(ratingForm.puntuacion || 0)
+    if (!proveedorId) {
+      setRatingError('No se pudo resolver el proveedor de esta compra')
+      return
+    }
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      setRatingError('Selecciona una puntuacion entre 1 y 5')
+      return
+    }
+
+    try {
+      setRatingSaving(true)
+      setRatingError('')
+      await guardarCalificacionProveedor(proveedorId, {
+        tipo: 'compra',
+        id_referencia: Number(ratingCompra.id || 0),
+        puntuacion: score,
+        comentario: String(ratingForm.comentario || '').trim(),
+      })
+      setRatingNotice('Calificacion guardada correctamente')
+      closeRatingModal()
+    } catch (err) {
+      const message = err.message || 'Error al guardar la calificacion'
+      if (String(message).toLowerCase().includes('ya calificaste')) {
+        closeRatingModal()
+        setRatingNotice('Ya calificaste este proveedor')
+      } else {
+        setRatingError(message)
+      }
+    } finally {
+      setRatingSaving(false)
+    }
+  }
+
   const renderReadOnlyField = (label, value) => (
     <label>
       {label}
@@ -357,23 +634,37 @@ export default function MisOrdenesCompraView({
   )
 
   const renderProviderSummary = (form) => (
-    <div className="provider-summary full-row">
-      <h4>Resumen del proveedor</h4>
-      <p><strong>Proveedor:</strong> {form.proveedor || 'N/D'}</p>
-      <p><strong>RUC:</strong> {form.ruc || 'N/D'}</p>
-      <p><strong>Direccion:</strong> {form.direccion || 'N/D'}</p>
-      <p><strong>Distrito:</strong> {form.distrito || 'N/D'}</p>
-      <p><strong>Correo:</strong> {form.correo || 'N/D'}</p>
-      <p><strong>Responsable:</strong> {form.persona_responsable || 'N/D'}</p>
-      <p><strong>Telefono:</strong> {form.telefono || 'N/D'}</p>
-      <p><strong>Banco:</strong> {form.banco || 'N/D'}</p>
-      <p><strong>Cuenta:</strong> {form.numero_cuenta || 'N/D'}</p>
-      <p><strong>CCI:</strong> {form.cci || 'N/D'}</p>
-      <p><strong>Moneda:</strong> {form.moneda || 'N/D'}</p>
-      <p><strong>Retencion:</strong> {normalize(form.retencion) === 'SI' ? 'SI' : 'NO'}</p>
-      <p><strong>Porcentaje:</strong> {Number(form.descuento || 0).toFixed(2)}%</p>
-      <p><strong>Tipo:</strong> {normalize(form.retencion) === 'SI' ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
-    </div>
+    (() => {
+      const ratingState = evaluateProviderRatingState({
+        promedio: form.calificacion_promedio,
+        total: form.calificacion_total,
+        alertaCritica: form.alerta_critica,
+      })
+
+      return (
+        <div className="provider-summary full-row">
+          <h4>Resumen del proveedor</h4>
+          <p><strong>Proveedor:</strong> {form.proveedor || 'N/D'}</p>
+          <p><strong>RUC:</strong> {form.ruc || 'N/D'}</p>
+          <p><strong>Direccion:</strong> {form.direccion || 'N/D'}</p>
+          <p><strong>Distrito:</strong> {form.distrito || 'N/D'}</p>
+          <p><strong>Correo:</strong> {form.correo || 'N/D'}</p>
+          <p><strong>Responsable:</strong> {form.persona_responsable || 'N/D'}</p>
+          <p><strong>Telefono:</strong> {form.telefono || 'N/D'}</p>
+          <p><strong>Banco:</strong> {form.banco || 'N/D'}</p>
+          <p><strong>Cuenta:</strong> {form.numero_cuenta || 'N/D'}</p>
+          <p><strong>CCI:</strong> {form.cci || 'N/D'}</p>
+          <p><strong>Moneda:</strong> {form.moneda || 'N/D'}</p>
+          <p><strong>Estado proveedor:</strong> {ratingState.averageLabel}</p>
+          <p className="my-po-provider-state-row"><span className={`my-po-provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span></p>
+          <p><strong>Retencion:</strong> {normalize(form.retencion) === 'SI' ? 'SI' : 'NO'}</p>
+          <p><strong>Porcentaje:</strong> {Number(form.descuento || 0).toFixed(2)}%</p>
+          <p><strong>Tipo:</strong> {normalize(form.retencion) === 'SI' ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
+          {ratingState.showLowAlert && <p className="my-po-alert-warning"><strong>Alerta:</strong> Se recomienda evaluar cambio de proveedor</p>}
+          {canSeeCriticalAlert && ratingState.showCriticalAlert && <p className="my-po-alert-critical"><strong>Alerta critica:</strong> Proveedor con calificacion critica, se recomienda contactar</p>}
+        </div>
+      )
+    })()
   )
 
   const renderCostSummary = (form) => {
@@ -421,14 +712,18 @@ export default function MisOrdenesCompraView({
           Aprobadas
         </button>
         <button type="button" className={activeFilter === 'POR_RECIBIR' ? 'active' : ''} onClick={() => setActiveFilter('POR_RECIBIR')}>
-          Pendientes de entrega
+          Por recibir
         </button>
-        <button type="button" className={activeFilter === 'RECIBIDAS' ? 'active' : ''} onClick={() => setActiveFilter('RECIBIDAS')}>
-          Recibidas
+        <button type="button" className={activeFilter === 'RECIBIDO_EN_ALMACEN' ? 'active' : ''} onClick={() => setActiveFilter('RECIBIDO_EN_ALMACEN')}>
+          Recibido en almacén
+        </button>
+        <button type="button" className={activeFilter === 'ENTREGADO' ? 'active' : ''} onClick={() => setActiveFilter('ENTREGADO')}>
+          Entregado
         </button>
       </div>
 
       {error && <p className="my-po-error">{error}</p>}
+      {ratingNotice ? <p className="my-po-comment-feedback success">{ratingNotice}</p> : null}
 
       {filtered.length === 0 ? (
         <div className="empty-state">No hay compras para este filtro.</div>
@@ -440,6 +735,8 @@ export default function MisOrdenesCompraView({
             const isExpanded = Boolean(expandedByCompra[compra.id])
             const supplierOptions = supplierOptionsByCompra[compra.id] || []
             const materials = Array.isArray(compra.items) ? compra.items : []
+            const isEntregaFlowOpen = Boolean(entregaFlowOpenByCompra[compra.id])
+            const selectedReceptor = receptorSelectedByCompra[compra.id]
 
             return (
               <article className="my-po-card" key={compra.id}>
@@ -459,10 +756,95 @@ export default function MisOrdenesCompraView({
                 )}
 
                 <div className="my-po-card-actions">
+                  {canMarcarRecibidoAlmacen(compra) && (
+                    <button
+                      type="button"
+                      className="btn-receive"
+                      onClick={() => handleMarcarRecibidoAlmacen(compra)}
+                      disabled={loadingByCompra[compra.id]}
+                    >
+                      Marcar como recibido
+                    </button>
+                  )}
+                  {canMarcarEntregado(compra) && (
+                    !isEntregaFlowOpen ? (
+                      <button
+                        type="button"
+                        className="btn-generate"
+                        onClick={() => openEntregaFlow(compra.id)}
+                        disabled={loadingByCompra[compra.id]}
+                      >
+                        Marcar como entregado
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-generate"
+                          onClick={() => handleMarcarEntregado(compra)}
+                          disabled={loadingByCompra[compra.id]}
+                        >
+                          Confirmar entrega
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-detail"
+                          onClick={() => closeEntregaFlow(compra.id)}
+                          disabled={loadingByCompra[compra.id]}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    )
+                  )}
                   <button type="button" className="btn-detail" onClick={() => toggleExpanded(compra.id)}>
                     {isExpanded ? 'Ocultar detalle' : 'Ver detalle'}
                   </button>
                 </div>
+
+                {canMarcarEntregado(compra) && isEntregaFlowOpen && (
+                  <div className="my-po-actions">
+                    <label className="full-row supplier-field">
+                      Receptor (nombre o DNI)
+                      <input
+                        value={receptorQueryByCompra[compra.id] || ''}
+                        onChange={(event) => searchReceptoresCompra(compra.id, event.target.value)}
+                        placeholder="Buscar receptor por nombre o DNI"
+                      />
+                      {receptorLoadingByCompra[compra.id] && <small>Buscando receptor...</small>}
+                      {(receptorOptionsByCompra[compra.id] || []).length > 0 && (
+                        <ul className="supplier-options">
+                          {(receptorOptionsByCompra[compra.id] || []).map((receptor) => (
+                            <li key={`${compra.id}-receptor-${receptor.id}`}>
+                              <button type="button" onClick={() => selectReceptorCompra(compra.id, receptor)}>
+                                <span>{`${receptor.nombre || 'Sin nombre'} - DNI ${receptor.dni || 'N/D'}`}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </label>
+
+                    {selectedReceptor && (
+                      <div className="receptor-selected-card full-row">
+                        {getReceptorPhotoSrc(selectedReceptor) ? (
+                          <img
+                            className="receptor-selected-photo"
+                            src={getReceptorPhotoSrc(selectedReceptor)}
+                            alt={selectedReceptor?.nombre || 'Receptor'}
+                          />
+                        ) : (
+                          <div className="receptor-selected-photo receptor-selected-photo-placeholder">?</div>
+                        )}
+                        <div className="receptor-selected-meta">
+                          <strong>
+                            {`${selectedReceptor?.nombre || 'Sin nombre'} - DNI ${selectedReceptor?.dni || 'N/D'}`}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {isExpanded && (
                   <div className="my-po-edit-grid">
@@ -555,16 +937,132 @@ export default function MisOrdenesCompraView({
                   </div>
                 )}
 
-                {['POR_RECIBIR', 'RECIBIDA', 'RECIBIDO'].includes(normalize(compra.estado)) && (
+                {['POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'RECIBIDO_EN_ALMACEN', 'ENTREGADO'].includes(normalize(compra.estado)) && (
                   <div className="my-po-actions">
                     <button type="button" className="btn-download" onClick={() => downloadPdf(compra)} disabled={loadingByCompra[compra.id]}>
                       Descargar PDF
                     </button>
                   </div>
                 )}
+
+                <div className="my-po-comment-box">
+                  <strong>Comentarios</strong>
+                  {getVisibleComments(compra).length === 0 ? (
+                    <p className="my-po-comments">Sin comentarios registrados.</p>
+                  ) : (
+                    <ul className="my-po-comment-list">
+                      {getVisibleComments(compra).map((item, idx) => (
+                        <li key={`${compra.id}-comment-${idx}`} className={`my-po-chat-item ${isOwnComment(item) ? 'is-own' : 'is-other'}`}>
+                          <div className="my-po-chat-meta">
+                            <div className="my-po-chat-user">
+                              {getCommentPhotoSrc(item) ? (
+                                <img className="my-po-chat-avatar" src={getCommentPhotoSrc(item)} alt={item.usuario || 'Usuario'} />
+                              ) : (
+                                <span className="my-po-chat-avatar my-po-chat-avatar-placeholder">{String(item.usuario || 'U').trim().charAt(0).toUpperCase() || 'U'}</span>
+                              )}
+                              <strong>{item.usuario || 'Usuario'}</strong>
+                            </div>
+                            <span>{item.fecha ? new Date(item.fecha).toLocaleString() : 'Sin fecha'}</span>
+                          </div>
+                          <p className="my-po-chat-message">{item.contenido}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="my-po-comment-form">
+                    <textarea
+                      value={commentDraftByCompra[compra.id] || ''}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setCommentDraftByCompra((prev) => ({ ...prev, [compra.id]: value }))
+                        if (String(value || '').trim()) {
+                          setCommentStatusByCompra((prev) => ({ ...prev, [compra.id]: null }))
+                        }
+                      }}
+                      placeholder="Escribe un comentario"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAgregarComentario(compra)}
+                      disabled={loadingByCompra[compra.id] || !String(commentDraftByCompra[compra.id] || '').trim()}
+                    >
+                      Enviar
+                    </button>
+                    {commentStatusByCompra[compra.id]?.message ? (
+                      <p className={`my-po-comment-feedback ${commentStatusByCompra[compra.id]?.type || 'info'}`}>
+                        {commentStatusByCompra[compra.id].message}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
               </article>
             )
           })}
+        </div>
+      )}
+
+      {ratingCompra && (
+        <div className="provider-modal-backdrop" onClick={closeRatingModal}>
+          <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="provider-modal-head">
+              <h2>Calificar proveedor</h2>
+              <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
+            </div>
+            <div className="provider-rating-header">
+              <h3>{ratingCompra.proveedor || 'Proveedor'}</h3>
+              <p>Completa una calificación breve después de recibir la compra.</p>
+            </div>
+
+            {ratingError ? <p className="providers-error">{ratingError}</p> : null}
+
+            <form className="provider-rating-form" onSubmit={submitPurchaseRating}>
+              <div className="provider-rating-stars-picker" aria-label="Selecciona puntuacion">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rating-star-btn ${Number(ratingForm.puntuacion || 0) >= score ? 'active' : ''}`}
+                    onClick={() => setRatingForm((prev) => ({ ...prev, puntuacion: score }))}
+                    disabled={ratingSaving}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+
+              <label>
+                Puntuacion
+                <select
+                  value={ratingForm.puntuacion}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label>
+                Comentario
+                <textarea
+                  value={ratingForm.comentario}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Comentario opcional"
+                  rows={4}
+                  disabled={ratingSaving}
+                />
+              </label>
+
+              <div className="provider-modal-actions">
+                <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Omitir</button>
+                <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </section>

@@ -20,6 +20,36 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
+const companyBlueLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-azul.png');
+const companyWhiteLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-blanco.png');
+
+const getCompanyLogoPath = (background = 'light') => {
+  const darkBackground = String(background || '').trim().toLowerCase() === 'dark';
+  if (darkBackground && fs.existsSync(companyWhiteLogoPath)) {
+    return companyWhiteLogoPath;
+  }
+
+  if (fs.existsSync(companyBlueLogoPath)) {
+    return companyBlueLogoPath;
+  }
+
+  if (fs.existsSync(companyWhiteLogoPath)) {
+    return companyWhiteLogoPath;
+  }
+
+  return null;
+};
+
+const PDF_BRAND_COLORS = {
+  primary: '#3b82f6',
+  primaryDark: '#1e40af',
+  line: '#bfdbfe',
+  surface: '#f8fafc',
+  sectionHeader: '#e0edff',
+  textPrimary: '#1e293b',
+  textSecondary: '#64748b',
+};
+
 const allowedImageMimeTypes = new Set(['image/jpeg', 'image/png']);
 
 const imageStorage = multer.diskStorage({
@@ -165,6 +195,78 @@ const APPROVAL_ROLE_ID_BY_NAME = new Map([
   [normalizeRoleName('GERENCIA DE FINANZAS'), 7],
 ]);
 
+const getApprovalRoleLabel = (roleId, roleName = '') => {
+  const numericRoleId = Number(roleId || 0);
+  const explicitName = String(roleName || '').trim();
+  if (explicitName) {
+    return explicitName;
+  }
+
+  if (numericRoleId === 5) return 'Jefe de Area/Subgerente';
+  if (numericRoleId === 6) return 'Gerencia del Area';
+  if (numericRoleId === 7) return 'Gerencia de Finanzas';
+  return numericRoleId > 0 ? `Rol ${numericRoleId}` : '';
+};
+
+const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRoleId = 0, creatorName = '' } = {}) => {
+  const ordered = Array.isArray(approvals)
+    ? approvals
+      .map((row) => ({
+        orden: Number(row.orden || 0),
+        rol_aprobador: Number(row.rol_aprobador || 0),
+        rol: String(row.rol || '').trim(),
+        aprobador: String(row.aprobador || '').trim(),
+        usuario_id: Number(row.usuario_id || 0) || null,
+        fecha: row.fecha || null,
+      }))
+      .filter((row) => row.aprobador || row.rol_aprobador > 0)
+    : [];
+
+  const creatorId = Number(creatorUserId || 0);
+  const numericCreatorRoleId = Number(creatorRoleId || 0);
+  const creatorLabel = String(creatorName || '').trim();
+
+  if (creatorId > 0 && creatorLabel && isApprovalHierarchyRoleId(numericCreatorRoleId)) {
+    const creatorAlreadyIncluded = ordered.some((row) => Number(row.usuario_id || 0) === creatorId || Number(row.rol_aprobador || 0) === numericCreatorRoleId);
+    if (!creatorAlreadyIncluded) {
+      ordered.unshift({
+        orden: numericCreatorRoleId,
+        rol_aprobador: numericCreatorRoleId,
+        rol: getApprovalRoleLabel(numericCreatorRoleId),
+        aprobador: creatorLabel,
+        usuario_id: creatorId,
+        fecha: null,
+      });
+    }
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  ordered
+    .sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0) || Number(a.rol_aprobador || 0) - Number(b.rol_aprobador || 0))
+    .forEach((row) => {
+      const key = `${Number(row.usuario_id || 0)}:${Number(row.rol_aprobador || 0)}:${String(row.aprobador || '').toLowerCase()}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      deduped.push(row);
+    });
+
+  return deduped;
+};
+
+const parseReceiptInfo = (value) => {
+  const text = String(value || '').trim();
+  const match = text.match(/^(.*?)(?:\s*-\s*DNI\s*(.+))?$/i);
+  const nombre = String(match?.[1] || '').trim();
+  const dni = String(match?.[2] || '').trim();
+  return {
+    nombre: nombre || text,
+    dni,
+  };
+};
+
 const resolveApprovalRoleId = (user) => {
   const numericRoleId = Number(user?.id_role || user?.rol_id || 0);
   if (isApprovalHierarchyRoleId(numericRoleId)) {
@@ -180,6 +282,13 @@ const resolveApprovalRoleId = (user) => {
   }
 
   return 0;
+};
+
+const hashPassword = async (plainPassword) => {
+  if (!plainPassword) return '';
+  const cleaned = String(plainPassword).trim();
+  if (!cleaned) return '';
+  return bcrypt.hash(cleaned, 10);
 };
 
 const hasAprobacionesTable = async (client = pool) => {
@@ -484,19 +593,19 @@ const buildApprovalStatusLabel = ({
 }) => {
   const pendingRole = Number(nextPendingRole || 0);
   if (pendingRole > 0) {
-    return `PENDIENTE APROBACION ROL ${pendingRole}`;
+    return `Pendiente aprobacion rol ${pendingRole}`;
   }
 
   const statusNorm = normalize(currentStatus);
   if (['APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO', 'REALIZADO', 'DATOS_COMPLETADOS'].includes(statusNorm)) {
-    return 'APROBADO DEFINITIVO';
+    return 'Aprobado';
   }
 
   if (['RECHAZADA', 'RECHAZADO'].includes(statusNorm)) {
-    return 'RECHAZADO';
+    return 'Rechazado';
   }
 
-  return statusNorm || 'PENDIENTE';
+  return 'Pendiente';
 };
 
 const fetchAutoApprovedByCreatorRoleIds = async (client, {
@@ -642,6 +751,7 @@ const createApprovalRowsForEntity = async (client, {
   tipo,
   referenciaId,
   creatorRoleId,
+  creatorUserId,
 }) => {
   const tableExists = await hasAprobacionesTable(client);
   if (!tableExists) {
@@ -657,6 +767,17 @@ const createApprovalRowsForEntity = async (client, {
   }
 
   if (roleChain.length === 0) {
+    const actorUserId = Number(creatorUserId || 0);
+    const actorRoleId = Number(creatorRoleId || 0);
+    if (actorRoleId === 7 && actorUserId > 0) {
+      await client.query(
+        `
+          INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, estado, usuario_id, fecha)
+          VALUES ($1, $2, 1, $3, 'APROBADO', $4, NOW())
+        `,
+        [normalizedTipo, reference, actorRoleId, actorUserId]
+      );
+    }
     return { usesApprovalTable: true, autoApproved: true };
   }
 
@@ -833,6 +954,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
       SELECT
         a.orden,
         a.rol_aprobador,
+        a.usuario_id,
         COALESCE(u.nombre, '') AS aprobador,
         COALESCE(r.nombre, '') AS rol,
         a.fecha
@@ -879,6 +1001,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
         rol_aprobador: Number(row.rol_aprobador || 0),
         rol: row.rol || '',
         aprobador: row.aprobador || '',
+        usuario_id: Number(row.usuario_id || 0) || null,
         fecha: row.fecha || null,
       }));
     }
@@ -916,6 +1039,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
         rol_aprobador: Number(row.rol_aprobador || 0),
         rol: row.rol || '',
         aprobador: row.aprobador || '',
+        usuario_id: Number(row.usuario_id || 0) || null,
         fecha: row.fecha || null,
       }));
     }
@@ -926,6 +1050,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
     rol_aprobador: Number(row.rol_aprobador || 0),
     rol: row.rol || '',
     aprobador: row.aprobador || '',
+    usuario_id: Number(row.usuario_id || 0) || null,
     fecha: row.fecha || null,
   }));
 };
@@ -933,14 +1058,373 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
 const RECEIPT_NOTE_PREFIX = '[[RECIBIDO_POR:';
 const ITEM_CATEGORY_NOTE_PREFIX = '[[ITEM_CATEGORIAS:';
 const AREA_DELIVERY_NOTE_PREFIX = '[[ENTREGA_AREA:';
+const COMMENT_THREAD_NOTE_PREFIX = '[[COMENTARIOS_HIST:';
 
 const normalizeItemCategoryKey = (value) => String(value || '').trim().toLowerCase();
+
+const parseEmbeddedCommentsFromText = (value) => {
+  const text = String(value || '').trim();
+  const match = text.match(/\n?\[\[COMENTARIOS_HIST:([A-Za-z0-9+/=]+)\]\]\s*$/s);
+  if (!match) {
+    return { text, comments: [] };
+  }
+
+  let comments = [];
+  try {
+    const decoded = Buffer.from(String(match[1] || ''), 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded);
+    if (Array.isArray(parsed)) {
+      comments = parsed
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          usuario_id: Number(item.usuario_id || 0) || null,
+          usuario: String(item.usuario || '').trim(),
+          fecha: String(item.fecha || '').trim(),
+          contenido: String(item.contenido || '').trim(),
+        }))
+        .filter((item) => item.contenido);
+    }
+  } catch (_) {
+    comments = [];
+  }
+
+  const cleanText = text.slice(0, match.index || 0).trim();
+  return { text: cleanText, comments };
+};
+
+const buildTextWithEmbeddedComments = ({ text = '', comments = [] } = {}) => {
+  const baseText = String(text || '').trim();
+  const safeComments = Array.isArray(comments)
+    ? comments
+      .filter((item) => item && typeof item === 'object' && String(item.contenido || '').trim())
+      .map((item) => ({
+        usuario_id: Number(item.usuario_id || 0) || null,
+        usuario: String(item.usuario || '').trim(),
+        fecha: String(item.fecha || '').trim(),
+        contenido: String(item.contenido || '').trim(),
+      }))
+    : [];
+
+  if (safeComments.length === 0) {
+    return baseText;
+  }
+
+  const encoded = Buffer.from(JSON.stringify(safeComments), 'utf8').toString('base64');
+  return `${baseText}${baseText ? '\n' : ''}${COMMENT_THREAD_NOTE_PREFIX}${encoded}]]`;
+};
+
+const buildCommentEntry = ({ user, content }) => ({
+  usuario_id: Number(user?.id || 0) || null,
+  usuario: String(user?.nombre || user?.username || user?.email || 'Usuario').trim(),
+  fecha: new Date().toISOString(),
+  contenido: String(content || '').trim(),
+});
+
+const normalizeCommentEntityType = (value) => String(value || '').trim().toLowerCase();
+
+const fetchCommentsForEntities = async (db, { tipoEntidad, entityIds = [] } = {}) => {
+  const normalizedType = normalizeCommentEntityType(tipoEntidad);
+  const ids = [...new Set((Array.isArray(entityIds) ? entityIds : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => Number.isInteger(id) && id > 0))];
+
+  if (!normalizedType || ids.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query(
+    `
+      SELECT
+        c.id,
+        c.id_entidad,
+        c.id_usuario,
+        COALESCE(u.nombre, 'Usuario') AS usuario,
+        COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'foto', to_jsonb(u)->>'imagen', '')), ''), '') AS usuario_foto,
+        c.contenido,
+        c.fecha
+      FROM comentarios c
+      LEFT JOIN usuarios u ON u.id = c.id_usuario
+      WHERE lower(trim(COALESCE(c.tipo_entidad, ''))) = $1
+        AND c.id_entidad = ANY($2::int[])
+      ORDER BY c.id_entidad ASC, c.fecha ASC, c.id ASC
+    `,
+    [normalizedType, ids]
+  );
+
+  const commentsByEntity = new Map();
+  const seenByEntity = new Map();
+  result.rows.forEach((row) => {
+    const entityId = Number(row.id_entidad || 0);
+    if (!entityId) return;
+    const commentId = Number(row.id || 0) || null;
+
+    if (!commentsByEntity.has(entityId)) {
+      commentsByEntity.set(entityId, []);
+    }
+
+    if (!seenByEntity.has(entityId)) {
+      seenByEntity.set(entityId, new Set());
+    }
+
+    if (commentId && seenByEntity.get(entityId).has(commentId)) {
+      return;
+    }
+
+    if (commentId) {
+      seenByEntity.get(entityId).add(commentId);
+    }
+
+    commentsByEntity.get(entityId).push({
+      id: commentId,
+      id_entidad: entityId,
+      usuario_id: Number(row.id_usuario || 0) || null,
+      usuario: String(row.usuario || 'Usuario').trim() || 'Usuario',
+      foto: String(row.usuario_foto || '').trim(),
+      fecha: row.fecha,
+      contenido: String(row.contenido || '').trim(),
+    });
+  });
+
+  return commentsByEntity;
+};
+
+const insertCommentForEntity = async (db, { user, tipoEntidad, idEntidad, contenido }) => {
+  const normalizedType = normalizeCommentEntityType(tipoEntidad);
+  const entityId = Number(idEntidad || 0);
+  const userId = Number(user?.id || 0);
+  const text = String(contenido || '').trim();
+
+  if (!normalizedType || !entityId || !userId || !text) {
+    throw new Error('Datos invalidos para registrar comentario');
+  }
+
+  const inserted = await db.query(
+    `
+      INSERT INTO comentarios (id_usuario, tipo_entidad, id_entidad, contenido, fecha)
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING id, id_usuario, tipo_entidad, id_entidad, contenido, fecha
+    `,
+    [userId, normalizedType, entityId, text]
+  );
+
+  const row = inserted.rows[0] || {};
+  return {
+    id: Number(row.id || 0) || null,
+    id_entidad: entityId,
+    usuario_id: Number(row.id_usuario || 0) || userId,
+    usuario: String(user?.nombre || user?.username || user?.email || 'Usuario').trim() || 'Usuario',
+    foto: String(user?.foto || user?.imagen || '').trim(),
+    fecha: row.fecha || new Date().toISOString(),
+    contenido: String(row.contenido || text).trim(),
+  };
+};
+
+const normalizeRatingType = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['compra', 'servicio'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+};
+
+const fetchProveedorRatingsSummary = async (db, { proveedorIds = [], userId = null } = {}) => {
+  const ids = [...new Set((Array.isArray(proveedorIds) ? proveedorIds : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => Number.isInteger(id) && id > 0))];
+
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const summaryResult = await db.query(
+    `
+      SELECT
+        cp.id_proveedor,
+        ROUND(AVG(cp.puntuacion)::numeric, 2) AS promedio,
+        COUNT(*)::int AS total,
+        COALESCE(BOOL_OR(cp.puntuacion <= 2), false) AS existe_critica
+      FROM calificaciones_proveedor cp
+      WHERE cp.id_proveedor = ANY($1::int[])
+        AND lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
+      GROUP BY cp.id_proveedor
+    `,
+    [ids]
+  );
+
+  const userResult = Number(userId || 0) > 0
+    ? await db.query(
+      `
+        SELECT DISTINCT ON (cp.id_proveedor)
+          cp.id_proveedor,
+          cp.puntuacion,
+          cp.comentario,
+          cp.fecha
+        FROM calificaciones_proveedor cp
+        WHERE cp.id_proveedor = ANY($1::int[])
+          AND cp.id_usuario = $2
+          AND lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
+        ORDER BY cp.id_proveedor, cp.fecha DESC, cp.id DESC
+      `,
+      [ids, Number(userId)]
+    )
+    : { rows: [] };
+
+  const userMap = new Map(
+    userResult.rows.map((row) => [Number(row.id_proveedor || 0), {
+      puntuacion: Number(row.puntuacion || 0) || null,
+      comentario: String(row.comentario || '').trim(),
+      fecha: row.fecha || null,
+    }])
+  );
+
+  const map = new Map();
+  summaryResult.rows.forEach((row) => {
+    const proveedorId = Number(row.id_proveedor || 0);
+    if (!proveedorId) return;
+    const own = userMap.get(proveedorId) || {};
+    map.set(proveedorId, {
+      calificacion_promedio: Number(row.promedio || 0) || 0,
+      calificacion_total: Number(row.total || 0) || 0,
+      alerta_cambio_proveedor: Number(row.total || 0) > 0 && (Number(row.promedio || 0) < 4),
+      alerta_critica: Boolean(row.existe_critica),
+      mi_calificacion: own.puntuacion || null,
+      mi_comentario: own.comentario || '',
+      mi_fecha: own.fecha || null,
+    });
+  });
+
+  ids.forEach((proveedorId) => {
+    if (!map.has(proveedorId)) {
+      const own = userMap.get(proveedorId) || {};
+      map.set(proveedorId, {
+        calificacion_promedio: 0,
+        calificacion_total: 0,
+        alerta_cambio_proveedor: false,
+        alerta_critica: false,
+        mi_calificacion: own.puntuacion || null,
+        mi_comentario: own.comentario || '',
+        mi_fecha: own.fecha || null,
+      });
+    }
+  });
+
+  return map;
+};
+
+const fetchProveedorAverageRatingsForAutomation = async (db) => {
+  const result = await db.query(
+    `
+      SELECT
+        cp.id_proveedor,
+        ROUND(AVG(cp.puntuacion)::numeric, 2) AS promedio_puntuacion,
+        COUNT(*)::int AS total_calificaciones,
+        COALESCE(BOOL_OR(cp.puntuacion <= 2), false) AS existe_critica
+      FROM calificaciones_proveedor cp
+      WHERE lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
+      GROUP BY cp.id_proveedor
+      ORDER BY cp.id_proveedor ASC
+    `
+  );
+
+  return result.rows.map((row) => ({
+    id_proveedor: Number(row.id_proveedor || 0),
+    promedio_puntuacion: Number(row.promedio_puntuacion || 0) || 0,
+    total_calificaciones: Number(row.total_calificaciones || 0) || 0,
+    alerta_cambio_proveedor: Number(row.total_calificaciones || 0) > 0 && (Number(row.promedio_puntuacion || 0) < 4),
+    alerta_critica: Boolean(row.existe_critica),
+  }));
+};
+
+const upsertProveedorRating = async (db, { user, proveedorId, puntuacion, comentario, tipo = '', idReferencia = null } = {}) => {
+  const userId = Number(user?.id || 0);
+  const idProveedor = Number(proveedorId || 0);
+  const score = Number(puntuacion || 0);
+  const note = String(comentario || '').trim();
+  const ratingType = normalizeRatingType(tipo);
+  const referenceId = Number(idReferencia || 0) || idProveedor;
+
+  if (!userId || !idProveedor) {
+    throw new Error('Proveedor invalido para calificar');
+  }
+
+  if (!ratingType) {
+    throw new Error("tipo invalido. Solo se permite 'compra' o 'servicio'");
+  }
+
+  if (!Number.isInteger(score) || score < 1 || score > 5) {
+    throw new Error('La puntuacion debe estar entre 1 y 5');
+  }
+
+  const existing = ratingType === 'servicio'
+    ? await db.query(
+      `
+        SELECT id
+        FROM calificaciones_proveedor
+        WHERE id_proveedor = $1
+          AND lower(trim(COALESCE(tipo, ''))) = $2
+          AND id_referencia = $3
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [idProveedor, ratingType, referenceId]
+    )
+    : await db.query(
+      `
+        SELECT id
+        FROM calificaciones_proveedor
+        WHERE id_proveedor = $1
+          AND id_usuario = $2
+          AND lower(trim(COALESCE(tipo, ''))) = $3
+          AND id_referencia = $4
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [idProveedor, userId, ratingType, referenceId]
+    );
+
+  if (existing.rows.length > 0) {
+    const alreadyRatedError = new Error('Ya calificaste este proveedor');
+    alreadyRatedError.code = 'RATING_ALREADY_EXISTS';
+    throw alreadyRatedError;
+  }
+
+  await db.query(
+    `
+      INSERT INTO calificaciones_proveedor (
+        id_proveedor,
+        id_usuario,
+        tipo,
+        id_referencia,
+        puntuacion,
+        comentario,
+        fecha
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    `,
+    [idProveedor, userId, ratingType, referenceId, score, note || null]
+  );
+
+  const [summary] = await fetchProveedorRatingsSummary(db, { proveedorIds: [idProveedor], userId })
+    .then((result) => [result.get(idProveedor)])
+    .catch(() => [null]);
+
+  return summary || {
+    calificacion_promedio: 0,
+    calificacion_total: 0,
+    alerta_cambio_proveedor: false,
+    alerta_critica: false,
+    mi_calificacion: score,
+    mi_comentario: note,
+    mi_fecha: new Date().toISOString(),
+  };
+};
 
 const parsePurchaseComments = (value) => {
   let text = String(value || '').trim();
   let recibidoPor = '';
   let itemCategorias = {};
   let entregaArea = null;
+  let comentariosHistorial = [];
 
   let changed = true;
   while (changed) {
@@ -959,6 +1443,31 @@ const parsePurchaseComments = (value) => {
       }
 
       text = text.slice(0, deliveryMatch.index || 0).trim();
+      changed = true;
+      continue;
+    }
+
+    const commentsMatch = text.match(/\n?\[\[COMENTARIOS_HIST:([A-Za-z0-9+/=]+)\]\]\s*$/s);
+    if (commentsMatch) {
+      try {
+        const decoded = Buffer.from(String(commentsMatch[1] || ''), 'base64').toString('utf8');
+        const parsed = JSON.parse(decoded);
+        if (Array.isArray(parsed)) {
+          comentariosHistorial = parsed
+            .filter((item) => item && typeof item === 'object')
+            .map((item) => ({
+              usuario_id: Number(item.usuario_id || 0) || null,
+              usuario: String(item.usuario || '').trim(),
+              fecha: String(item.fecha || '').trim(),
+              contenido: String(item.contenido || '').trim(),
+            }))
+            .filter((item) => item.contenido);
+        }
+      } catch (_) {
+        comentariosHistorial = [];
+      }
+
+      text = text.slice(0, commentsMatch.index || 0).trim();
       changed = true;
       continue;
     }
@@ -994,11 +1503,17 @@ const parsePurchaseComments = (value) => {
     recibido_por: recibidoPor,
     item_categorias: itemCategorias,
     entrega_area: entregaArea,
+    comentarios_historial: comentariosHistorial,
   };
 };
 
-const buildPurchaseComment = ({ comentarios = '', recibidoPor = '', itemCategorias = {}, entregaArea = null } = {}) => {
+const buildPurchaseComment = ({ comentarios = '', recibidoPor = '', itemCategorias = {}, entregaArea = null, comentariosHistorial = [] } = {}) => {
   let text = String(comentarios || '').trim();
+
+  if (Array.isArray(comentariosHistorial) && comentariosHistorial.length > 0) {
+    const encodedComments = Buffer.from(JSON.stringify(comentariosHistorial), 'utf8').toString('base64');
+    text = `${text}${text ? '\n' : ''}${COMMENT_THREAD_NOTE_PREFIX}${encodedComments}]]`;
+  }
 
   if (itemCategorias && typeof itemCategorias === 'object' && !Array.isArray(itemCategorias) && Object.keys(itemCategorias).length > 0) {
     const encoded = Buffer.from(JSON.stringify(itemCategorias), 'utf8').toString('base64');
@@ -1044,224 +1559,76 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
 
   const writeSectionTitle = (title) => {
     ensureSpace(28);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#1f4e79').text(title, left, doc.y, { width: usableWidth });
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
     doc.moveDown(0.2);
-    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor('#d1d5db').lineWidth(0.8).stroke();
-    doc.moveDown(0.5);
-  };
-
-  const writeLabelValue = (label, value, width = usableWidth) => {
-    ensureSpace(24);
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#334155').text(`${label}:`, left, doc.y, { width });
-    doc.font('Helvetica').fontSize(9).fillColor('#111827').text(safeText(value), {
-      width,
-      align: 'left',
-    });
-    doc.moveDown(0.25);
-  };
-
-  const drawHeader = () => {
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1f4e79').text('ALFOSAC', left, 28, { width: usableWidth, align: 'left' });
-    doc.font('Helvetica-Bold').fontSize(14).fillColor('#1f4e79').text('ORDEN DE COMPRA', left, 28, { width: usableWidth, align: 'right' });
-    doc.font('Helvetica').fontSize(9).fillColor('#334155').text(`Dirección: ${companyAddress}`, left, 52, { width: usableWidth, align: 'left' });
-    doc.text(`RUC: ${companyRuc}`, left, 64, { width: usableWidth, align: 'left' });
-    doc.text(`Sitio Web: ${companyWeb}`, left, 76, { width: usableWidth, align: 'left' });
-    doc.moveTo(left, 90).lineTo(pageWidth - right, 90).strokeColor('#cbd5e1').lineWidth(0.8).stroke();
-    doc.y = 98;
-  };
-
-  doc.on('data', (chunk) => chunks.push(chunk));
-  doc.on('error', reject);
-  doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-
-  doc.on('pageAdded', () => {
-    doc.y = 90;
-  });
-
-  drawHeader();
-
-  const subtotal = Number(compra.subtotal || 0);
-  const igv = Number(compra.igv || 0);
-  const costoEnvio = Number(compra.costo_envio || 0);
-  const otrosCostos = Number(compra.otros_costos || 0);
-  const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
-  const aplicaRetencion = Boolean(compra.aplica_retencion);
-  const porcentajeRetencion = Number(compra.descuento || 0);
-  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
-  const totalFinal = Number(compra.importe_final || compra.total || totalBase);
-
-  writeSectionTitle('Información de la orden');
-  writeLabelValue('Número de orden', compra.numero_orden || `OC-${compra.id}`);
-  writeLabelValue('Fecha', new Date(compra.fecha_creacion || Date.now()).toLocaleDateString());
-  writeLabelValue('Área solicitante', compra.area_solicitante);
-  writeLabelValue('Área destino', compra.area_final);
-  writeLabelValue('Solicitante', compra.usuario);
-
-  writeSectionTitle('Datos del proveedor');
-  writeLabelValue('Razón social', compra.proveedor || compra.razon_social);
-  writeLabelValue('RUC', compra.ruc);
-  writeLabelValue('Dirección', compra.direccion);
-  writeLabelValue('Distrito', compra.distrito);
-  writeLabelValue('Banco', compra.banco);
-  writeLabelValue('Cuenta', compra.cuenta || compra.numero_cuenta);
-  writeLabelValue('CCI', compra.cci);
-  writeLabelValue('Condiciones de pago', compra.condiciones_pago);
-
-  writeSectionTitle('Materiales');
-  const items = Array.isArray(compra.items) ? compra.items : [];
-  const tableTop = doc.y;
-  const colWidths = [30, 220, 60, 100, 100];
-  const headers = ['#', 'Descripción', 'Cantidad', 'Precio Unitario', 'Total'];
-  let x = left;
-  let rowY = tableTop;
-
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#0f172a');
-  headers.forEach((header, index) => {
-    doc.rect(x, rowY, colWidths[index], 18).strokeColor('#cbd5e1').lineWidth(0.6).stroke();
-    doc.text(header, x + 4, rowY + 5, { width: colWidths[index] - 8, align: index === 0 || index === 2 || index === 3 || index === 4 ? 'center' : 'left' });
-    x += colWidths[index];
-  });
-
-  rowY += 18;
-  doc.font('Helvetica').fontSize(8.5).fillColor('#111827');
-  items.forEach((item, index) => {
-    const qty = Number(item.cantidad || 0);
-    const unit = Number(item.precio_unitario || 0);
-    const total = Number((qty * unit).toFixed(2));
-    const rowHeight = Math.max(18, doc.heightOfString(safeText(item.material || item.descripcion || item.nombre), { width: colWidths[1] - 8 }) + 8);
-    ensureSpace(rowHeight + 12);
-    x = left;
-    const cells = [
-      String(index + 1),
-      safeText(item.material || item.descripcion || item.nombre),
-      String(qty),
-      `S/ ${unit.toFixed(2)}`,
-      `S/ ${total.toFixed(2)}`,
-    ];
-    cells.forEach((cell, cellIndex) => {
-      doc.rect(x, rowY, colWidths[cellIndex], rowHeight).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
-      doc.text(cell, x + 4, rowY + 4, {
-        width: colWidths[cellIndex] - 8,
-        align: cellIndex === 0 || cellIndex === 2 || cellIndex === 3 || cellIndex === 4 ? 'center' : 'left',
-      });
-      x += colWidths[cellIndex];
-    });
-    rowY += rowHeight;
-  });
-
-  doc.y = rowY + 12;
-  writeSectionTitle('Detalle financiero');
-  writeLabelValue('Subtotal', money(subtotal, compra.moneda));
-  writeLabelValue('IGV', money(igv, compra.moneda));
-  writeLabelValue('Costo envío', money(costoEnvio, compra.moneda));
-  writeLabelValue('Otros costos', money(otrosCostos, compra.moneda));
-  writeLabelValue('Total base', money(totalBase, compra.moneda));
-  writeLabelValue('Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO');
-  writeLabelValue('Porcentaje', `${porcentajeRetencion.toFixed(2)}%`);
-  writeLabelValue('Monto retenido', money(montoRetenido, compra.moneda));
-  writeLabelValue('Total final', money(totalFinal, compra.moneda));
-
-  writeSectionTitle('Información adicional');
-  writeLabelValue('Correo', compra.correo || compra.contacto_proveedor);
-  writeLabelValue('Persona responsable', compra.persona_responsable || compra.contacto_proveedor);
-  writeLabelValue('Teléfono', compra.telefono);
-  const approversSummary = Array.isArray(compra.aprobadores)
-    ? compra.aprobadores
-      .map((row) => `${row.orden}. ${safeText(row.rol || `Rol ${row.rol_aprobador || ''}`)} - ${safeText(row.aprobador || 'Pendiente')}`)
-      .join(' | ')
-    : '';
-  writeLabelValue('Aprobaciones', approversSummary || 'Sin aprobaciones registradas');
-  writeLabelValue('Comentarios', compra.comentarios);
-
-  doc.moveDown(1);
-  doc.font('Helvetica').fontSize(8).fillColor('#334155').text(
-    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
-    left,
-    bottomLimit - 24,
-    { width: usableWidth, align: 'center' }
-  );
-
-  doc.end();
-});
-
-const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
-  const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
-  const chunks = [];
-
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const left = 36;
-  const right = 36;
-  const usableWidth = pageWidth - left - right;
-  const bottomLimit = pageHeight - 72;
-
-  const safeText = (value) => String(value || '').replace(/\s+/g, ' ').trim() || 'N/D';
-  const currencyLabel = safeText(servicio.moneda || servicio.proveedor_moneda || 'PEN');
-  const money = (value, currency = currencyLabel) => `${Number(value || 0).toFixed(2)} ${safeText(currency)}`;
-  const companyAddress = 'Av Nestor Gambeta N°4783 Callao - Callao';
-  const companyRuc = '20606777257';
-  const companyWeb = 'www.alfosac.pe';
-
-  const ensureSpace = (needed = 24) => {
-    if (doc.y + needed > bottomLimit) {
-      doc.addPage();
-      drawHeader();
-    }
-  };
-
-  const writeSectionTitle = (title) => {
-    ensureSpace(28);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0f766e').text(title, left, doc.y, { width: usableWidth });
-    doc.moveDown(0.2);
-    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor('#d1d5db').lineWidth(0.8).stroke();
+    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
     doc.moveDown(0.5);
   };
 
   const estimateBlockHeight = (rows = []) => {
+    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return Math.max(18, Math.max(labelHeight, valueHeight));
+    };
+
     let total = 26;
+    const labelWidth = 98;
+    const valueWidth = 136;
     rows.forEach(([label, value]) => {
-      const labelHeight = doc.heightOfString(`${safeText(label)}:`, { width: 86, align: 'left' });
-      const valueHeight = doc.heightOfString(safeText(value), { width: 136, align: 'left' });
-      total += Math.max(labelHeight, valueHeight) + 6;
+      total += measureRowHeight(label, value, labelWidth, valueWidth) + 8;
     });
     return total + 10;
   };
 
   const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 6;
+    const rowGap = 8;
     const paddingX = 10;
     const paddingY = 8;
     const titleHeight = 18;
-    const labelWidth = Math.max(72, Math.floor(width * 0.34));
+    const labelWidth = Math.max(98, Math.floor(width * 0.38));
     const valueWidth = width - (paddingX * 2) - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return {
+        textLabel,
+        textValue,
+        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
+      };
+    };
 
     let contentHeight = 0;
     rows.forEach(([label, value]) => {
-      const labelHeight = doc.heightOfString(`${safeText(label)}:`, { width: labelWidth, align: 'left' });
-      const valueHeight = doc.heightOfString(safeText(value), { width: valueWidth, align: 'left' });
-      contentHeight += Math.max(labelHeight, valueHeight) + rowGap;
+      const measured = measureRowHeight(label, value);
+      contentHeight += measured.rowHeight + rowGap;
     });
 
     const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
 
-    doc.rect(x, y, width, blockHeight).fillAndStroke('#f8fafc', '#dbe3ec');
-    doc.rect(x, y, width, titleHeight).fillAndStroke('#e2e8f0', '#dbe3ec');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#0f172a').text(title, x + paddingX, y + 5, {
+    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
+    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
       width: width - (paddingX * 2),
     });
 
     let rowY = y + titleHeight + paddingY;
     rows.forEach(([label, value]) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      const rowHeight = Math.max(labelHeight, valueHeight);
+      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
 
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#334155').text(textLabel, x + paddingX, rowY, {
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
         width: labelWidth,
       });
-      doc.font('Helvetica').fontSize(8.5).fillColor('#111827').text(textValue, x + paddingX + labelWidth + 8, rowY, {
+      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
         width: valueWidth,
       });
 
@@ -1313,13 +1680,24 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   };
 
   const drawHeader = () => {
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1f4e79').text('ALFOSAC', left, 28, { width: usableWidth, align: 'left' });
-    doc.font('Helvetica-Bold').fontSize(14).fillColor('#1f4e79').text('ORDEN DE SERVICIO', left, 28, { width: usableWidth, align: 'right' });
-    doc.font('Helvetica').fontSize(9).fillColor('#334155').text(`Dirección: ${companyAddress}`, left, 52, { width: usableWidth, align: 'left' });
-    doc.text(`RUC: ${companyRuc}`, left, 64, { width: usableWidth, align: 'left' });
-    doc.text(`Sitio Web: ${companyWeb}`, left, 76, { width: usableWidth, align: 'left' });
-    doc.moveTo(left, 90).lineTo(pageWidth - right, 90).strokeColor('#cbd5e1').lineWidth(0.8).stroke();
-    doc.y = 98;
+    const logoPath = getCompanyLogoPath('dark');
+
+    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
+
+    if (logoPath) {
+      doc.image(logoPath, left + 12, 24, {
+        fit: [84, 50],
+        align: 'left',
+        valign: 'center',
+      });
+    }
+
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE COMPRA', left, 32, { width: usableWidth - 14, align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
+    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
+    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
+    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = 140;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
@@ -1327,46 +1705,491 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
 
   doc.on('pageAdded', () => {
-    doc.y = 90;
+    doc.y = 140;
   });
 
   drawHeader();
 
-  const subtotal = Number((servicio.subtotal ?? servicio.costo) || 0);
+  const subtotal = Number(compra.subtotal || 0);
+  const igv = Number(compra.igv || 0);
+  const costoEnvio = Number(compra.costo_envio || 0);
+  const otrosCostos = Number(compra.otros_costos || 0);
+  const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
+  const aplicaRetencion = Boolean(compra.aplica_retencion);
+  const porcentajeRetencion = Number(compra.descuento || 0);
+  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
+  const totalFinal = Number(compra.importe_final || compra.total || totalBase);
+  const approverEntries = buildPdfApprovalEntries({
+    approvals: compra.aprobadores,
+    creatorUserId: compra.id_usuario,
+    creatorRoleId: compra.usuario_rol_id,
+    creatorName: compra.usuario,
+  });
+  const approversSummary = approverEntries
+    .map((row) => `${safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))} - ${safeText(row.aprobador || 'Pendiente')}`)
+    .join(' | ');
+  const entregaInfo = compra.entrega_area && compra.entrega_area.entregado === true
+    ? {
+      ...compra.entrega_area,
+      ...parseReceiptInfo(compra.recibido_por),
+    }
+    : null;
+
+  writeSectionTitle('Resumen');
+  ensureSpace(98);
+  const resumenTop = doc.y;
+  const resumenRows = [
+    ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
+    ['Fecha', new Date(compra.fecha_creacion || Date.now()).toLocaleDateString()],
+    ['Proveedor', compra.proveedor || compra.razon_social],
+    ['Área destino', compra.area_final],
+  ];
+  const resumenRowHeight = 20;
+  const resumenLabelWidth = 160;
+
+  doc.rect(left, resumenTop, usableWidth, 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('Datos de la orden', left + 10, resumenTop + 6, {
+    width: usableWidth - 20,
+    align: 'left',
+  });
+
+  let resumenY = resumenTop + 20;
+  resumenRows.forEach(([label, value], index) => {
+    const isAlternate = index % 2 === 0;
+    const valueHeight = doc.heightOfString(safeText(value), {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    const rowHeight = Math.max(resumenRowHeight, valueHeight + 12);
+    doc.rect(left, resumenY, usableWidth, rowHeight).fillAndStroke(isAlternate ? '#f8fafc' : '#ffffff', '#e2e8f0');
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 10, resumenY + 6, {
+      width: resumenLabelWidth,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(safeText(value), left + 10 + resumenLabelWidth, resumenY + 6, {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    resumenY += rowHeight;
+  });
+  doc.y = resumenY + 10;
+
+  renderTwoColumnBlocks([
+    {
+      title: 'Orden y solicitante',
+      rows: [
+        ['Área solicitante', compra.area_solicitante],
+        ['Solicitante', compra.usuario],
+        ['Moneda', currencyLabel],
+      ],
+    },
+    {
+      title: 'Proveedor',
+      rows: [
+        ['RUC', compra.ruc],
+        ['Dirección', compra.direccion],
+        ['Distrito', compra.distrito],
+        ['Banco', compra.banco],
+        ['Cuenta', compra.cuenta || compra.numero_cuenta],
+        ['CCI', compra.cci],
+        ['Condiciones de pago', compra.condiciones_pago],
+      ],
+    },
+    {
+      title: 'Detalle financiero',
+      rows: [
+        ['Subtotal', money(subtotal, compra.moneda)],
+        ['IGV', money(igv, compra.moneda)],
+        ['Costo envío', money(costoEnvio, compra.moneda)],
+        ['Otros costos', money(otrosCostos, compra.moneda)],
+        ['Total base', money(totalBase, compra.moneda)],
+        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
+        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+        ['Monto retenido', money(montoRetenido, compra.moneda)],
+      ],
+    },
+    {
+      title: 'Contacto y observaciones',
+      rows: [
+        ['Correo', compra.correo || compra.contacto_proveedor],
+        ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
+        ['Teléfono', compra.telefono],
+        ['Aprobaciones', approversSummary || 'Sin aprobaciones registradas'],
+        ['Comentarios', compra.comentarios],
+      ],
+    },
+  ]);
+
+  if (entregaInfo) {
+    renderTwoColumnBlocks([
+      {
+        title: 'Entrega al area',
+        rows: [
+          ['DNI receptor', entregaInfo.receptor_dni || entregaInfo.dni || 'N/D'],
+          ['Nombre receptor', entregaInfo.receptor_nombre || entregaInfo.nombre || 'N/D'],
+        ],
+      },
+      {
+        title: 'Estado de entrega',
+        rows: [
+          ['Entregado', 'SI'],
+          ['Fecha entrega', entregaInfo.fecha_entrega_area ? new Date(entregaInfo.fecha_entrega_area).toLocaleString() : 'N/D'],
+        ],
+      },
+    ]);
+  }
+
+  writeSectionTitle('Detalle');
+  const items = Array.isArray(compra.items) ? compra.items : [];
+  const colWidths = [263, 80, 90, 90];
+  const headers = ['Material/Servicio', 'Cantidad', 'Precio unitario', 'Total'];
+  let x = left;
+  const drawDetailHeader = (startY) => {
+    let headerX = left;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
+    headers.forEach((header, index) => {
+      doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+      doc.text(header, headerX + 6, startY + 6, {
+        width: colWidths[index] - 12,
+        align: index === 0 ? 'left' : 'center',
+      });
+      headerX += colWidths[index];
+    });
+    return startY + 20;
+  };
+  let rowY = drawDetailHeader(doc.y);
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+  items.forEach((item) => {
+    const qty = Number(item.cantidad || 0);
+    const unit = Number(item.precio_unitario || 0);
+    const rowTotal = Number((qty * unit).toFixed(2));
+    const descripcion = safeText(item.material || item.descripcion || item.nombre);
+    const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
+
+    if (rowY + rowHeight > bottomLimit - 32) {
+      doc.addPage();
+      drawHeader();
+      writeSectionTitle('Detalle (continuación)');
+      rowY = drawDetailHeader(doc.y);
+    }
+
+    x = left;
+    const cells = [
+      descripcion,
+      String(qty),
+      money(unit, compra.moneda),
+      money(rowTotal, compra.moneda),
+    ];
+    cells.forEach((cell, cellIndex) => {
+      doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
+      doc.text(cell, x + 6, rowY + 5, {
+        width: colWidths[cellIndex] - 12,
+        align: cellIndex === 0 ? 'left' : 'center',
+      });
+      x += colWidths[cellIndex];
+    });
+    rowY += rowHeight;
+  });
+
+  if (rowY + 24 > bottomLimit - 4) {
+    doc.addPage();
+    drawHeader();
+    writeSectionTitle('Detalle (continuación)');
+    rowY = doc.y;
+  }
+
+  const resumenTotalY = rowY;
+  const totalLabelWidth = colWidths[0] + colWidths[1] + colWidths[2];
+  doc.rect(left, resumenTotalY, totalLabelWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+  doc.rect(left + totalLabelWidth, resumenTotalY, colWidths[3], 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
+    width: totalLabelWidth - 16,
+    align: 'right',
+  });
+  doc.text(money(totalFinal, compra.moneda), left + totalLabelWidth + 6, resumenTotalY + 7, {
+    width: colWidths[3] - 12,
+    align: 'center',
+  });
+
+  doc.y = resumenTotalY + 28;
+
+  doc.moveDown(1);
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
+    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
+    left,
+    bottomLimit - 24,
+    { width: usableWidth, align: 'center' }
+  );
+
+  doc.end();
+});
+
+const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
+  const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
+  const chunks = [];
+
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const left = 36;
+  const right = 36;
+  const usableWidth = pageWidth - left - right;
+  const bottomLimit = pageHeight - 72;
+
+  const safeText = (value) => String(value || '').replace(/\s+/g, ' ').trim() || 'N/D';
+  const currencyLabel = safeText(servicio.moneda || servicio.proveedor_moneda || 'PEN');
+  const money = (value, currency = currencyLabel) => `${Number(value || 0).toFixed(2)} ${safeText(currency)}`;
+  const companyAddress = 'Av Nestor Gambeta N°4783 Callao - Callao';
+  const companyRuc = '20606777257';
+  const companyWeb = 'www.alfosac.pe';
+
+  const ensureSpace = (needed = 24) => {
+    if (doc.y + needed > bottomLimit) {
+      doc.addPage();
+      drawHeader();
+    }
+  };
+
+  const writeSectionTitle = (title) => {
+    ensureSpace(28);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
+    doc.moveDown(0.2);
+    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
+    doc.moveDown(0.5);
+  };
+
+  const estimateBlockHeight = (rows = []) => {
+    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return Math.max(18, Math.max(labelHeight, valueHeight));
+    };
+
+    let total = 26;
+    const labelWidth = 98;
+    const valueWidth = 136;
+    rows.forEach(([label, value]) => {
+      total += measureRowHeight(label, value, labelWidth, valueWidth) + 8;
+    });
+    return total + 10;
+  };
+
+  const drawInfoBlock = ({ title, rows, x, y, width }) => {
+    const rowGap = 8;
+    const paddingX = 10;
+    const paddingY = 8;
+    const titleHeight = 18;
+    const labelWidth = Math.max(98, Math.floor(width * 0.38));
+    const valueWidth = width - (paddingX * 2) - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return {
+        textLabel,
+        textValue,
+        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
+      };
+    };
+
+    let contentHeight = 0;
+    rows.forEach(([label, value]) => {
+      const measured = measureRowHeight(label, value);
+      contentHeight += measured.rowHeight + rowGap;
+    });
+
+    const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
+
+    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
+    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
+      width: width - (paddingX * 2),
+    });
+
+    let rowY = y + titleHeight + paddingY;
+    rows.forEach(([label, value]) => {
+      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
+
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
+        width: labelWidth,
+      });
+      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+        width: valueWidth,
+      });
+
+      rowY += rowHeight + rowGap;
+    });
+
+    return y + blockHeight;
+  };
+
+  const renderTwoColumnBlocks = (blocks) => {
+    const colGap = 12;
+    const colWidth = (usableWidth - colGap) / 2;
+    let cursorY = doc.y;
+
+    for (let i = 0; i < blocks.length; i += 2) {
+      const leftBlock = blocks[i];
+      const rightBlock = blocks[i + 1] || null;
+      const estimatedPairHeight = Math.max(
+        estimateBlockHeight(leftBlock?.rows || []),
+        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
+      ) + 10;
+
+      ensureSpace(estimatedPairHeight);
+      cursorY = Math.max(cursorY, doc.y);
+
+      const leftBottom = drawInfoBlock({
+        title: leftBlock.title,
+        rows: leftBlock.rows,
+        x: left,
+        y: cursorY,
+        width: colWidth,
+      });
+
+      let pairBottom = leftBottom;
+      if (rightBlock) {
+        const rightBottom = drawInfoBlock({
+          title: rightBlock.title,
+          rows: rightBlock.rows,
+          x: left + colWidth + colGap,
+          y: cursorY,
+          width: colWidth,
+        });
+        pairBottom = Math.max(leftBottom, rightBottom);
+      }
+
+      cursorY = pairBottom + 10;
+      doc.y = cursorY;
+    }
+  };
+
+  const drawHeader = () => {
+    const logoPath = getCompanyLogoPath('dark');
+
+    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
+
+    if (logoPath) {
+      doc.image(logoPath, left + 12, 24, {
+        fit: [84, 50],
+        align: 'left',
+        valign: 'center',
+      });
+    }
+
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE SERVICIO', left, 32, { width: usableWidth - 14, align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
+    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
+    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
+    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = 140;
+  };
+
+  doc.on('data', (chunk) => chunks.push(chunk));
+  doc.on('error', reject);
+  doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
+
+  doc.on('pageAdded', () => {
+    doc.y = 140;
+  });
+
+  drawHeader();
+
+  const parseAmount = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const hasSubtotal = servicio.subtotal !== null
+    && servicio.subtotal !== undefined
+    && String(servicio.subtotal).trim() !== '';
+
   const igv = Number(servicio.igv || 0);
   const costoEnvio = Number(servicio.costo_envio || 0);
   const otrosCostos = Number(servicio.otros_costos || 0);
+  let subtotal = hasSubtotal ? parseAmount(servicio.subtotal) : 0;
+  if (!hasSubtotal) {
+    const sourceTotal = parseAmount(servicio.total || servicio.costo || 0);
+    const derivedSubtotal = Number((sourceTotal - igv - costoEnvio - otrosCostos).toFixed(2));
+    subtotal = derivedSubtotal > 0 ? derivedSubtotal : parseAmount(servicio.costo || 0);
+  }
+
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
   const aplicaRetencion = Boolean(servicio.aplica_retencion);
   const porcentajeRetencion = Number(servicio.proveedor_retencion_pct || servicio.retencion || 0);
   const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
-  const totalFinal = Number(servicio.total || totalBase);
+  const totalFinal = parseAmount(servicio.total || totalBase);
+  const approverEntries = buildPdfApprovalEntries({
+    approvals: servicio.aprobadores,
+    creatorUserId: servicio.id_usuario,
+    creatorRoleId: servicio.usuario_rol_id,
+    creatorName: servicio.usuario,
+  });
+  const approversSummary = approverEntries
+    .map((row) => `${safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))} - ${safeText(row.aprobador || 'Pendiente')}`)
+    .join(' | ');
 
-  writeSectionTitle('Resumen general');
+  writeSectionTitle('Resumen');
+  ensureSpace(98);
+  const resumenTop = doc.y;
+  const resumenRows = [
+    ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
+    ['Fecha', new Date(servicio.fecha || Date.now()).toLocaleDateString()],
+    ['Proveedor', servicio.proveedor],
+    ['Área destino', servicio.area],
+  ];
+  const resumenRowHeight = 20;
+  const resumenLabelWidth = 160;
+
+  doc.rect(left, resumenTop, usableWidth, 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('Datos de la orden', left + 10, resumenTop + 6, {
+    width: usableWidth - 20,
+    align: 'left',
+  });
+
+  let resumenY = resumenTop + 20;
+  resumenRows.forEach(([label, value], index) => {
+    const isAlternate = index % 2 === 0;
+    const valueHeight = doc.heightOfString(safeText(value), {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    const rowHeight = Math.max(resumenRowHeight, valueHeight + 12);
+    doc.rect(left, resumenY, usableWidth, rowHeight).fillAndStroke(isAlternate ? '#f8fafc' : '#ffffff', '#e2e8f0');
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 10, resumenY + 6, {
+      width: resumenLabelWidth,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(safeText(value), left + 10 + resumenLabelWidth, resumenY + 6, {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    resumenY += rowHeight;
+  });
+  doc.y = resumenY + 10;
+
   renderTwoColumnBlocks([
     {
-      title: 'Información de la orden',
+      title: 'Servicio y estado',
       rows: [
-        ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
-        ['Fecha', new Date(servicio.fecha || Date.now()).toLocaleDateString()],
-        ['Área destino', servicio.area],
+        ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
+        ['Descripción', servicio.descripcion_servicio],
         ['Solicitante', servicio.usuario],
         ['Prioridad', servicio.prioridad],
         ['Estado', normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (servicio.estado_flujo || servicio.estado_servicio)],
-      ],
-    },
-    {
-      title: 'Servicio',
-      rows: [
-        ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
-        ['Descripcion', servicio.descripcion_servicio],
         ['Estado aprobación', servicio.estado_aprobacion],
       ],
     },
     {
-      title: 'Datos del proveedor',
+      title: 'Proveedor',
       rows: [
-        ['Razón social', servicio.proveedor],
         ['Moneda', currencyLabel],
         ['RUC', servicio.proveedor_ruc],
         ['Dirección', servicio.proveedor_direccion],
@@ -1387,22 +2210,97 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
         ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
         ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
         ['Monto retenido', money(montoRetenido)],
-        ['Total final', money(totalFinal)],
       ],
     },
     {
       title: 'Aprobaciones',
-      rows: Array.isArray(servicio.aprobadores) && servicio.aprobadores.length > 0
-        ? servicio.aprobadores.map((row) => ([
-          `Nivel ${row.orden}`,
-          `${safeText(row.rol || `Rol ${row.rol_aprobador || ''}`)} - ${safeText(row.aprobador || 'Pendiente')}`,
-        ]))
-        : [['Estado', 'Sin aprobaciones registradas']],
+      rows: [
+        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
+      ],
     },
   ]);
 
+  writeSectionTitle('Detalle');
+  const servicioDescripcion = safeText(servicio.nombre_servicio || servicio.descripcion_servicio || 'Servicio');
+  const colWidths = [263, 80, 90, 90];
+  const headers = ['Material/Servicio', 'Cantidad', 'Precio unitario', 'Total'];
+  let x = left;
+  const drawDetailHeader = (startY) => {
+    let headerX = left;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
+    headers.forEach((header, index) => {
+      doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+      doc.text(header, headerX + 6, startY + 6, {
+        width: colWidths[index] - 12,
+        align: index === 0 ? 'left' : 'center',
+      });
+      headerX += colWidths[index];
+    });
+    return startY + 20;
+  };
+  let rowY = drawDetailHeader(doc.y);
+
+  const servicioRows = Array.isArray(servicio.items) && servicio.items.length > 0
+    ? servicio.items
+    : [{ descripcion: servicioDescripcion, cantidad: 1, precio_unitario: subtotal || totalFinal, total: totalFinal }];
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+  servicioRows.forEach((item) => {
+    const qty = Number(item.cantidad || 1);
+    const unit = Number(item.precio_unitario || item.precio || subtotal || 0);
+    const rowTotal = Number((item.total ?? (qty * unit)).toFixed(2));
+    const descripcion = safeText(item.material || item.servicio || item.descripcion || item.nombre || servicioDescripcion);
+    const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
+
+    if (rowY + rowHeight > bottomLimit - 32) {
+      doc.addPage();
+      drawHeader();
+      writeSectionTitle('Detalle (continuación)');
+      rowY = drawDetailHeader(doc.y);
+    }
+
+    x = left;
+    const cells = [
+      descripcion,
+      String(qty),
+      money(unit),
+      money(rowTotal),
+    ];
+    cells.forEach((cell, cellIndex) => {
+      doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
+      doc.text(cell, x + 6, rowY + 5, {
+        width: colWidths[cellIndex] - 12,
+        align: cellIndex === 0 ? 'left' : 'center',
+      });
+      x += colWidths[cellIndex];
+    });
+    rowY += rowHeight;
+  });
+
+  if (rowY + 24 > bottomLimit - 4) {
+    doc.addPage();
+    drawHeader();
+    writeSectionTitle('Detalle (continuación)');
+    rowY = doc.y;
+  }
+
+  const resumenTotalY = rowY;
+  const totalLabelWidth = colWidths[0] + colWidths[1] + colWidths[2];
+  doc.rect(left, resumenTotalY, totalLabelWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+  doc.rect(left + totalLabelWidth, resumenTotalY, colWidths[3], 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
+    width: totalLabelWidth - 16,
+    align: 'right',
+  });
+  doc.text(money(totalFinal), left + totalLabelWidth + 6, resumenTotalY + 7, {
+    width: colWidths[3] - 12,
+    align: 'center',
+  });
+
+  doc.y = resumenTotalY + 28;
+
   doc.moveDown(1);
-  doc.font('Helvetica').fontSize(8).fillColor('#334155').text(
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
     bottomLimit - 24,
@@ -1563,6 +2461,8 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
       SELECT
         s.id,
         ${servicioUserExpr} AS id_usuario,
+        ${getUserRoleIdExpr('u')} AS usuario_rol_id,
+        COALESCE(r_usuario.nombre, '') AS usuario_rol,
         ${servicioProviderExpr} AS proveedor_id,
         ${servicioAreaExpr} AS area_id,
         ${servicioMonedaExpr} AS moneda_id,
@@ -1605,13 +2505,27 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         COALESCE(pm.nombre, '') AS proveedor_moneda,
         COALESCE(a.nombre, 'Sin area') AS area,
         COALESCE(mo.nombre, '') AS moneda,
-        COALESCE(u.nombre, 'Sin usuario') AS usuario
+        COALESCE(u.nombre, 'Sin usuario') AS usuario,
+        (csr.puntuacion IS NOT NULL) AS calificacion_servicio_existe,
+        csr.puntuacion AS calificacion_servicio_puntuacion,
+        COALESCE(csr.comentario, '') AS calificacion_servicio_comentario,
+        csr.fecha AS calificacion_servicio_fecha
       FROM servicios s
       LEFT JOIN proveedores p ON p.id = ${servicioProviderExpr}
       LEFT JOIN monedas pm ON pm.id = NULLIF(COALESCE(to_jsonb(p)->>'id_moneda', ''), '')::int
       LEFT JOIN areas a ON a.id = ${servicioAreaExpr}
       LEFT JOIN monedas mo ON mo.id = ${servicioMonedaExpr}
       LEFT JOIN usuarios u ON u.id = ${servicioUserExpr}
+      LEFT JOIN roles r_usuario ON r_usuario.id = ${getUserRoleIdExpr('u')}
+      LEFT JOIN LATERAL (
+        SELECT cp.puntuacion, cp.comentario, cp.fecha
+        FROM calificaciones_proveedor cp
+        WHERE cp.id_proveedor = ${servicioProviderExpr}
+          AND lower(trim(COALESCE(cp.tipo, ''))) = 'servicio'
+          AND cp.id_referencia = s.id
+        ORDER BY cp.fecha DESC, cp.id DESC
+        LIMIT 1
+      ) csr ON TRUE
       ${whereClause}
       ORDER BY
         CASE upper(trim(COALESCE(to_jsonb(s)->>'prioridad', to_jsonb(s)->>'nivel_prioridad', 'MEDIA')))
@@ -1626,7 +2540,25 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
     params
   );
 
-  const servicios = result.rows;
+  const servicios = result.rows.map((row) => {
+    const parsedDescription = parseEmbeddedCommentsFromText(row.descripcion_servicio || '');
+    return {
+      ...row,
+      descripcion_servicio: parsedDescription.text,
+      comentarios_historial: [],
+      usuario_rol_id: Number(row.usuario_rol_id || 0) || null,
+      usuario_rol: row.usuario_rol,
+    };
+  });
+
+  const commentsByServicio = await fetchCommentsForEntities(pool, {
+    tipoEntidad: 'servicio',
+    entityIds: servicios.map((row) => Number(row.id || 0)),
+  });
+
+  servicios.forEach((row) => {
+    row.comentarios_historial = commentsByServicio.get(Number(row.id || 0)) || [];
+  });
 
   const approvalRoleId = Number(options?.approvalRoleId || 0);
   if (approvalRoleId > 0) {
@@ -2022,10 +2954,13 @@ const seedInventoryDemoData = async () => {
           cci,
           id_moneda,
           id_area_destino,
+          ${getUserRoleIdExpr('u')} AS usuario_rol_id,
+          COALESCE(r_usuario.nombre, '') AS usuario_rol,
           descripcion,
           retencion,
           categoria,
           descuento,
+        LEFT JOIN roles r_usuario ON r_usuario.id = ${getUserRoleIdExpr('u')}
           tipo,
           tipo_retencion,
           moneda_nombre
@@ -2598,7 +3533,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
 app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { nombre, email, id_role, id_area, password, estado } = req.body;
+    const { nombre, email, id_role, id_area, estado } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     if (!nombre || !String(nombre).trim()) {
@@ -2606,11 +3541,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
     }
 
     if (!email || !String(email).trim()) {
-      return res.status(400).json({ error: 'Email es requerido' });
-    }
-
-    if (!password || !String(password).trim()) {
-      return res.status(400).json({ error: 'Contraseña es requerida' });
+      return res.status(400).json({ error: 'Correo es requerido' });
     }
 
     if (!id_role) {
@@ -2629,12 +3560,13 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
       }
     }
 
-    const emailCheck = await pool.query('SELECT id FROM usuarios WHERE email = $1', [email]);
+    const sanitizedEmail = String(email).trim().toLowerCase();
+    const emailCheck = await pool.query('SELECT id FROM usuarios WHERE email = $1', [sanitizedEmail]);
     if (emailCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'Email ya existe' });
+      return res.status(400).json({ error: 'Correo ya existe' });
     }
 
-    const plainPassword = String(password).trim();
+    const hashedPassword = await hashPassword(sanitizedEmail);
 
     const result = await pool.query(
       `
@@ -2644,8 +3576,8 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
       `,
       [
         String(nombre).trim(),
-        String(email).trim().toLowerCase(),
-        plainPassword,
+        sanitizedEmail,
+        hashedPassword,
         Number(id_role),
         id_area ? Number(id_area) : null,
         estado || 'ACTIVO'
@@ -2781,11 +3713,11 @@ app.put('/api/usuarios/:id/password', authMiddleware, requireAdmin, async (req, 
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const plainPassword = String(password).trim();
+    const hashedPassword = await hashPassword(password);
 
     await pool.query(
       'UPDATE usuarios SET password_hash = $1 WHERE id = $2',
-      [plainPassword, userId]
+      [hashedPassword, userId]
     );
 
     res.json({ success: true, message: 'Contraseña actualizada correctamente' });
@@ -3491,6 +4423,7 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
     const grouped = result.rows.reduce((acc, row) => {
       const key = row.id;
       if (!acc[key]) {
+        const parsedDescription = parseEmbeddedCommentsFromText(row.descripcion || '');
         acc[key] = {
           id: row.id,
           estado: row.estado,
@@ -3498,7 +4431,8 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
           nombre_receptor: row.nombre_receptor,
           dni_receptor: row.dni_receptor,
           prioridad: row.prioridad,
-          descripcion: row.descripcion,
+          descripcion: parsedDescription.text,
+          comentarios_historial: [],
           id_usuario: row.id_usuario,
           id_area: row.id_area,
           usuario: row.usuario,
@@ -3520,6 +4454,15 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
     }, {});
 
     const list = Object.values(grouped);
+
+    const commentsByReq = await fetchCommentsForEntities(pool, {
+      tipoEntidad: 'requerimiento',
+      entityIds: list.map((row) => Number(row.id || 0)),
+    });
+
+    list.forEach((row) => {
+      row.comentarios_historial = commentsByReq.get(Number(row.id || 0)) || [];
+    });
 
     if (roleId > 0) {
       list.forEach((row) => {
@@ -3557,9 +4500,85 @@ app.get('/api/mis-requerimientos', authMiddleware, async (req, res) => {
       [req.user.id]
     );
 
-    res.json(result.rows);
+    const mapped = result.rows.map((row) => {
+      const parsedDescription = parseEmbeddedCommentsFromText(row.descripcion || '');
+      return {
+        ...row,
+        descripcion: parsedDescription.text,
+        comentarios_historial: [],
+      };
+    });
+
+    const commentsByReq = await fetchCommentsForEntities(pool, {
+      tipoEntidad: 'requerimiento',
+      entityIds: mapped.map((row) => Number(row.id || 0)),
+    });
+
+    mapped.forEach((row) => {
+      row.comentarios_historial = commentsByReq.get(Number(row.id || 0)) || [];
+    });
+
+    res.json(mapped);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/requerimientos/:id/comentarios', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const id = Number(req.params?.id || 0);
+    const contenido = String(req.body?.contenido || '').trim();
+
+    if (!id) {
+      return res.status(400).json({ error: 'ID de requerimiento invalido' });
+    }
+
+    if (!contenido) {
+      return res.status(400).json({ error: 'El contenido del comentario es obligatorio' });
+    }
+
+    await client.query('BEGIN');
+
+    const reqResult = await client.query(
+      `
+        SELECT
+          id,
+          id_usuario
+        FROM requerimientos
+        WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (reqResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Requerimiento no encontrado' });
+    }
+
+    const row = reqResult.rows[0];
+    const isOwner = Number(row.id_usuario || 0) === Number(req.user?.id || 0);
+    const canManage = canManageRequirementsRole(req.user?.rol) || isComprasOperatorUser(req.user) || canManageDeliveryRole(req.user?.rol);
+    if (!isOwner && !canManage) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No autorizado para comentar este requerimiento' });
+    }
+
+    const newEntry = await insertCommentForEntity(client, {
+      user: req.user,
+      tipoEntidad: 'requerimiento',
+      idEntidad: id,
+      contenido,
+    });
+
+    await client.query('COMMIT');
+    return res.json({ comentario: newEntry });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -3631,6 +4650,7 @@ app.get('/api/unidades', authMiddleware, async (req, res) => {
 
 app.get('/api/proveedores', authMiddleware, async (req, res) => {
   try {
+    const userId = Number(req.user?.id || 0);
     const term = String(req.query.query || '').trim();
     const limit = term ? 20 : 100;
     const likeTerm = `%${term}%`;
@@ -3679,11 +4699,233 @@ app.get('/api/proveedores', authMiddleware, async (req, res) => {
       params
     );
 
-    res.json(result.rows);
+      const ratingsMap = await fetchProveedorRatingsSummary(pool, {
+        proveedorIds: result.rows.map((row) => Number(row.id || 0)),
+        userId,
+      });
+
+      const rows = result.rows.map((row) => ({
+        ...row,
+        ...(ratingsMap.get(Number(row.id || 0)) || {
+          calificacion_promedio: 0,
+          calificacion_total: 0,
+          alerta_cambio_proveedor: false,
+          alerta_critica: false,
+          mi_calificacion: null,
+          mi_comentario: '',
+          mi_fecha: null,
+        }),
+      }));
+
+      res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.get('/api/proveedores/calificaciones/promedios', authMiddleware, async (_req, res) => {
+  try {
+    const rows = await fetchProveedorAverageRatingsForAutomation(pool);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+  app.get('/api/proveedores/:id/calificaciones', authMiddleware, async (req, res) => {
+    try {
+      const proveedorId = Number(req.params?.id || 0);
+      const rawTipo = String(req.query?.tipo || '').trim();
+      const hasTipoFilter = rawTipo.length > 0;
+      const tipo = hasTipoFilter ? normalizeRatingType(rawTipo) : null;
+      const queryReference = Number(req.query?.id_referencia || 0);
+      const referenceId = hasTipoFilter
+        ? (queryReference > 0 ? queryReference : 0)
+        : null;
+
+      if (!Number.isInteger(proveedorId) || proveedorId <= 0) {
+        return res.status(400).json({ error: 'id de proveedor invalido' });
+      }
+
+      if (hasTipoFilter && !tipo) {
+        return res.status(400).json({ error: "tipo invalido. Solo se permite 'compra' o 'servicio'" });
+      }
+
+      if (hasTipoFilter && (!Number.isInteger(referenceId) || referenceId <= 0)) {
+        return res.status(400).json({ error: 'id_referencia invalido para este tipo de calificacion' });
+      }
+
+      const providerExists = await pool.query('SELECT id FROM proveedores WHERE id = $1 LIMIT 1', [proveedorId]);
+      if (providerExists.rows.length === 0) {
+        return res.status(404).json({ error: 'Proveedor no encontrado' });
+      }
+
+      const userId = Number(req.user?.id || 0);
+      const summaryMap = await fetchProveedorRatingsSummary(pool, {
+        proveedorIds: [proveedorId],
+        userId,
+      });
+      const summary = summaryMap.get(proveedorId) || {
+        calificacion_promedio: 0,
+        calificacion_total: 0,
+        alerta_cambio_proveedor: false,
+        alerta_critica: false,
+        mi_calificacion: null,
+        mi_comentario: '',
+        mi_fecha: null,
+      };
+
+      const detailResult = hasTipoFilter
+        ? await pool.query(
+          `
+            SELECT
+              cp.id,
+              cp.id_proveedor,
+              cp.id_usuario,
+              COALESCE(u.nombre, 'Usuario') AS usuario,
+              COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'foto', to_jsonb(u)->>'imagen', '')), ''), '') AS foto,
+              cp.tipo,
+              cp.id_referencia,
+              cp.puntuacion,
+              cp.comentario,
+              cp.fecha
+            FROM calificaciones_proveedor cp
+            LEFT JOIN usuarios u ON u.id = cp.id_usuario
+            WHERE cp.id_proveedor = $1
+              AND lower(trim(COALESCE(cp.tipo, ''))) = $2
+              AND cp.id_referencia = $3
+            ORDER BY cp.fecha DESC, cp.id DESC
+            LIMIT 20
+          `,
+          [proveedorId, tipo, referenceId]
+        )
+        : await pool.query(
+          `
+            SELECT
+              cp.id,
+              cp.id_proveedor,
+              cp.id_usuario,
+              COALESCE(u.nombre, 'Usuario') AS usuario,
+              COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'foto', to_jsonb(u)->>'imagen', '')), ''), '') AS foto,
+              cp.tipo,
+              cp.id_referencia,
+              cp.puntuacion,
+              cp.comentario,
+              cp.fecha
+            FROM calificaciones_proveedor cp
+            LEFT JOIN usuarios u ON u.id = cp.id_usuario
+            WHERE cp.id_proveedor = $1
+            ORDER BY cp.fecha DESC, cp.id DESC
+            LIMIT 20
+          `,
+          [proveedorId]
+        );
+
+      const existingMine = hasTipoFilter
+        ? await pool.query(
+          tipo === 'servicio'
+            ? `
+              SELECT id
+              FROM calificaciones_proveedor
+              WHERE id_proveedor = $1
+                AND lower(trim(COALESCE(tipo, ''))) = $2
+                AND id_referencia = $3
+              LIMIT 1
+            `
+            : `
+              SELECT id
+              FROM calificaciones_proveedor
+              WHERE id_proveedor = $1
+                AND id_usuario = $2
+                AND lower(trim(COALESCE(tipo, ''))) = $3
+                AND id_referencia = $4
+              LIMIT 1
+            `,
+          tipo === 'servicio'
+            ? [proveedorId, tipo, referenceId]
+            : [proveedorId, userId, tipo, referenceId]
+        )
+        : { rows: [] };
+
+      res.json({
+        proveedor_id: proveedorId,
+        tipo: hasTipoFilter ? tipo : 'TODOS',
+        id_referencia: referenceId,
+        ya_calificado: existingMine.rows.length > 0,
+        ...summary,
+        calificaciones: detailResult.rows.map((row) => ({
+          id: Number(row.id || 0) || null,
+          id_proveedor: Number(row.id_proveedor || 0) || proveedorId,
+          id_usuario: Number(row.id_usuario || 0) || null,
+          usuario: String(row.usuario || 'Usuario').trim() || 'Usuario',
+          foto: String(row.foto || '').trim(),
+          tipo: normalizeRatingType(row.tipo) || String(row.tipo || '').trim().toLowerCase(),
+          id_referencia: Number(row.id_referencia || 0) || proveedorId,
+          puntuacion: Number(row.puntuacion || 0) || 0,
+          comentario: String(row.comentario || '').trim(),
+          fecha: row.fecha,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/proveedores/:id/calificaciones', authMiddleware, async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      const proveedorId = Number(req.params?.id || 0);
+      const puntuacion = Number(req.body?.puntuacion || 0);
+      const comentario = String(req.body?.comentario || '').trim();
+      const tipo = normalizeRatingType(req.body?.tipo);
+      const idReferencia = Number(req.body?.id_referencia || 0);
+      const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+      const allowedServiceRatingRoles = new Set([5, 7, 8, 9]);
+
+      if (!tipo) {
+        return res.status(400).json({ error: "tipo invalido. Solo se permite 'compra' o 'servicio'" });
+      }
+
+      if (!Number.isInteger(idReferencia) || idReferencia <= 0) {
+        return res.status(400).json({ error: 'id_referencia invalido para este tipo de calificacion' });
+      }
+
+      if (tipo === 'servicio' && !allowedServiceRatingRoles.has(roleId)) {
+        return res.status(403).json({ error: 'No autorizado' });
+      }
+
+      if (!Number.isInteger(proveedorId) || proveedorId <= 0) {
+        return res.status(400).json({ error: 'id de proveedor invalido' });
+      }
+
+      const providerExists = await client.query('SELECT id FROM proveedores WHERE id = $1 LIMIT 1', [proveedorId]);
+      if (providerExists.rows.length === 0) {
+        return res.status(404).json({ error: 'Proveedor no encontrado' });
+      }
+
+      await client.query('BEGIN');
+      const summary = await upsertProveedorRating(client, {
+        user: req.user,
+        proveedorId,
+        puntuacion,
+        comentario,
+        tipo,
+        idReferencia,
+      });
+      await client.query('COMMIT');
+
+      return res.json({ proveedor_id: proveedorId, ...summary });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      if (error?.code === 'RATING_ALREADY_EXISTS') {
+        return res.status(409).json({ error: 'Ya calificaste este proveedor' });
+      }
+      return res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
+    }
+  });
 
 app.get('/api/monedas', authMiddleware, async (req, res) => {
   try {
@@ -4872,6 +6114,8 @@ const mapCompraRows = (rows) => {
         id: row.id,
         estado: row.estado,
         id_usuario: row.id_usuario,
+        usuario_rol_id: Number(row.usuario_rol_id || 0) || null,
+        usuario_rol: row.usuario_rol,
         id_proveedor: row.id_proveedor,
         usuario: row.usuario,
         id_area_solicitante: row.id_area_solicitante,
@@ -4905,6 +6149,7 @@ const mapCompraRows = (rows) => {
         igv: Number(row.igv || 0),
         total: Number(row.total || 0),
         comentarios: parsedComments.comentarios,
+        comentarios_historial: [],
         recibido_por: parsedComments.recibido_por,
         entrega_area: entregaArea,
         pendiente_entrega: pendingEntregaFlag,
@@ -5024,6 +6269,43 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
   );
 
   const compras = mapCompraRows(result.rows);
+
+  const commentsByCompra = await fetchCommentsForEntities(pool, {
+    tipoEntidad: 'compra',
+    entityIds: compras.map((row) => Number(row.id || 0)),
+  });
+
+  compras.forEach((row) => {
+    row.comentarios_historial = commentsByCompra.get(Number(row.id || 0)) || [];
+  });
+
+  const providerIds = [...new Set(
+    compras
+      .map((row) => Number(row.id_proveedor || 0))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+
+  if (providerIds.length > 0) {
+    const ratingsMap = await fetchProveedorRatingsSummary(pool, {
+      proveedorIds: providerIds,
+      userId: Number(options?.userId || 0) || null,
+    });
+
+    compras.forEach((row) => {
+      const proveedorId = Number(row.id_proveedor || 0);
+      const rating = ratingsMap.get(proveedorId) || {
+        calificacion_promedio: 0,
+        calificacion_total: 0,
+        alerta_cambio_proveedor: false,
+        alerta_critica: false,
+      };
+
+      row.calificacion_promedio = Number(rating.calificacion_promedio || 0) || 0;
+      row.calificacion_total = Number(rating.calificacion_total || 0) || 0;
+      row.alerta_cambio_proveedor = Boolean(rating.alerta_cambio_proveedor);
+      row.alerta_critica = Boolean(rating.alerta_critica);
+    });
+  }
 
   const approvalRoleId = Number(options?.approvalRoleId || 0);
   if (approvalRoleId > 0) {
@@ -5230,6 +6512,62 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
     res.json(compras);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/compras/:id/comentarios', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const id = Number(req.params?.id || 0);
+    const contenido = String(req.body?.contenido || '').trim();
+
+    if (!id) {
+      return res.status(400).json({ error: 'ID de compra invalido' });
+    }
+
+    if (!contenido) {
+      return res.status(400).json({ error: 'El contenido del comentario es obligatorio' });
+    }
+
+    await client.query('BEGIN');
+
+    const compraResult = await client.query(
+      `
+        SELECT id, id_usuario
+        FROM compras
+        WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (compraResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    const row = compraResult.rows[0];
+    const isOwner = Number(row.id_usuario || 0) === Number(req.user?.id || 0);
+    const canManage = isComprasOperatorUser(req.user) || canManageDeliveryRole(req.user?.rol) || canManagePurchasesRole(req.user?.rol);
+    if (!isOwner && !canManage) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No autorizado para comentar esta compra' });
+    }
+
+    const newEntry = await insertCommentForEntity(client, {
+      user: req.user,
+      tipoEntidad: 'compra',
+      idEntidad: id,
+      contenido,
+    });
+
+    await client.query('COMMIT');
+    return res.json({ comentario: newEntry });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -5442,6 +6780,7 @@ app.post('/api/compras', authMiddleware, async (req, res) => {
       tipo: 'COMPRA',
       referenciaId: idCompra,
       creatorRoleId,
+      creatorUserId: Number(req.user?.id || 0),
     });
 
     if (approvalSetup.autoApproved) {
@@ -5608,6 +6947,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       recibidoPor: parsedExistingComments.recibido_por,
       itemCategorias: parsedExistingComments.item_categorias,
       entregaArea: parsedExistingComments.entrega_area,
+      comentariosHistorial: parsedExistingComments.comentarios_historial,
     });
 
     const comprasRetencionMeta = await pool.query(
@@ -5900,10 +7240,145 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
     res.json({
       compra: finalCompra,
       archivo: {
-        nombre: `${finalCompra.numero_orden || `OC-${finalCompra.id}`}.pdf`,
+        nombre: `orden_compra_${finalCompra.id}.pdf`,
         mime: 'application/pdf',
         base64: pdfBase64,
       },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!canManageDeliveryRole(req.user?.rol) && !isComprasOperatorUser(req.user)) {
+      return res.status(403).json({ error: 'Sin permiso para gestionar entrega' });
+    }
+
+    const { id } = req.params;
+    const idCompra = Number(id || 0);
+
+    if (!idCompra) {
+      return res.status(400).json({ error: 'ID de compra invalido' });
+    }
+
+    await client.query('BEGIN');
+
+    const compraResult = await client.query(
+      `
+        SELECT
+          id,
+          COALESCE(to_jsonb(compras)->>'estado', '') AS estado,
+          NULLIF(to_jsonb(compras)->>'id_area_final', '')::int AS id_area_final,
+          NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante
+        FROM compras
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [idCompra]
+    );
+
+    if (compraResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    const compra = compraResult.rows[0];
+    const estadoActual = normalize(compra.estado);
+
+    if (estadoActual !== 'POR_RECIBIR') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Solo se puede marcar como recibido compras en estado POR_RECIBIR' });
+    }
+
+    const idAreaFinal = Number(compra.id_area_final || 0);
+    const idAreaSolicitante = Number(compra.id_area_solicitante || 0);
+    const isGeneralDestination = idAreaFinal === 0 || idAreaFinal === idAreaSolicitante;
+
+    const detailRows = await client.query(
+      `
+        SELECT id_material, SUM(cantidad)::numeric AS cantidad_total
+        FROM detalle_compras
+        WHERE id_compra = $1
+          AND id_material IS NOT NULL
+        GROUP BY id_material
+      `,
+      [idCompra]
+    );
+
+    if (detailRows.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'La compra no tiene materiales vinculados' });
+    }
+
+    const defaultWarehouse = await client.query(
+      `
+        SELECT id
+        FROM almacenes
+        ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
+        LIMIT 1
+      `
+    );
+
+    if (defaultWarehouse.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No existe un almacen configurado para registrar recepcion' });
+    }
+
+    const idAlmacen = Number(defaultWarehouse.rows[0].id);
+
+    const idMovimientoEntrada = await insertMovimiento(client, {
+      tipo: 'ENTRADA',
+      usuarioRegistro: req.user.id,
+    });
+
+    for (const detail of detailRows.rows) {
+      const idMaterial = Number(detail.id_material || 0);
+      const qty = Number(detail.cantidad_total || 0);
+
+      if (!idMaterial || qty <= 0) continue;
+
+      await client.query(
+        `
+          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+          VALUES ($1, $2, $3)
+        `,
+        [idMovimientoEntrada, idMaterial, qty]
+      );
+
+      const stockRow = await client.query(
+        'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
+        [idMaterial, idAlmacen]
+      );
+
+      if (stockRow.rows.length === 0) {
+        await client.query(
+          'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
+          [idMaterial, idAlmacen, qty]
+        );
+      } else {
+        await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+      }
+    }
+
+    await client.query(
+      'UPDATE compras SET estado = $1, fecha_actualizacion = NOW() WHERE id = $2',
+      [isGeneralDestination ? 'RECIBIDA' : 'RECIBIDO_EN_ALMACEN', idCompra]
+    );
+
+    await client.query('COMMIT');
+
+    const result = await fetchComprasRows([idCompra], 'WHERE c.id = $1');
+    res.json({
+      ...result[0],
+      movimientos_generados: [idMovimientoEntrada],
+      id_almacen_entrada: idAlmacen,
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -6350,6 +7825,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       itemCategorias: itemCategoriesFromComments,
       recibidoPor: req.user.nombre || 'Usuario',
       entregaArea: entregaAreaPayload,
+      comentariosHistorial: parsedCompraComments.comentarios_historial,
     });
 
     await client.query(
@@ -6378,7 +7854,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
   const client = await pool.connect();
 
   try {
-    if (!canManageDeliveryRole(req.user?.rol)) {
+    if (!canManageDeliveryRole(req.user?.rol) && !isComprasOperatorUser(req.user)) {
       return res.status(403).json({ error: 'Sin permiso para gestionar entrega' });
     }
 
@@ -6412,9 +7888,9 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
 
     const row = compra.rows[0];
     const estadoActual = normalize(row.estado);
-    if (!['RECIBIDA', 'RECIBIDO'].includes(estadoActual)) {
+    if (estadoActual !== 'RECIBIDO_EN_ALMACEN') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'La orden debe estar recibida en almacen antes de entregar al area' });
+      return res.status(400).json({ error: 'La orden debe estar en estado RECIBIDO_EN_ALMACEN para marcar entrega al area' });
     }
 
     const areaRow = await client.query(
@@ -6544,6 +8020,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
         receptor_dni: receptorDni,
         fecha_entrega_area: new Date().toISOString(),
       },
+      comentariosHistorial: parsedCompraComments.comentarios_historial,
     });
 
     await client.query(
@@ -6818,6 +8295,73 @@ app.get('/api/mis-servicios', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/servicios/:id/comentarios', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (schemaMeta.serviciosColumns.size === 0) {
+      return res.status(400).json({ error: 'La tabla servicios no esta disponible' });
+    }
+
+    const id = Number(req.params?.id || 0);
+    const contenido = String(req.body?.contenido || '').trim();
+
+    if (!id) {
+      return res.status(400).json({ error: 'ID de servicio invalido' });
+    }
+
+    if (!contenido) {
+      return res.status(400).json({ error: 'El contenido del comentario es obligatorio' });
+    }
+
+    const userIdColumn = getServicioUserIdColumn();
+
+    await client.query('BEGIN');
+
+    const servicioResult = await client.query(
+      `
+        SELECT
+          id,
+          ${quoteIdentifier(userIdColumn)} AS id_usuario
+        FROM servicios
+        WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (servicioResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    const row = servicioResult.rows[0];
+    const isOwner = Number(row.id_usuario || 0) === Number(req.user?.id || 0);
+    const canManage = isComprasOperatorUser(req.user)
+      || canManagePurchasesRole(req.user?.rol)
+      || isApprovalHierarchyRoleId(resolveApprovalRoleId(req.user));
+
+    if (!isOwner && !canManage) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No autorizado para comentar este servicio' });
+    }
+
+    const newEntry = await insertCommentForEntity(client, {
+      user: req.user,
+      tipoEntidad: 'servicio',
+      idEntidad: id,
+      contenido,
+    });
+
+    await client.query('COMMIT');
+    return res.json({ comentario: newEntry });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
   try {
     const roleId = resolveApprovalRoleId(req.user);
@@ -6947,6 +8491,7 @@ app.post('/api/servicios', authMiddleware, async (req, res) => {
       tipo: 'SERVICIO',
       referenciaId: servicioId,
       creatorRoleId,
+      creatorUserId: Number(req.user?.id || 0),
     });
 
     if (approvalSetup.autoApproved) {
@@ -7406,7 +8951,7 @@ app.post('/api/servicios/:id/generar-orden', authMiddleware, async (req, res) =>
       id: refreshedServicio.id,
       servicio: refreshedServicio,
       archivo: {
-        nombre: `OS-${refreshedServicio.id}.pdf`,
+        nombre: `servicio_${refreshedServicio.id}.pdf`,
         mime: 'application/pdf',
         base64: pdfBase64,
       },
@@ -7476,7 +9021,7 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
     res.json({
       id: servicio.id,
       archivo: {
-        nombre: `OS-${servicio.id}.pdf`,
+        nombre: `servicio_${servicio.id}.pdf`,
         mime: 'application/pdf',
         base64: pdfBase64,
       },
@@ -7526,7 +9071,7 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
     res.json({
       compra,
       archivo: {
-        nombre: `${compra.numero_orden || `OC-${String(compra.id).padStart(6, '0')}`}.pdf`,
+        nombre: `orden_compra_${compra.id}.pdf`,
         mime: 'application/pdf',
         base64: pdfBase64,
       },
@@ -7571,15 +9116,205 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 
 app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const [totalsRows, comprasAreaRows, reqAreaRows, serviciosAreaRows] = await Promise.all([
+    const fechaInicioRaw = String(req.query?.fecha_inicio || '').trim();
+    const fechaFinRaw = String(req.query?.fecha_fin || '').trim();
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+    const fechaInicio = fechaInicioRaw ? (dateRegex.test(fechaInicioRaw) ? fechaInicioRaw : null) : null;
+    const fechaFin = fechaFinRaw ? (dateRegex.test(fechaFinRaw) ? fechaFinRaw : null) : null;
+
+    if (fechaInicioRaw && !fechaInicio) {
+      return res.status(400).json({ error: 'fecha_inicio invalida. Usa formato YYYY-MM-DD' });
+    }
+    if (fechaFinRaw && !fechaFin) {
+      return res.status(400).json({ error: 'fecha_fin invalida. Usa formato YYYY-MM-DD' });
+    }
+    if (fechaInicio && fechaFin && fechaInicio > fechaFin) {
+      return res.status(400).json({ error: 'fecha_inicio no puede ser mayor que fecha_fin' });
+    }
+
+    const hasRangeFilter = Boolean(fechaInicio || fechaFin);
+    let areaIds = null;
+
+    if (hasRangeFilter) {
+      const areasResult = await pool.query(
+        `
+          WITH movimientos_filtrados AS (
+            SELECT
+              NULLIF(
+                COALESCE(
+                  NULLIF(to_jsonb(m)->>'id_requerimiento', ''),
+                  NULLIF(to_jsonb(m)->>'requerimiento_id', ''),
+                  ''
+                ),
+                ''
+              )::int AS id_requerimiento,
+              CASE
+                WHEN COALESCE(
+                  NULLIF(to_jsonb(m)->>'usuario_registro', ''),
+                  NULLIF(to_jsonb(m)->>'id_usuario', ''),
+                  NULLIF(to_jsonb(m)->>'usuario_id', '')
+                ) ~ '^\\d+$'
+                  THEN COALESCE(
+                    NULLIF(to_jsonb(m)->>'usuario_registro', ''),
+                    NULLIF(to_jsonb(m)->>'id_usuario', ''),
+                    NULLIF(to_jsonb(m)->>'usuario_id', '')
+                  )::int
+                ELSE NULL
+              END AS usuario_id,
+              COALESCE(
+                NULLIF(to_jsonb(m)->>'fecha_movimiento', '')::timestamp,
+                NULLIF(to_jsonb(m)->>'fecha', '')::timestamp,
+                NOW()
+              )::date AS fecha_mov
+            FROM movimientos m
+          ),
+          areas_activas AS (
+            SELECT DISTINCT
+              COALESCE(
+                NULLIF(to_jsonb(r)->>'id_area', '')::int,
+                ur.id_area,
+                um.id_area
+              ) AS area_id
+            FROM movimientos_filtrados mf
+            LEFT JOIN requerimientos r ON r.id = mf.id_requerimiento
+            LEFT JOIN usuarios ur ON ur.id = NULLIF(to_jsonb(r)->>'id_usuario', '')::int
+            LEFT JOIN usuarios um ON um.id = mf.usuario_id
+            WHERE ($1::date IS NULL OR mf.fecha_mov >= $1::date)
+              AND ($2::date IS NULL OR mf.fecha_mov <= $2::date)
+          )
+          SELECT area_id
+          FROM areas_activas
+          WHERE area_id IS NOT NULL
+        `,
+        [fechaInicio, fechaFin]
+      );
+
+      areaIds = [...new Set(areasResult.rows.map((row) => Number(row.area_id || 0)).filter((id) => id > 0))];
+
+      if (areaIds.length === 0) {
+        return res.json({
+          filtro_fechas: {
+            fecha_inicio: fechaInicio || '',
+            fecha_fin: fechaFin || '',
+          },
+          resumen: {
+            total_compras: 0,
+            total_requerimientos: 0,
+            total_servicios: 0,
+            monto_total_compras: 0,
+          },
+          compras_por_area: [],
+          requerimientos_por_area: [],
+          servicios_por_area: [],
+          materiales_mas_utilizados: [],
+          distribucion_salida_por_area: [],
+          gasto_salida_por_area: [],
+          cantidad_materiales_recibidos_por_area: [],
+        });
+      }
+    }
+
+    const params = areaIds && areaIds.length > 0 ? [areaIds] : [];
+    const comprasWhere = areaIds && areaIds.length > 0
+      ? `WHERE COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])`
+      : '';
+    const reqWhere = areaIds && areaIds.length > 0
+      ? `WHERE COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])`
+      : '';
+    const servWhere = areaIds && areaIds.length > 0
+      ? `WHERE NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])`
+      : '';
+
+    const materialPrecioColumn = pickExistingColumn(schemaMeta.materialesColumns, ['costo_unitario', 'precio_unitario', 'costo']);
+    const materialPrecioExpr = materialPrecioColumn
+      ? `COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)`
+      : '0::numeric';
+    const movimientosSalidaCte = `
+      WITH movimientos_salida AS (
+        SELECT
+          m.id AS id_movimiento,
+          NULLIF(
+            COALESCE(
+              NULLIF(to_jsonb(m)->>'id_requerimiento', ''),
+              NULLIF(to_jsonb(m)->>'requerimiento_id', ''),
+              ''
+            ),
+            ''
+          )::int AS id_requerimiento,
+          CASE
+            WHEN COALESCE(
+              NULLIF(to_jsonb(m)->>'usuario_registro', ''),
+              NULLIF(to_jsonb(m)->>'id_usuario', ''),
+              NULLIF(to_jsonb(m)->>'usuario_id', '')
+            ) ~ '^\\d+$'
+              THEN COALESCE(
+                NULLIF(to_jsonb(m)->>'usuario_registro', ''),
+                NULLIF(to_jsonb(m)->>'id_usuario', ''),
+                NULLIF(to_jsonb(m)->>'usuario_id', '')
+              )::int
+            ELSE NULL
+          END AS usuario_id,
+          COALESCE(
+            NULLIF(to_jsonb(m)->>'fecha_movimiento', '')::timestamp,
+            NULLIF(to_jsonb(m)->>'fecha', '')::timestamp,
+            NOW()
+          )::date AS fecha_mov
+        FROM movimientos m
+        WHERE upper(trim(COALESCE(
+          NULLIF(to_jsonb(m)->>'tipo_movimiento', ''),
+          NULLIF(to_jsonb(m)->>'tipo', ''),
+          'N/D'
+        ))) = 'SALIDA'
+      ),
+      movimientos_enriquecidos AS (
+        SELECT
+          ms.id_movimiento,
+          COALESCE(a_req.nombre, a_mov.nombre, 'Sin area') AS area_destino
+        FROM movimientos_salida ms
+        LEFT JOIN requerimientos r ON r.id = ms.id_requerimiento
+        LEFT JOIN usuarios ur ON ur.id = NULLIF(to_jsonb(r)->>'id_usuario', '')::int
+        LEFT JOIN areas a_req ON a_req.id = COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, ur.id_area)
+        LEFT JOIN usuarios um ON um.id = ms.usuario_id
+        LEFT JOIN areas a_mov ON a_mov.id = um.id_area
+        WHERE ($1::date IS NULL OR ms.fecha_mov >= $1::date)
+          AND ($2::date IS NULL OR ms.fecha_mov <= $2::date)
+      )
+    `;
+
+    const [
+      totalsRows,
+      comprasAreaRows,
+      reqAreaRows,
+      serviciosAreaRows,
+      dashboardMovimientosRows,
+    ] = await Promise.all([
       pool.query(
         `
           SELECT
-            (SELECT COUNT(*) FROM compras) AS total_compras,
-            (SELECT COUNT(*) FROM requerimientos) AS total_requerimientos,
-            (SELECT COUNT(*) FROM servicios) AS total_servicios,
-            (SELECT COALESCE(SUM(NULLIF(to_jsonb(c)->>'total', '')::numeric), 0) FROM compras c) AS monto_total_compras
-        `
+            (
+              SELECT COUNT(*)
+              FROM compras c
+              ${comprasWhere}
+            ) AS total_compras,
+            (
+              SELECT COUNT(*)
+              FROM requerimientos r
+              LEFT JOIN usuarios u ON u.id = NULLIF(to_jsonb(r)->>'id_usuario', '')::int
+              ${reqWhere}
+            ) AS total_requerimientos,
+            (
+              SELECT COUNT(*)
+              FROM servicios s
+              ${servWhere}
+            ) AS total_servicios,
+            (
+              SELECT COALESCE(SUM(NULLIF(to_jsonb(c)->>'total', '')::numeric), 0)
+              FROM compras c
+              ${comprasWhere}
+            ) AS monto_total_compras
+        `,
+        params
       ),
       pool.query(
         `
@@ -7592,10 +9327,12 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             NULLIF(to_jsonb(c)->>'id_area_final', '')::int,
             NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int
           )
+          ${comprasWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC, monto_total DESC
           LIMIT 8
-        `
+        `,
+        params
       ),
       pool.query(
         `
@@ -7605,10 +9342,12 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           FROM requerimientos r
           LEFT JOIN usuarios u ON u.id = NULLIF(to_jsonb(r)->>'id_usuario', '')::int
           LEFT JOIN areas a ON a.id = COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area)
+          ${reqWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC
           LIMIT 8
-        `
+        `,
+        params
       ),
       pool.query(
         `
@@ -7617,16 +9356,116 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             COUNT(*)::int AS total
           FROM servicios s
           LEFT JOIN areas a ON a.id = NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int
+          ${servWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC
           LIMIT 8
+        `,
+        params
+      ),
+      pool.query(
         `
+          ${movimientosSalidaCte}
+          , detalle_salida AS (
+            SELECT
+              me.area_destino AS area,
+              md.id_material,
+              COALESCE(mat.nombre, CONCAT('Material #', md.id_material::text), 'Sin material') AS material,
+              COALESCE(md.cantidad, 0)::numeric AS cantidad,
+              ${materialPrecioExpr} AS precio
+            FROM movimientos_enriquecidos me
+            JOIN movimiento_detalles md ON md.id_movimiento = me.id_movimiento
+            LEFT JOIN materiales mat ON mat.id = md.id_material
+          ),
+          materiales_rank AS (
+            SELECT
+              material,
+              SUM(cantidad) AS cantidad_total_salida
+            FROM detalle_salida
+            GROUP BY material
+            ORDER BY SUM(cantidad) DESC
+            LIMIT 8
+          ),
+          areas_totales AS (
+            SELECT
+              area,
+              SUM(cantidad) AS cantidad_total_salida,
+              ROUND(SUM(cantidad * precio), 2) AS total_gastado
+            FROM detalle_salida
+            GROUP BY area
+          ),
+          distribucion AS (
+            SELECT
+              area,
+              cantidad_total_salida,
+              CASE
+                WHEN SUM(cantidad_total_salida) OVER () > 0
+                  THEN ROUND((cantidad_total_salida * 100.0) / SUM(cantidad_total_salida) OVER (), 2)
+                ELSE 0
+              END AS porcentaje
+            FROM areas_totales
+            ORDER BY cantidad_total_salida DESC
+            LIMIT 8
+          ),
+          gasto AS (
+            SELECT
+              area,
+              total_gastado
+            FROM areas_totales
+            ORDER BY total_gastado DESC
+            LIMIT 8
+          ),
+          cantidad AS (
+            SELECT
+              area,
+              cantidad_total_salida AS total_materiales_recibidos
+            FROM areas_totales
+            ORDER BY cantidad_total_salida DESC
+            LIMIT 8
+          )
+          SELECT
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'material', material,
+                'cantidad_total_salida', cantidad_total_salida
+              ) ORDER BY cantidad_total_salida DESC)
+              FROM materiales_rank
+            ), '[]'::json) AS materiales_mas_utilizados,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'area', area,
+                'cantidad_total_salida', cantidad_total_salida,
+                'porcentaje', porcentaje
+              ) ORDER BY cantidad_total_salida DESC)
+              FROM distribucion
+            ), '[]'::json) AS distribucion_salida_por_area,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'area', area,
+                'total_gastado', total_gastado
+              ) ORDER BY total_gastado DESC)
+              FROM gasto
+            ), '[]'::json) AS gasto_salida_por_area,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'area', area,
+                'total_materiales_recibidos', total_materiales_recibidos
+              ) ORDER BY total_materiales_recibidos DESC)
+              FROM cantidad
+            ), '[]'::json) AS cantidad_materiales_recibidos_por_area
+        `,
+        [fechaInicio, fechaFin]
       ),
     ]);
 
     const totals = totalsRows.rows[0] || {};
+    const dashboardMovimientos = dashboardMovimientosRows.rows[0] || {};
 
     res.json({
+      filtro_fechas: {
+        fecha_inicio: fechaInicio || '',
+        fecha_fin: fechaFin || '',
+      },
       resumen: {
         total_compras: Number(totals.total_compras || 0),
         total_requerimientos: Number(totals.total_requerimientos || 0),
@@ -7645,6 +9484,31 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       servicios_por_area: serviciosAreaRows.rows.map((row) => ({
         area: row.area,
         total: Number(row.total || 0),
+      })),
+      materiales_mas_utilizados: (Array.isArray(dashboardMovimientos.materiales_mas_utilizados)
+        ? dashboardMovimientos.materiales_mas_utilizados
+        : []).map((row) => ({
+        material: row.material,
+        cantidad_total_salida: Number(row.cantidad_total_salida || 0),
+      })),
+      distribucion_salida_por_area: (Array.isArray(dashboardMovimientos.distribucion_salida_por_area)
+        ? dashboardMovimientos.distribucion_salida_por_area
+        : []).map((row) => ({
+        area: row.area,
+        cantidad_total_salida: Number(row.cantidad_total_salida || 0),
+        porcentaje: Number(row.porcentaje || 0),
+      })),
+      gasto_salida_por_area: (Array.isArray(dashboardMovimientos.gasto_salida_por_area)
+        ? dashboardMovimientos.gasto_salida_por_area
+        : []).map((row) => ({
+        area: row.area,
+        total_gastado: Number(row.total_gastado || 0),
+      })),
+      cantidad_materiales_recibidos_por_area: (Array.isArray(dashboardMovimientos.cantidad_materiales_recibidos_por_area)
+        ? dashboardMovimientos.cantidad_materiales_recibidos_por_area
+        : []).map((row) => ({
+        area: row.area,
+        total_materiales_recibidos: Number(row.total_materiales_recibidos || 0),
       })),
     });
   } catch (error) {

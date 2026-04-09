@@ -22,7 +22,11 @@ export default function Header({ currentUserName, currentUser, onLogout }) {
   return (
     <header className="header">
       <div className="header-content">
-        <h1 className="header-title">Alfosac</h1>
+        <img
+          className="header-logo"
+          src="/alfosac-logo-azul.png"
+          alt="Alfosac"
+        />
         <div className="header-actions">
           <div className="profile-chip">
             {photoSrc ? (

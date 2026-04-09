@@ -138,6 +138,48 @@
   color: #475569;
 }
 
+.receptor-selected-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  flex-wrap: nowrap;
+}
+
+.receptor-selected-photo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+  background: #e2e8f0;
+  flex: 0 0 44px;
+}
+
+.receptor-selected-photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  font-weight: 700;
+}
+
+.receptor-selected-meta {
+  color: #0f172a;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.receptor-selected-meta strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .currency-field small {
   color: var(--text-secondary);
 }
@@ -161,6 +203,59 @@
 
 .provider-summary p {
   margin: 0;
+}
+
+.my-po-alert-warning,
+.my-po-alert-critical {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.my-po-alert-warning {
+  color: #92400e;
+}
+
+.my-po-alert-critical {
+  color: #b91c1c;
+}
+
+.my-po-provider-state-row {
+  margin: 0;
+}
+
+.my-po-provider-state-chip {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.my-po-provider-state-chip.is-neutral {
+  color: #475569;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.my-po-provider-state-chip.is-ok {
+  color: #166534;
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.my-po-provider-state-chip.is-warning {
+  color: #92400e;
+  background: #fef9c3;
+  border-color: #fde047;
+}
+
+.my-po-provider-state-chip.is-critical {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 
 .percent-input {
@@ -237,6 +332,146 @@
   background: #fff;
   cursor: pointer;
   font-weight: 600;
+}
+
+.my-po-comment-box {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.my-po-comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.my-po-comment-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px;
+}
+
+.my-po-comment-list p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.my-po-chat-item {
+  display: grid;
+  gap: 6px;
+  max-width: 82%;
+}
+
+.my-po-chat-item.is-own {
+  justify-self: end;
+}
+
+.my-po-chat-item.is-other {
+  justify-self: start;
+}
+
+.my-po-chat-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.my-po-chat-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.my-po-chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #cbd5e1;
+  flex: 0 0 28px;
+}
+
+.my-po-chat-avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  background: #dbeafe;
+}
+
+.my-po-chat-meta strong {
+  color: #0f172a;
+}
+
+.my-po-chat-message {
+  margin: 0;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #1e293b;
+  line-height: 1.35;
+}
+
+.my-po-chat-item.is-own .my-po-chat-message {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+.my-po-comment-form {
+  display: grid;
+  gap: 8px;
+}
+
+.my-po-comment-form textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 74px;
+  resize: vertical;
+}
+
+.my-po-comment-form button {
+  justify-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.my-po-comment-feedback {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.my-po-comment-feedback.info {
+  color: #0c4a6e;
+}
+
+.my-po-comment-feedback.success {
+  color: #047857;
+}
+
+.my-po-comment-feedback.error {
+  color: #b91c1c;
 }
 
 @media (max-width: 768px) {

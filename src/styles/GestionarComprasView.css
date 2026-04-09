@@ -73,6 +73,50 @@
   margin-top: 10px;
 }
 
+.purchase-rating-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.purchase-rating-state p {
+  margin: 0;
+}
+
+.purchase-state-chip {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.purchase-state-chip.is-neutral {
+  color: #475569;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.purchase-state-chip.is-ok {
+  color: #166534;
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.purchase-state-chip.is-warning {
+  color: #92400e;
+  background: #fef9c3;
+  border-color: #fde047;
+}
+
+.purchase-state-chip.is-critical {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 .purchase-manage-actions button {
   border: none;
   border-radius: 6px;
@@ -88,4 +132,19 @@
 
 .btn-reject {
   background: var(--danger-color);
+}
+
+.purchase-alert-warning,
+.purchase-alert-critical {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.purchase-alert-warning {
+  color: #92400e;
+}
+
+.purchase-alert-critical {
+  color: #b91c1c;
 }

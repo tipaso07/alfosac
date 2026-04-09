@@ -121,6 +121,157 @@
   color: #047857;
 }
 
+.my-req-comments-box {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.my-req-comments-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.my-req-comments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.my-req-comments-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px;
+}
+
+.my-req-comments-list p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.my-req-chat-item {
+  display: grid;
+  gap: 6px;
+  max-width: 82%;
+}
+
+.my-req-chat-item.is-own {
+  justify-self: end;
+}
+
+.my-req-chat-item.is-other {
+  justify-self: start;
+}
+
+.my-req-chat-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.my-req-chat-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.my-req-chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #cbd5e1;
+  flex: 0 0 28px;
+}
+
+.my-req-chat-avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  background: #dbeafe;
+}
+
+.my-req-chat-meta strong {
+  color: #0f172a;
+}
+
+.my-req-chat-message {
+  margin: 0;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #1e293b;
+  line-height: 1.35;
+}
+
+.my-req-chat-item.is-own .my-req-chat-message {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+.my-req-comments-form {
+  display: grid;
+  gap: 8px;
+}
+
+.my-req-comments-form textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 70px;
+  resize: vertical;
+}
+
+.my-req-comments-form button {
+  justify-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #fff;
+  font-weight: 600;
+}
+
+.my-req-comment-feedback {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.my-req-comment-feedback.info {
+  color: #0c4a6e;
+}
+
+.my-req-comment-feedback.success {
+  color: #047857;
+}
+
+.my-req-comment-feedback.error {
+  color: #b91c1c;
+}
+
+.my-req-comment-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .my-req-date-grid {
     grid-template-columns: 1fr;
