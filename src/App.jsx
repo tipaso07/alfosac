@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import LoginView from './components/LoginView'
 import ChangePasswordView from './components/ChangePasswordView'
-import { clearAuthSession, fetchCurrentUser, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
+import { clearAuthSession, logout, fetchCurrentUser, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
 import { getModulesByRole, modules } from './services/moduleAccess'
 
 function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [], children }) {
@@ -81,8 +81,8 @@ function App() {
     setIsAuthenticated(true)
   }
 
-  const handleLogout = () => {
-    clearAuthSession()
+  const handleLogout = async () => {
+    await logout()
     setIsAuthenticated(false)
     setCurrentUser(null)
   }

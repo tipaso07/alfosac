@@ -1008,8 +1008,36 @@ export const requiresPasswordChange = () => {
   return localStorage.getItem('requiresPasswordChange') === 'true';
 };
 
+// Comprehensive logout - clears all session data
+export const logout = async () => {
+  try {
+    // Attempt server-side logout (optional endpoint)
+    const token = getAuthToken();
+    if (token) {
+      await fetch(`${API_BASE_URL}/logout`, {
+        method: 'POST',
+        headers: buildHeaders({ includeJson: true }),
+      }).catch(() => {
+        // Server logout endpoint might not exist, that's okay
+      });
+    }
+  } catch {
+    // Ignore server errors on logout
+  } finally {
+    clearAuthSession();
+  }
+};
+
 export const clearAuthSession = () => {
+  // Remove all auth-related data
   localStorage.removeItem('authToken');
   localStorage.removeItem('userId');
   localStorage.removeItem('requiresPasswordChange');
+  localStorage.removeItem('loginAttempts');
+  
+  // Clear any cached user data
+  sessionStorage.clear();
+  
+  // Clear cached API responses if you have any
+  // This ensures fresh data on next login
 };

@@ -3495,6 +3495,17 @@ const loginHandler = async (req, res) => {
 app.post('/api/login', loginHandler);
 app.post('/api/auth/login', loginHandler);
 
+app.post('/api/logout', authMiddleware, async (req, res) => {
+  try {
+    // Logout is mostly client-side (token removal)
+    // This endpoint just validates user is authenticated and returns success
+    console.log('[AUTH][LOGOUT] usuario:', req.user.id);
+    res.json({ success: true, message: 'Logout successful' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/roles', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, nombre FROM roles ORDER BY id');

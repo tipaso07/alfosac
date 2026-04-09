@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { changePassword, clearAuthSession } from '../services/api'
+import { changePassword, logout } from '../services/api'
 import '../styles/ChangePasswordView.css'
 
 export default function ChangePasswordView() {
@@ -54,8 +54,8 @@ export default function ChangePasswordView() {
     }
   }
 
-  const handleLogout = () => {
-    clearAuthSession()
+  const handleLogout = async () => {
+    await logout()
     navigate('/login', { replace: true })
   }
 

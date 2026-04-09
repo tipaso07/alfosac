@@ -76,6 +76,28 @@
   font-weight: 600;
 }
 
+.login-warning {
+  margin: 0;
+  color: #d97706;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: #fef3c7;
+  border-left: 3px solid #d97706;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+
+.login-lockout-notice {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #fee2e2;
+  color: #7f1d1d;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+  border-left: 4px solid #dc2626;
+}
+
 @media (max-width: 640px) {
   .login-card {
     padding: 20px;
