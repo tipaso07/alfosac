@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import LoginView from './components/LoginView'
 import ChangePasswordView from './components/ChangePasswordView'
-import { clearAuthSession, fetchCurrentUser, hasActiveSession, requiresPasswordChange } from './services/api'
+import { clearAuthSession, fetchCurrentUser, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
 import { getModulesByRole, modules } from './services/moduleAccess'
 
 function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [], children }) {
@@ -38,6 +38,15 @@ function App() {
   const [authReady, setAuthReady] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+
+  // Configurar manejador global de errores 401/403
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearAuthSession()
+      setIsAuthenticated(false)
+      setCurrentUser(null)
+    })
+  }, [])
 
   useEffect(() => {
     const bootstrapAuth = async () => {

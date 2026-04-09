@@ -5,6 +5,21 @@ export const CURRENT_USER_ID = 1;
 const getStoredUserId = () => String(localStorage.getItem('userId') || CURRENT_USER_ID);
 const getAuthToken = () => String(localStorage.getItem('authToken') || '');
 
+// Global error handler para 401/403
+let onUnauthorizedHandler = null;
+export const setUnauthorizedHandler = (handler) => {
+  onUnauthorizedHandler = handler;
+};
+
+const handleAuthError = (status) => {
+  if (status === 401 || status === 403) {
+    clearAuthSession();
+    if (onUnauthorizedHandler) {
+      onUnauthorizedHandler();
+    }
+  }
+};
+
 const buildHeaders = ({ includeJson = false, extra = {} } = {}) => {
   const headers = {
     ...extra,
@@ -127,7 +142,15 @@ export const fetchCurrentUser = async () => {
   const response = await fetch(API_ENDPOINTS.ME, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener usuario actual');
+  
+  if (!response.ok) {
+    handleAuthError(response.status);
+    const msg = response.status === 401 ? 'Sesión expirada' : 
+                response.status === 403 ? 'Sin permisos' : 
+                'Error al obtener usuario actual';
+    throw new Error(msg);
+  }
+  
   return response.json();
 };
 
