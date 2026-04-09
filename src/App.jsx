@@ -3,12 +3,17 @@ import InventoryDashboard from './components/InventoryDashboard'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import LoginView from './components/LoginView'
-import { clearAuthSession, fetchCurrentUser, hasActiveSession } from './services/api'
+import ChangePasswordView from './components/ChangePasswordView'
+import { clearAuthSession, fetchCurrentUser, hasActiveSession, requiresPasswordChange } from './services/api'
 import { getModulesByRole, modules } from './services/moduleAccess'
 
 function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [], children }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+
+  if (requiresPasswordChange()) {
+    return <Navigate to="/cambiar-contrasena" replace />
   }
 
   if (moduleId && !allowedModules.includes(moduleId)) {
@@ -100,11 +105,19 @@ function App() {
             path="/login"
             element={
               isAuthenticated
-                ? <Navigate to={defaultPath} replace />
+                ? <Navigate to={requiresPasswordChange() ? '/cambiar-contrasena' : defaultPath} replace />
                 : <LoginView onLoginSuccess={handleLoginSuccess} />
             }
           />
-          <Route path="/" element={<Navigate to={isAuthenticated ? defaultPath : '/login'} replace />} />
+          <Route
+            path="/cambiar-contrasena"
+            element={
+              !isAuthenticated
+                ? <Navigate to="/login" replace />
+                : <ChangePasswordView />
+            }
+          />
+          <Route path="/" element={<Navigate to={isAuthenticated ? (requiresPasswordChange() ? '/cambiar-contrasena' : defaultPath) : '/login'} replace />} />
 
           <Route path="/inventario" element={renderDashboard('materials', 1)} />
           <Route path="/dashboard" element={renderDashboard('admin-dashboard', 12)} />

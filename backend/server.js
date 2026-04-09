@@ -3454,21 +3454,21 @@ const loginHandler = async (req, res) => {
     });
     const providedPassword = String(contrasena || '').trim();
     const storedPassword = String(user.password_hash || '').trim();
-    let validPassword = storedPassword === providedPassword;
-
-    if (!validPassword && /^\$2[aby]\$\d{2}\$/.test(storedPassword)) {
-      console.log('[AUTH][LOGIN] password legacy detectado para usuario:', user.id);
+    
+    let validPassword = false;
+    const isBcryptHash = /^\$2[aby]\$\d{2}\$/.test(storedPassword);
+    
+    if (isBcryptHash) {
       validPassword = await bcrypt.compare(providedPassword, storedPassword);
-
-      if (validPassword) {
-        await pool.query(`UPDATE usuarios SET ${quoteIdentifier(schemaMeta.usuariosPasswordColumn)} = $1 WHERE id = $2`, [providedPassword, user.id]);
-        console.log('[AUTH][LOGIN] password migrado a texto plano para usuario:', user.id);
-      }
+    } else {
+      validPassword = storedPassword === providedPassword;
     }
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Credenciales invalidas' });
     }
+
+    const requiresPasswordChange = providedPassword.toLowerCase() === user.email.toLowerCase();
 
     const token = createAuthToken(user);
 
@@ -3476,6 +3476,7 @@ const loginHandler = async (req, res) => {
       token,
       token_type: 'Bearer',
       expires_in: JWT_EXPIRES_IN,
+      requires_password_change: requiresPasswordChange,
       user: {
         id: user.id,
         nombre: user.nombre,
@@ -3708,12 +3709,69 @@ app.put('/api/usuarios/:id/password', authMiddleware, requireAdmin, async (req, 
       return res.status(400).json({ error: 'Contraseña es requerida' });
     }
 
-    const userCheck = await pool.query('SELECT id FROM usuarios WHERE id = $1', [userId]);
+    if (String(password).trim().length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+
+    const userCheck = await pool.query('SELECT id, email FROM usuarios WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const hashedPassword = await hashPassword(password);
+    const userEmail = String(userCheck.rows[0].email || '').trim().toLowerCase();
+    const cleanPassword = String(password).trim();
+    if (cleanPassword.toLowerCase() === userEmail) {
+      return res.status(400).json({ error: 'La contraseña no puede ser igual al correo' });
+    }
+
+    const hashedPassword = await hashPassword(cleanPassword);
+
+    await pool.query(
+      'UPDATE usuarios SET password_hash = $1 WHERE id = $2',
+      [hashedPassword, userId]
+    );
+
+    res.json({ success: true, message: 'Contraseña actualizada correctamente' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/me/cambiar-contrasena', authMiddleware, async (req, res) => {
+  try {
+    const { password_nueva, password_confirmacion } = req.body;
+    const userId = req.user.id;
+
+    if (!password_nueva || !String(password_nueva).trim()) {
+      return res.status(400).json({ error: 'Nueva contraseña es requerida' });
+    }
+
+    if (!password_confirmacion || !String(password_confirmacion).trim()) {
+      return res.status(400).json({ error: 'Confirmación de contraseña es requerida' });
+    }
+
+    const cleanNew = String(password_nueva).trim();
+    const cleanConfirm = String(password_confirmacion).trim();
+
+    if (cleanNew !== cleanConfirm) {
+      return res.status(400).json({ error: 'Las contraseñas no coinciden' });
+    }
+
+    if (cleanNew.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+
+    const userCheck = await pool.query('SELECT email FROM usuarios WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userEmail = String(userCheck.rows[0].email || '').trim().toLowerCase();
+    if (cleanNew.toLowerCase() === userEmail) {
+      return res.status(400).json({ error: 'La contraseña no puede ser igual al correo' });
+    }
+
+    const hashedPassword = await hashPassword(cleanNew);
 
     await pool.query(
       'UPDATE usuarios SET password_hash = $1 WHERE id = $2',

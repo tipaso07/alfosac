@@ -947,8 +947,32 @@ export const login = async (credentials) => {
   if (data?.token) {
     localStorage.setItem('authToken', data.token);
     localStorage.setItem('userId', String(data.user?.id || ''));
+    if (data?.requires_password_change === true) {
+      localStorage.setItem('requiresPasswordChange', 'true');
+    }
   }
   return data;
+};
+
+export const changePassword = async (passwordData) => {
+  const response = await fetch(`${API_BASE_URL}/me/cambiar-contrasena`, {
+    method: 'PUT',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(passwordData),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al cambiar contraseña';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
 };
 
 // Auth helpers
@@ -957,7 +981,12 @@ export const hasActiveSession = () => {
   return !!token;
 };
 
+export const requiresPasswordChange = () => {
+  return localStorage.getItem('requiresPasswordChange') === 'true';
+};
+
 export const clearAuthSession = () => {
   localStorage.removeItem('authToken');
   localStorage.removeItem('userId');
+  localStorage.removeItem('requiresPasswordChange');
 };
