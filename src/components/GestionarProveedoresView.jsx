@@ -7,7 +7,6 @@ import {
   fetchProveedores,
   updateProveedor,
 } from '../services/api'
-import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const initialForm = {
   nombre: '',
@@ -92,8 +91,6 @@ export default function GestionarProveedoresView({ canEdit = false, currentUserR
   const [editingCell, setEditingCell] = useState(null)
   const [drafts, setDrafts] = useState({})
   const [savingByProvider, setSavingByProvider] = useState({})
-  const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9 || canEdit
-
   useEffect(() => {
     const load = async () => {
       try {
@@ -543,23 +540,17 @@ export default function GestionarProveedoresView({ canEdit = false, currentUserR
               <th>Categoria</th>
               <th>Tipo</th>
               <th>Calificación promedio</th>
-              <th>Alertas</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={14}>No hay proveedores para mostrar.</td>
+                <td colSpan={13}>No hay proveedores para mostrar.</td>
               </tr>
             )}
             {rows.map((provider) => (
               (() => {
-                const ratingState = evaluateProviderRatingState({
-                  promedio: provider.calificacion_promedio,
-                  total: provider.calificacion_total,
-                  alertaCritica: provider.alerta_critica,
-                })
                 const averageText = Number(provider.calificacion_total || 0) > 0
                   ? `⭐ ${Number(provider.calificacion_promedio || 0).toFixed(1)} / 5`
                   : 'Sin calificaciones'
@@ -578,23 +569,7 @@ export default function GestionarProveedoresView({ canEdit = false, currentUserR
                 <td>{renderInlineCell(provider, 'categoria')}</td>
                 <td>{renderInlineCell(provider, 'tipo')}</td>
                 <td>
-                  <div className="provider-rating-cell">
-                    <span>{averageText}</span>
-                    <span className={`provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span>
-                  </div>
-                </td>
-                <td>
-                  <div className="provider-alerts">
-                    {ratingState.showLowAlert && (
-                      <p className="provider-warning">Se recomienda evaluar cambio de proveedor</p>
-                    )}
-                    {canSeeCriticalAlert && ratingState.showCriticalAlert && (
-                      <p className="provider-critical">Proveedor con calificacion critica, se recomienda contactar</p>
-                    )}
-                    {!ratingState.showLowAlert && !(canSeeCriticalAlert && ratingState.showCriticalAlert) && (
-                      <span className="provider-ready">Sin alertas</span>
-                    )}
-                  </div>
+                  <span>{averageText}</span>
                 </td>
                 <td>
                   <div className="row-actions">

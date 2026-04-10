@@ -12,7 +12,7 @@ export const setUnauthorizedHandler = (handler) => {
 };
 
 const handleAuthError = (status) => {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     clearAuthSession();
     if (onUnauthorizedHandler) {
       onUnauthorizedHandler();
@@ -40,6 +40,7 @@ const buildHeaders = ({ includeJson = false, extra = {} } = {}) => {
 
 export const API_ENDPOINTS = {
   MATERIALES: `${API_BASE_URL}/materiales`,
+  ALMACENES: `${API_BASE_URL}/almacenes`,
   REQUERIMIENTOS: `${API_BASE_URL}/requerimientos`,
   MOVIMIENTOS: `${API_BASE_URL}/movimientos`,
   SERVICIOS: `${API_BASE_URL}/servicios`,
@@ -53,6 +54,14 @@ export const fetchMateriales = async () => {
     headers: buildHeaders(),
   });
   if (!response.ok) throw new Error('Error al obtener materiales');
+  return response.json();
+};
+
+export const fetchAlmacenes = async () => {
+  const response = await fetch(API_ENDPOINTS.ALMACENES, {
+    headers: buildHeaders(),
+  });
+  if (!response.ok) throw new Error('Error al obtener almacenes');
   return response.json();
 };
 
@@ -94,7 +103,21 @@ export const createMaterial = async (material) => {
     headers: buildHeaders({ includeJson: true }),
     body: JSON.stringify(material),
   });
-  if (!response.ok) throw new Error('Error al crear material');
+
+  if (!response.ok) {
+    handleAuthError(response.status)
+    let msg = 'Error al crear material'
+    try {
+      const data = await response.json()
+      if (data?.error) msg = data.error
+    } catch {
+      // ignore
+    }
+    const error = new Error(msg)
+    error.status = response.status
+    throw error
+  }
+
   return response.json();
 };
 
@@ -104,7 +127,16 @@ export const updateMaterial = async (id, material) => {
     headers: buildHeaders({ includeJson: true }),
     body: JSON.stringify(material),
   });
-  if (!response.ok) throw new Error('Error al actualizar material');
+  if (!response.ok) {
+    let msg = 'Error al actualizar material';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
   return response.json();
 };
 
@@ -151,6 +183,26 @@ export const fetchCurrentUser = async () => {
     throw new Error(msg);
   }
   
+  return response.json();
+};
+
+export const fetchProveedorNotifications = async () => {
+  const response = await fetch(`${API_BASE_URL}/notificaciones/proveedores`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener notificaciones';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
   return response.json();
 };
 
@@ -338,7 +390,21 @@ export const fetchProveedores = async (query = '') => {
   const response = await fetch(`${API_BASE_URL}/proveedores${suffix}`, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener proveedores');
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener proveedores';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore parse error
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
+
   return response.json();
 };
 
@@ -472,6 +538,27 @@ export const guardarCalificacionProveedor = async (id, payload) => {
   return response.json();
 };
 
+export const actualizarCalificacionProveedor = async (idProveedor, idCalificacion, payload) => {
+  const response = await fetch(`${API_BASE_URL}/proveedores/${idProveedor}/calificaciones/${idCalificacion}`, {
+    method: 'PATCH',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al actualizar calificacion del proveedor';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const fetchUnidades = async () => {
   const response = await fetch(`${API_BASE_URL}/unidades`, {
     headers: buildHeaders(),
@@ -500,7 +587,101 @@ export const fetchRoles = async () => {
   const response = await fetch(`${API_BASE_URL}/roles`, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener roles');
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener roles';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return response.json();
+};
+
+export const fetchPermisos = async () => {
+  const response = await fetch(`${API_BASE_URL}/permisos`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener permisos';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const fetchPermisosRol = async (idRol) => {
+  const response = await fetch(`${API_BASE_URL}/roles/${idRol}/permisos`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener permisos del rol';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const updatePermisosRol = async (idRol, permisos = []) => {
+  const response = await fetch(`${API_BASE_URL}/roles/${idRol}/permisos`, {
+    method: 'PUT',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ permisos }),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al actualizar permisos del rol';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const createRol = async ({ nombre }) => {
+  const response = await fetch(`${API_BASE_URL}/roles`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ nombre }),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al crear rol';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
   return response.json();
 };
 

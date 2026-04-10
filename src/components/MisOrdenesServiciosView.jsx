@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import '../styles/MisOrdenesServiciosView.css'
 import { fetchMiCalificacionProveedor, guardarCalificacionProveedor } from '../services/api'
+import { hasPermission } from '../services/permissions'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
 const sortCommentsByDateAsc = (comments = []) => {
@@ -58,6 +59,7 @@ export default function MisOrdenesServiciosView({
   servicios = [],
   proveedores = [],
   currentUserRoleId,
+  currentUserPermissions = [],
   onCompletarDatos,
   onGenerarOrden,
   onDescargarPdf,
@@ -81,7 +83,8 @@ export default function MisOrdenesServiciosView({
   const [ratingError, setRatingError] = useState('')
   const [ratingNotice, setRatingNotice] = useState('')
   const currentUserId = useMemo(() => Number(localStorage.getItem('userId') || 0), [])
-  const canRateProviders = Number(currentUserRoleId || 0) === 6
+  const canRateProviders = hasPermission(currentUserPermissions, 'CALIFICAR_COMPRA')
+    || hasPermission(currentUserPermissions, 'CALIFICAR_REQUERIMIENTO')
 
   const getCommentPhotoSrc = (comment) => {
     const raw = String(comment?.foto || '').trim()
@@ -355,7 +358,7 @@ export default function MisOrdenesServiciosView({
     event.preventDefault()
     if (!ratingService) return
     if (!canRateProviders) {
-      setRatingError('Solo el gerente de area puede calificar proveedores')
+      setRatingError('No autorizado para calificar proveedores')
       return
     }
 
@@ -706,11 +709,12 @@ export default function MisOrdenesServiciosView({
         <div className="provider-modal-backdrop" onClick={closeRatingModal}>
           <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
             <div className="provider-modal-head">
-              <h2>Calificar proveedor</h2>
+              <h2>Calificar servicio</h2>
               <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
             </div>
             <div className="provider-rating-header">
-              <h3>{ratingService.proveedor_nombre || ratingService.proveedor || 'Proveedor'}</h3>
+              <h3>{ratingService.nombre_servicio || ratingService.descripcion_servicio || `Servicio #${ratingService.id || ''}`}</h3>
+              <p><strong>Proveedor:</strong> {ratingService.proveedor_nombre || ratingService.proveedor || 'Proveedor'}</p>
               <p>Completa una calificación breve después de finalizar el servicio.</p>
             </div>
 

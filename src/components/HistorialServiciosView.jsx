@@ -11,7 +11,7 @@ const isRealizado = (servicio) => {
   return ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(flow) || ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(normalize(servicio.estado_servicio))
 }
 
-const isAprobado = (servicio) => normalize(servicio.estado_aprobacion) === 'APROBADO'
+const isAprobado = (servicio) => ['APROBADO', 'APROBADA'].includes(normalize(servicio.estado_aprobacion))
 
 const isRated = (servicio, ratedById = {}) => Boolean(ratedById[servicio?.id]) || Boolean(servicio?.calificacion_servicio_existe)
 

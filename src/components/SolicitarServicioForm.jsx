@@ -11,6 +11,7 @@ export default function SolicitarServicioForm({
     nombre_servicio: '',
     descripcion_servicio: '',
     prioridad: 'MEDIA',
+    dentro_plan: true,
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -53,12 +54,14 @@ export default function SolicitarServicioForm({
         area_id: areaId,
         descripcion_servicio: descripcionServicio,
         prioridad,
+        dentro_plan: Boolean(form.dentro_plan),
       })
 
       setForm({
         nombre_servicio: '',
         descripcion_servicio: '',
         prioridad: 'MEDIA',
+        dentro_plan: true,
       })
     } catch (err) {
       setError(err.message || 'Error al crear solicitud de servicio')
@@ -113,6 +116,18 @@ export default function SolicitarServicioForm({
               <option value="ALTA">ALTA</option>
               <option value="MEDIA">MEDIA</option>
               <option value="BAJA">BAJA</option>
+            </select>
+          </label>
+
+          <label>
+            Dentro del plan
+            <select
+              value={form.dentro_plan ? 'SI' : 'NO'}
+              onChange={(event) => update({ dentro_plan: event.target.value === 'SI' })}
+              disabled={saving}
+            >
+              <option value="SI">SI</option>
+              <option value="NO">NO</option>
             </select>
           </label>
         </div>

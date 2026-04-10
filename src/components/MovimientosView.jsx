@@ -213,13 +213,16 @@ export default function MovimientosView({ movimientos = [] }) {
               {normalize(mov.tipo) === 'SALIDA' && (
                 <p><strong>Area de destino:</strong> {mov.area_destino || 'Sin area'}</p>
               )}
+              {normalize(mov.tipo) === 'ENTRADA' && (
+                <p><strong>Area asociada:</strong> {mov.area_destino || 'Sin area'}</p>
+              )}
 
               <div className="mov-details">
                 <strong>Detalles:</strong>
                 <ul>
                   {(mov.detalles || []).map((det, idx) => (
-                    <li key={`${mov.id}-${idx}-${det.id_material}`}>
-                      {det.material || `Material ${det.id_material}`} - {det.cantidad}
+                    <li key={`${mov.id}-${idx}-${det.id_material}`} className="mov-detail-item">
+                      <p>{det.material || `Material ${det.id_material}`} - {det.cantidad}</p>
                     </li>
                   ))}
                 </ul>

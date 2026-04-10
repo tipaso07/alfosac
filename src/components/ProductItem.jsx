@@ -9,6 +9,7 @@ export default function ProductItem({
   monedas = [],
   proveedores = [],
   unidades = [],
+  almacenes = [],
   saving = false,
   onEdit,
   onCancel,
@@ -19,6 +20,7 @@ export default function ProductItem({
 }) {
   const stockValue = Number(material.stock) || 0
   const stockSeguridadValue = Number(material.stock_seguridad) || 0
+  const isBelowSafetyStock = stockValue <= stockSeguridadValue
   const costoUnitarioValue = isEditing ? Number(draft?.costo_unitario) || 0 : Number(material.costo_unitario) || 0
   const costoConIgvValue = isEditing ? Number((costoUnitarioValue * 1.18).toFixed(2)) : Number(material.costo_con_igv) || 0
   const monedaLabel = material.moneda || material.moneda_nombre || material.moneda_codigo || '-'
@@ -26,6 +28,7 @@ export default function ProductItem({
   const proveedorId = isEditing ? String(draft?.id_proveedor || '') : String(material.id_proveedor || '')
   const unidadId = isEditing ? String(draft?.id_unidad || '') : String(material.id_unidad || '')
   const monedaId = isEditing ? String(draft?.id_moneda || '') : String(material.moneda_id || '')
+  const almacenId = isEditing ? String(draft?.id_almacen || '') : String(material.id_almacen || '')
   const imagePreview = isEditing ? String(draft?.imagen || '').trim() : String(material.imagen || '').trim()
 
   const categoryLabel = material.categoria || 'Sin categoria'
@@ -36,11 +39,12 @@ export default function ProductItem({
   const resolveUnitLabel = (item) => String(item?.nombre || item?.unidad || '').trim() || `Unidad ${item?.id || ''}`
   const resolveCategoryLabel = (item) => String(item?.nombre || item?.categoria || '').trim() || `Categoria ${item?.id || ''}`
   const resolveMonedaLabel = (item) => String(item?.nombre || item?.moneda || '').trim() || `Moneda ${item?.id || ''}`
+  const resolveAlmacenLabel = (item) => String(item?.nombre || item?.almacen || '').trim() || `Almacen ${item?.id || ''}`
 
   return (
     <tr className={`product-item ${isEditing ? 'editing' : ''} ${saving ? 'saving' : ''}`}>
       <td className="product-name">{material.id_material}</td>
-      <td className="product-name">
+      <td className={`product-name ${isBelowSafetyStock ? 'product-name-critical' : ''}`}>
         {isEditing ? (
           <input
             className="edit-input"
@@ -121,8 +125,38 @@ export default function ProductItem({
         )}
       </td>
       <td className="product-quantity"><span className="quantity-badge">{stockValue}</span></td>
-      <td>{stockSeguridadValue}</td>
-      <td>{material.ubicacion}</td>
+      <td>
+        {isEditing ? (
+          <input
+            className="edit-input"
+            type="number"
+            min="0"
+            step="0.01"
+            value={draft?.stock_seguridad || ''}
+            onChange={(event) => onDraftChange?.('stock_seguridad', event.target.value)}
+          />
+        ) : (
+          stockSeguridadValue
+        )}
+      </td>
+      <td>
+        {isEditing ? (
+          <select
+            className="edit-select"
+            value={almacenId}
+            onChange={(event) => onDraftChange?.('id_almacen', event.target.value)}
+          >
+            <option value="">Selecciona almacen</option>
+            {almacenes.map((almacen) => (
+              <option key={almacen.id} value={almacen.id}>
+                {resolveAlmacenLabel(almacen)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          material.ubicacion
+        )}
+      </td>
       <td>
         {isEditing ? (
           <input

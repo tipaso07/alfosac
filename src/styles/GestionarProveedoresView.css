@@ -107,66 +107,6 @@
   font-weight: 600;
 }
 
-.provider-alerts {
-  display: grid;
-  gap: 6px;
-}
-
-.provider-rating-cell {
-  display: grid;
-  gap: 6px;
-}
-
-.provider-state-chip {
-  display: inline-flex;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.provider-state-chip.is-neutral {
-  color: #475569;
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-}
-
-.provider-state-chip.is-ok {
-  color: #166534;
-  background: #ecfdf5;
-  border-color: #86efac;
-}
-
-.provider-state-chip.is-warning {
-  color: #92400e;
-  background: #fef9c3;
-  border-color: #fde047;
-}
-
-.provider-state-chip.is-critical {
-  color: #991b1b;
-  background: #fee2e2;
-  border-color: #fca5a5;
-}
-
-.provider-warning,
-.provider-critical {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.3;
-  font-weight: 600;
-}
-
-.provider-warning {
-  color: #92400e;
-}
-
-.provider-critical {
-  color: #b91c1c;
-}
-
 .provider-modal-backdrop {
   position: fixed;
   inset: 0;

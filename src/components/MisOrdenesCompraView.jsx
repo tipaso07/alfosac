@@ -7,6 +7,7 @@ import {
   guardarCalificacionProveedor,
   marcarRecibidoEnAlmacen,
 } from '../services/api'
+import { hasPermission } from '../services/permissions'
 import { evaluateProviderRatingState } from '../services/providerRatingRules'
 
 const emptyForm = {
@@ -84,6 +85,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
 export default function MisOrdenesCompraView({
   compras,
   currentUserRoleId,
+  currentUserPermissions = [],
   onCompletarDatos,
   onGenerarOrden,
   onDescargarPdf,
@@ -111,7 +113,8 @@ export default function MisOrdenesCompraView({
   const [ratingError, setRatingError] = useState('')
   const [ratingNotice, setRatingNotice] = useState('')
   const currentUserId = useMemo(() => Number(localStorage.getItem('userId') || 0), [])
-  const canRateProviders = Number(currentUserRoleId || 0) === 6
+  const canRateProviders = hasPermission(currentUserPermissions, 'CALIFICAR_COMPRA')
+    || hasPermission(currentUserPermissions, 'CALIFICAR_REQUERIMIENTO')
   const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9
 
   const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -168,7 +171,7 @@ export default function MisOrdenesCompraView({
   const filtered = useMemo(() => {
     return (compras || []).filter((compra) => {
       const estado = normalize(compra.estado)
-      if (activeFilter === 'APROBADAS') return estado === 'APROBADA'
+      if (activeFilter === 'APROBADAS') return estado === 'APROBADA' || estado === 'APROBADO'
       if (activeFilter === 'POR_RECIBIR') return estado === 'POR_RECIBIR'
       if (activeFilter === 'RECIBIDO_EN_ALMACEN') return estado === 'RECIBIDO_EN_ALMACEN'
       if (activeFilter === 'ENTREGADO') return estado === 'ENTREGADO'
@@ -187,7 +190,7 @@ export default function MisOrdenesCompraView({
     if (normalized === 'RECIBIDO_EN_ALMACEN') return 'RECIBIDO EN ALMACEN'
     if (normalized === 'RECIBIDA' || normalized === 'RECIBIDO') return 'RECIBIDA'
     if (normalized === 'ENTREGADO') return 'ENTREGADO'
-    if (normalized === 'APROBADA') return 'APROBADA'
+    if (normalized === 'APROBADA' || normalized === 'APROBADO') return 'APROBADA'
     return estado || 'N/D'
   }
 
@@ -445,20 +448,7 @@ export default function MisOrdenesCompraView({
       } else {
         await marcarRecibidoEnAlmacen(compra.id)
       }
-      const proveedorId = Number(compra.id_proveedor || 0)
-      if (proveedorId && canRateProviders) {
-        const existing = await fetchMiCalificacionProveedor(proveedorId, {
-          tipo: 'compra',
-          id_referencia: Number(compra.id || 0),
-        })
-        if (existing?.ya_calificado) {
-          setRatingNotice('Ya calificaste este proveedor')
-          return
-        }
-        setRatingCompra(compra)
-        setRatingForm({ puntuacion: 5, comentario: '' })
-        setRatingError('')
-      }
+      setRatingNotice('Recepcion registrada. La calificacion del proveedor se realiza desde Movimientos > Entradas.')
     } catch (err) {
       setError(err.message || 'Error al marcar compra como recibida en almacen')
     } finally {
@@ -587,7 +577,7 @@ export default function MisOrdenesCompraView({
     event.preventDefault()
     if (!ratingCompra) return
     if (!canRateProviders) {
-      setRatingError('Solo el gerente de area puede calificar proveedores')
+      setRatingError('No autorizado para calificar proveedores')
       return
     }
 
@@ -731,7 +721,7 @@ export default function MisOrdenesCompraView({
         <div className="my-po-list">
           {filtered.map((compra) => {
             const form = getFormValue(compra)
-            const isEditable = normalize(compra.estado) === 'APROBADA'
+            const isEditable = ['APROBADA', 'APROBADO'].includes(normalize(compra.estado))
             const isExpanded = Boolean(expandedByCompra[compra.id])
             const supplierOptions = supplierOptionsByCompra[compra.id] || []
             const materials = Array.isArray(compra.items) ? compra.items : []

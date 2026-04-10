@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import LoginView from './components/LoginView'
 import ChangePasswordView from './components/ChangePasswordView'
 import { clearAuthSession, logout, fetchCurrentUser, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
-import { getModulesByRole, modules } from './services/moduleAccess'
+import { buildAllowedModules, modules } from './services/moduleAccess'
 
 function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [], children }) {
   if (!isAuthenticated) {
@@ -88,7 +88,10 @@ function App() {
   }
 
   const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
-  const allowedModules = useMemo(() => getModulesByRole(roleId), [roleId])
+  const allowedModules = useMemo(() => {
+    const userPermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
+    return buildAllowedModules(roleId, userPermissions)
+  }, [currentUser, roleId])
   const visibleModules = useMemo(() => modules.filter((mod) => allowedModules.includes(mod.id)), [allowedModules])
   const defaultPath = visibleModules[0]?.path || '/inventario'
 
@@ -146,6 +149,9 @@ function App() {
           <Route path="/movimientos" element={renderDashboard('movements', 8)} />
           <Route path="/proveedores" element={renderDashboard('manage-providers', 10)} />
           <Route path="/ajustes" element={renderDashboard('settings', 11)} />
+          <Route path="/notificaciones" element={renderDashboard('notifications', 14)} />
+          <Route path="/roles-permisos" element={renderDashboard('roles-permissions', 15)} />
+          <Route path="/calificar-productos" element={renderDashboard('rate-products', 16)} />
 
           <Route path="/no-autorizado" element={<NoAutorizadoView />} />
           <Route path="*" element={<Navigate to={isAuthenticated ? defaultPath : '/login'} replace />} />

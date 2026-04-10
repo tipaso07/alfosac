@@ -1,0 +1,171 @@
+.rate-products-section {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.rate-products-header h1 {
+  margin: 0;
+}
+
+.rate-products-header p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+}
+
+.rate-products-notice {
+  margin: 10px 0;
+  color: #166534;
+  font-weight: 600;
+}
+
+.rate-products-filters {
+  margin: 12px 0;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 8px;
+}
+
+.rate-products-filters label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.rate-products-filters input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.rate-products-empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--text-secondary);
+}
+
+.rate-products-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rate-products-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.rate-products-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.rate-products-card-head h3 {
+  margin: 0;
+}
+
+.rate-products-card p {
+  margin: 3px 0;
+}
+
+.rate-products-btn {
+  margin-top: 8px;
+  border: 1px solid var(--primary-color);
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: 6px;
+  padding: 7px 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rate-products-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.rate-products-modal {
+  width: min(540px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.25);
+}
+
+.rate-products-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.rate-products-modal-head h3 {
+  margin: 0;
+}
+
+.rate-products-modal-head button {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.rate-products-error {
+  color: #b91c1c;
+  margin: 8px 0;
+}
+
+.rate-products-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rate-products-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.rate-products-form select,
+.rate-products-form textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.rate-products-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rate-products-actions button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.rate-products-actions button[type='submit'] {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  .rate-products-filters {
+    grid-template-columns: 1fr;
+  }
+}

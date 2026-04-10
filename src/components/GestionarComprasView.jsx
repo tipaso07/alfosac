@@ -1,24 +1,40 @@
 import { useMemo, useState } from 'react'
 import '../styles/GestionarComprasView.css'
 import { evaluateProviderRatingState } from '../services/providerRatingRules'
+import { hasPermission } from '../services/permissions'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
+const isPendingFlowStage = (value) => normalize(value).startsWith('PENDIENTE')
+const APPROVAL_PERMISSION_BY_STAGE = {
+  PENDIENTE_JEFE_AREA: 'APROBAR_JEFE_AREA',
+  PENDIENTE_GERENCIA: 'APROBAR_GERENCIA_AREA',
+  PENDIENTE_FINANZAS: 'APROBAR_FINANZAS',
+  PENDIENTE_ADMIN: 'APROBAR_ADMIN',
+}
 const getStageStatus = (compra) => {
   const userStage = normalize(compra?.gestion_estado_usuario)
   if (userStage) return userStage
   return normalize(compra?.estado)
 }
 
-export default function GestionarComprasView({ compras = [], currentUserRoleId = null, onChangeEstado }) {
+const canApproveCompra = (compra, currentUserPermissions = []) => {
+  const stage = getStageStatus(compra)
+  const permission = APPROVAL_PERMISSION_BY_STAGE[stage]
+  if (!permission) return false
+  if (!hasPermission(currentUserPermissions, permission)) return false
+  return Boolean(compra?.puede_aprobar)
+}
+
+export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserPermissions = [], onChangeEstado }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9
 
   const pending = useMemo(() => compras
-    .filter((compra) => getStageStatus(compra) === 'PENDIENTE')
+    .filter((compra) => isPendingFlowStage(getStageStatus(compra)))
     .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [compras])
 
   const approved = useMemo(() => compras
-    .filter((compra) => getStageStatus(compra) === 'APROBADA')
+    .filter((compra) => ['APROBADA', 'APROBADO'].includes(getStageStatus(compra)))
     .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [compras])
 
   const rejected = useMemo(() => compras
@@ -99,16 +115,10 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
                 </ul>
               </div>
 
-              {view.actions && (
+              {view.actions && canApproveCompra(compra, currentUserPermissions) && (
                 <div className="purchase-manage-actions">
-                  {compra.puede_aprobar ? (
-                    <>
-                      <button className="btn-approve" onClick={() => onChangeEstado(compra.id, 'APROBADA')}>Aprobar</button>
-                      <button className="btn-reject" onClick={() => onChangeEstado(compra.id, 'RECHAZADA')}>Rechazar</button>
-                    </>
-                  ) : (
-                    <span className="empty-state">Pendiente de otro nivel de aprobacion.</span>
-                  )}
+                  <button className="btn-approve" onClick={() => onChangeEstado(compra.id, 'APROBADA')}>Aprobar</button>
+                  <button className="btn-reject" onClick={() => onChangeEstado(compra.id, 'RECHAZADA')}>Rechazar</button>
                 </div>
               )}
             </article>

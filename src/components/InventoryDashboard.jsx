@@ -18,9 +18,15 @@ import MovimientosView from './MovimientosView'
 import AjustesView from './AjustesView'
 import AdminDashboardView from './AdminDashboardView'
 import HistorialServiciosView from './HistorialServiciosView'
-import { buildAllowedTabs, getModulesByRole, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
+import NotificationsView from './NotificationsView'
+import RolesPermissionsView from './RolesPermissionsView'
+import CalificarProductosView from './CalificarProductosView'
+import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID, getPermissionsByRole } from '../services/moduleAccess'
+import { hasAnyPermission, hasPermission } from '../services/permissions'
 import {
+  createMaterial,
   fetchMateriales,
+  fetchAlmacenes,
   fetchStats,
   createRequerimiento,
   createCompra,
@@ -72,6 +78,9 @@ const TAB_ROUTES = {
   movements: '/movimientos',
   'manage-providers': '/proveedores',
   settings: '/ajustes',
+  notifications: '/notificaciones',
+  'roles-permissions': '/roles-permisos',
+  'rate-products': '/calificar-productos',
 }
 
 export default function InventoryDashboard({ initialTab = 'materials', onLogout, onAuthExpired }) {
@@ -103,6 +112,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [monedas, setMonedas] = useState([])
   const [proveedores, setProveedores] = useState([])
   const [unidades, setUnidades] = useState([])
+  const [almacenes, setAlmacenes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeRequestsView, setActiveRequestsView] = useState('compras')
@@ -113,12 +123,30 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
 
   const isUnauthorizedError = useCallback((err) => Number(err?.status || 0) === 401, [])
   const isForbiddenError = useCallback((err) => Number(err?.status || 0) === 403, [])
-  const allowedModules = useMemo(() => getModulesByRole(currentUserRoleId), [currentUserRoleId])
+  const currentUserPermissions = useMemo(() => {
+    if (Array.isArray(currentUserProfile?.permisos)) {
+      return currentUserProfile.permisos
+    }
+
+    return getPermissionsByRole(currentUserRoleId)
+  }, [currentUserProfile, currentUserRoleId])
+  const allowedModules = useMemo(() => {
+    return buildAllowedModules(currentUserRoleId, currentUserPermissions)
+  }, [currentUserPermissions, currentUserRoleId])
   const visibleModules = useMemo(() => {
     return modules.filter((mod) => allowedModules.includes(mod.id))
   }, [allowedModules])
-  const allowedTabs = useMemo(() => buildAllowedTabs(currentUserRoleId), [currentUserRoleId])
-  const canEditMaterials = currentUserRoleId === 8 || currentUserRoleId === 9
+  const allowedTabs = useMemo(() => buildAllowedTabs(currentUserRoleId, currentUserPermissions), [currentUserPermissions, currentUserRoleId])
+  const canEditMaterials = hasPermission(currentUserPermissions, 'EDITAR_INVENTARIO')
+  const canAddManualInventory = hasPermission(currentUserPermissions, 'AGREGAR_INVENTARIO_MANUAL')
+  const canManageServiceApprovals = useMemo(() => {
+    return hasAnyPermission(currentUserPermissions, [
+      'APROBAR_JEFE_AREA',
+      'APROBAR_GERENCIA_AREA',
+      'APROBAR_FINANZAS',
+      'APROBAR_ADMIN',
+    ])
+  }, [currentUserPermissions])
 
   const loadOptionalData = useCallback(async (loader, fallbackValue) => {
     try {
@@ -154,6 +182,12 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }, [activeTab, allowedTabs])
 
+  useEffect(() => {
+    if (!canManageServiceApprovals && activeRequestsView === 'servicios') {
+      setActiveRequestsView('compras')
+    }
+  }, [activeRequestsView, canManageServiceApprovals])
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
@@ -165,6 +199,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setCurrentUserArea(currentUser?.area || 'Sin area')
       setCurrentUserAreaId(Number(currentUser?.id_area || 0) || null)
       const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
+      const runtimePermissions = (Array.isArray(currentUser?.permisos) && currentUser.permisos.length > 0)
+        ? currentUser.permisos
+        : getPermissionsByRole(roleId)
       console.log('Rol usuario:', currentUser?.rol_id ?? currentUser?.id_role)
       setCurrentUserRoleId(Number.isFinite(roleId) && roleId > 0 ? roleId : null)
 
@@ -183,15 +220,18 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         monedasData,
         proveedoresData,
         unidadesData,
+        almacenesData,
       ] = await Promise.all([
-        fetchMateriales(),
+        hasPermission(runtimePermissions, 'VER_INVENTARIO')
+          ? fetchMateriales()
+          : Promise.resolve([]),
         loadOptionalData(fetchStats, {
           total_materiales: 0,
           stock_total: 0,
           pendientes: 0,
           completados: 0,
         }),
-        roleId === 8
+        hasPermission(runtimePermissions, 'APROBAR_ADMIN')
           ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRange), null)
           : Promise.resolve(null),
         loadOptionalData(fetchRequerimientos, []),
@@ -205,6 +245,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         loadOptionalData(fetchMonedas, []),
         loadOptionalData(fetchProveedores, []),
         loadOptionalData(fetchUnidades, []),
+        loadOptionalData(fetchAlmacenes, []),
       ])
       setMaterials(materialsData)
       setRequerimientos(reqsData)
@@ -218,6 +259,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setMonedas(Array.isArray(monedasData) ? monedasData : [])
       setProveedores(Array.isArray(proveedoresData) ? proveedoresData : [])
       setUnidades(Array.isArray(unidadesData) ? unidadesData : [])
+      setAlmacenes(Array.isArray(almacenesData) ? almacenesData : [])
       setAdminDashboardData(adminDashboardDataResp)
       setStats({
         total_materiales: parseInt(statsData.total_materiales, 10) || 0,
@@ -235,7 +277,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     } finally {
       setLoading(false)
     }
-  }, [isUnauthorizedError, loadOptionalData, onAuthExpired])
+  }, [currentUserPermissions, isUnauthorizedError, loadOptionalData, onAuthExpired])
 
   const handleRefreshAdminDashboard = async ({ fecha_inicio = null, fecha_fin = null, auto = true } = {}) => {
     const nextRange = {
@@ -266,7 +308,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     try {
       await createRequerimiento(payload)
       await loadData()
-      setActiveTab('manage-requests')
     } catch (err) {
       if (isUnauthorizedError(err)) {
         if (onAuthExpired) onAuthExpired()
@@ -640,6 +681,21 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }
 
+  const handleCreateMaterialManual = async (payload) => {
+    try {
+      await createMaterial(payload)
+      await loadData()
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        if (onAuthExpired) onAuthExpired()
+        return
+      }
+      console.error('Error creando material manual:', err)
+      setError(err.message || 'Error al crear material manual')
+      throw err
+    }
+  }
+
   const handleUploadMaterialImage = async (file) => {
     try {
       const result = await uploadMaterialImage(file)
@@ -670,18 +726,25 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }
 
-  const filteredMaterials = materials.filter((material) => {
-    const hayNombre = String(material.nombre || '').toLowerCase()
-    const query = searchTerm.toLowerCase()
-    const matchesSearch = hayNombre.includes(query)
-    const materialWarehouses = String(material.almacen || '')
-      .split(',')
-      .map((warehouse) => warehouse.trim())
-      .filter(Boolean)
-    const matchesWarehouse =
-      filterWarehouse === 'Todos' || materialWarehouses.includes(filterWarehouse)
-    return matchesSearch && matchesWarehouse
-  })
+  const filteredMaterials = materials
+    .filter((material) => {
+      const hayNombre = String(material.nombre || '').toLowerCase()
+      const query = searchTerm.toLowerCase()
+      const matchesSearch = hayNombre.includes(query)
+      const materialWarehouses = String(material.almacen || '')
+        .split(',')
+        .map((warehouse) => warehouse.trim())
+        .filter(Boolean)
+      const matchesWarehouse =
+        filterWarehouse === 'Todos' || materialWarehouses.includes(filterWarehouse)
+      return matchesSearch && matchesWarehouse
+    })
+    .sort((a, b) => {
+      const stockA = Number(a?.stock || 0)
+      const stockB = Number(b?.stock || 0)
+      if (stockB !== stockA) return stockB - stockA
+      return String(a?.nombre || '').localeCompare(String(b?.nombre || ''))
+    })
 
   const warehouseOptions = [
     'Todos',
@@ -727,12 +790,15 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               filterWarehouse={filterWarehouse}
               setFilterWarehouse={setFilterWarehouse}
               canEditMaterials={canEditMaterials}
+              canAddManualInventory={canAddManualInventory}
               categorias={categorias}
               monedas={monedas}
               proveedores={proveedores}
               unidades={unidades}
+              almacenes={almacenes}
               onSaveMaterial={handleUpdateMaterial}
               onUploadMaterialImage={handleUploadMaterialImage}
+              onCreateMaterial={handleCreateMaterialManual}
             />
           )}
           {activeTab === 'request-material' && allowedTabs.includes('request-material') && (
@@ -754,7 +820,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           )}
           {activeTab === 'manage-providers' && allowedTabs.includes('manage-providers') && (
             <GestionarProveedoresView
-              canEdit={currentUserRoleId === 8 || currentUserRoleId === 9}
+              canEdit={hasPermission(currentUserPermissions, 'GESTIONAR_PROVEEDORES')}
               currentUserRoleId={currentUserRoleId}
               onCreated={loadData}
             />
@@ -773,20 +839,24 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <button type="button" className={activeRequestsView === 'compras' ? 'active' : ''} onClick={() => setActiveRequestsView('compras')}>
                   Compras
                 </button>
-                <button type="button" className={activeRequestsView === 'servicios' ? 'active' : ''} onClick={() => setActiveRequestsView('servicios')}>
-                  Servicios
-                </button>
+                {canManageServiceApprovals && (
+                  <button type="button" className={activeRequestsView === 'servicios' ? 'active' : ''} onClick={() => setActiveRequestsView('servicios')}>
+                    Servicios
+                  </button>
+                )}
               </div>
               {activeRequestsView === 'compras' && (
                 <GestionarComprasView
                   compras={compras}
                   currentUserRoleId={currentUserRoleId}
+                  currentUserPermissions={currentUserPermissions}
                   onChangeEstado={handleCompraStatus}
                 />
               )}
-              {activeRequestsView === 'servicios' && (
+              {canManageServiceApprovals && activeRequestsView === 'servicios' && (
                 <GestionarServiciosView
                   servicios={servicios}
+                  currentUserPermissions={currentUserPermissions}
                   onChangeAprobacion={handleServicioAprobacion}
                 />
               )}
@@ -810,6 +880,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <MisOrdenesCompraView
                   compras={misCompras}
                   currentUserRoleId={currentUserRoleId}
+                  currentUserPermissions={currentUserPermissions}
                   onCompletarDatos={handleCompletarCompra}
                   onGenerarOrden={handleGenerarOrdenCompra}
                   onDescargarPdf={handleDescargarOrdenCompraPdf}
@@ -825,6 +896,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                   proveedores={proveedores}
                   monedas={monedas}
                   currentUserRoleId={currentUserRoleId}
+                  currentUserPermissions={currentUserPermissions}
                   onCompletarDatos={handleCompletarServicio}
                   onGenerarOrden={handleGenerarOrdenServicio}
                   onDescargarPdf={handleDescargarOrdenServicioPdf}
@@ -855,10 +927,28 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
             <HistorialServiciosView servicios={servicios} currentUserRoleId={currentUserRoleId} />
           )}
           {activeTab === 'movements' && allowedTabs.includes('movements') && (
-            <MovimientosView movimientos={movimientos} />
+            <MovimientosView
+              movimientos={movimientos}
+              currentUserPermissions={currentUserPermissions}
+              currentUserRoleId={currentUserRoleId}
+            />
           )}
           {activeTab === 'settings' && allowedTabs.includes('settings') && (
             <AjustesView currentUser={currentUserProfile} onUpdatePhoto={handleUpdateMyPhoto} />
+          )}
+          {activeTab === 'notifications' && allowedTabs.includes('notifications') && (
+            <NotificationsView currentUser={currentUserProfile} onAuthExpired={onAuthExpired} />
+          )}
+          {activeTab === 'roles-permissions' && allowedTabs.includes('roles-permissions') && (
+            <RolesPermissionsView />
+          )}
+          {activeTab === 'rate-products' && allowedTabs.includes('rate-products') && (
+            <CalificarProductosView
+              movimientos={movimientos}
+              currentUserPermissions={currentUserPermissions}
+              currentUserRoleId={currentUserRoleId}
+              currentUserArea={currentUserArea}
+            />
           )}
         </main>
       </div>

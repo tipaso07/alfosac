@@ -24,6 +24,11 @@
   max-width: 240px;
 }
 
+.product-name-critical {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .product-description-text,
 .product-provider-text {
   display: inline-block;

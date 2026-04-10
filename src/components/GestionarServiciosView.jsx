@@ -1,7 +1,15 @@
 import { useMemo, useState } from 'react'
 import '../styles/GestionarServiciosView.css'
+import { hasPermission } from '../services/permissions'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
+const isPendingFlowStage = (value) => normalize(value).startsWith('PENDIENTE')
+const APPROVAL_PERMISSION_BY_STAGE = {
+  PENDIENTE_JEFE_AREA: 'APROBAR_JEFE_AREA',
+  PENDIENTE_GERENCIA: 'APROBAR_GERENCIA_AREA',
+  PENDIENTE_FINANZAS: 'APROBAR_FINANZAS',
+  PENDIENTE_ADMIN: 'APROBAR_ADMIN',
+}
 const getStageStatus = (servicio) => {
   const userStage = normalize(servicio?.gestion_estado_usuario)
   if (userStage) return userStage
@@ -21,7 +29,36 @@ const priorityRank = (value) => {
   }
 }
 
-export default function GestionarServiciosView({ servicios = [], onChangeAprobacion }) {
+const canApproveServicio = (servicio, currentUserPermissions = []) => {
+  const stage = getStageStatus(servicio)
+  const permission = APPROVAL_PERMISSION_BY_STAGE[stage]
+  if (!permission) return false
+  if (!hasPermission(currentUserPermissions, permission)) return false
+  return Boolean(servicio?.puede_aprobar)
+}
+
+const isDentroPlanServicio = (servicio) => {
+  if (typeof servicio?.dentro_plan === 'boolean') return servicio.dentro_plan
+  const raw = String(servicio?.dentro_plan ?? servicio?.en_plan ?? '').trim().toLowerCase()
+  return ['true', 't', '1', 'si', 'yes', 'y'].includes(raw)
+}
+
+const getApprovalRouteLabel = (servicio) => {
+  const creatorRoleId = Number(servicio?.usuario_rol_id || 0)
+  const dentroPlan = isDentroPlanServicio(servicio)
+
+  if (creatorRoleId === 11) {
+    return dentroPlan
+      ? 'Finanzas (aprobacion final)'
+      : 'Finanzas -> Admin'
+  }
+
+  return dentroPlan
+    ? 'Jefe de area -> Gerencia de area -> Finanzas (aprobacion final)'
+    : 'Jefe de area -> Gerencia de area -> Finanzas -> Admin'
+}
+
+export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], onChangeAprobacion }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [activePriority, setActivePriority] = useState('TODAS')
 
@@ -32,11 +69,11 @@ export default function GestionarServiciosView({ servicios = [], onChangeAprobac
   })
 
   const pending = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => getStageStatus(servicio) === 'PENDIENTE')
+    servicios.filter((servicio) => isPendingFlowStage(getStageStatus(servicio)))
   ), [servicios])
 
   const approved = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => getStageStatus(servicio) === 'APROBADO')
+    servicios.filter((servicio) => ['APROBADO', 'APROBADA'].includes(getStageStatus(servicio)))
   ), [servicios])
 
   const rejected = useMemo(() => sortByPriorityAndDate(
@@ -105,24 +142,20 @@ export default function GestionarServiciosView({ servicios = [], onChangeAprobac
               <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
               <p><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
               <p><strong>Prioridad:</strong> {servicio.prioridad || 'MEDIA'}</p>
+              <p><strong>Tipo:</strong> {isDentroPlanServicio(servicio) ? 'Dentro del plan' : 'Fuera del plan'}</p>
+              <p><strong>Ruta de aprobacion:</strong> {getApprovalRouteLabel(servicio)}</p>
               <p><strong>Descripcion:</strong> {servicio.descripcion_servicio || 'Sin descripcion'}</p>
               <p><strong>Estado servicio:</strong> {statusLabel(servicio.estado_servicio)}</p>
               <p><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleString() : 'Sin fecha'}</p>
 
-              {view.actions && (
+              {view.actions && canApproveServicio(servicio, currentUserPermissions) && (
                 <div className="service-manage-actions">
-                  {servicio.puede_aprobar ? (
-                    <>
-                      <button className="btn-approve" onClick={() => onChangeAprobacion(servicio.id, 'APROBADO')}>
-                        Aprobar
-                      </button>
-                      <button className="btn-reject" onClick={() => onChangeAprobacion(servicio.id, 'RECHAZADO')}>
-                        Rechazar
-                      </button>
-                    </>
-                  ) : (
-                    <span className="empty-state">Pendiente de otro nivel de aprobacion.</span>
-                  )}
+                  <button className="btn-approve" onClick={() => onChangeAprobacion(servicio.id, 'APROBADO')}>
+                    Aprobar
+                  </button>
+                  <button className="btn-reject" onClick={() => onChangeAprobacion(servicio.id, 'RECHAZADO')}>
+                    Rechazar
+                  </button>
                 </div>
               )}
             </article>
