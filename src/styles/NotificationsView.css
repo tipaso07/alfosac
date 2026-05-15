@@ -8,7 +8,7 @@
 .notifications-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 1rem;
   padding: 1rem 1.25rem;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
@@ -19,7 +19,8 @@
 
 .notifications-header h2 {
   margin: 0 0 0.35rem 0;
-  font-size: 1.5rem;
+  font-size: 1.8rem;
+  color: #ffffff;
 }
 
 .notifications-header p {
@@ -32,6 +33,11 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 0.65rem;
+}
+.notifications-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
 }
 
 .notifications-badge {
@@ -54,8 +60,13 @@
 }
 
 .notifications-actions button {
-  background: #f59e0b;
-  color: #111827;
+  background: #5c6eb8;
+  color: white;
+}
+
+.notifications-actions button.clear-notifications {
+  background: #354c6a;
+  color: #ffffff;
 }
 
 .notifications-actions button:hover,
@@ -184,7 +195,7 @@
 }
 
 .notification-card.unread {
-  border-left: 5px solid #f59e0b;
+  border-left: 5px solid #0d4478;
 }
 
 .notification-card.read {

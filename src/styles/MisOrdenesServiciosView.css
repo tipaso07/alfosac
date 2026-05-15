@@ -168,6 +168,17 @@
   color: var(--text-secondary);
 }
 
+.supplier-helper,
+.supplier-empty {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: -2px;
+}
+
+.supplier-empty {
+  padding: 6px 10px;
+}
+
 .my-so-actions {
   margin-top: 10px;
   display: flex;

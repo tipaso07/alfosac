@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   createRol,
+  deleteRol,
+  fetchApprovalConfig,
   fetchPermisos,
   fetchPermisosRol,
   fetchRoles,
+  updateApprovalFlowConfig,
   updatePermisosRol,
 } from '../services/api'
-import { getPermissionsByRole } from '../services/permissions'
 import '../styles/RolesPermissionsView.css'
 
 const normalizePermissionName = (value) => String(value || '')
@@ -52,19 +54,17 @@ const PERMISSION_SECTIONS = [
     ],
   },
   {
-    title: 'Gestionar solicitudes',
-    permissions: [
-      { name: 'APROBAR_JEFE_AREA', label: 'Aprobar jefe de area/subgerente', description: 'Primera etapa de aprobación jerárquica.' },
-      { name: 'APROBAR_GERENCIA_AREA', label: 'Aprobar en gerencia', description: 'Segunda etapa de aprobación jerárquica.' },
-      { name: 'APROBAR_FINANZAS', label: 'Aprobar en finanzas', description: 'Tercera etapa de aprobación jerárquica.' },
-      { name: 'APROBAR_ADMIN', label: 'Aprobar en administración', description: 'Etapa final de aprobación antes del cierre.' },
-    ],
-  },
-  {
-    title: 'Calificar productos',
+    title: 'Calificar productos y servicios',
     permissions: [
       { name: 'CALIFICAR_COMPRA', label: 'Calificar productos de compras', description: 'Permite calificar entregas vinculadas al flujo de compra.' },
       { name: 'CALIFICAR_REQUERIMIENTO', label: 'Calificar productos de requerimientos', description: 'Permite calificar entregas vinculadas al flujo de requerimiento.' },
+      { name: 'CALIFICAR_SERVICIO', label: 'Calificar servicios', description: 'Permite calificar servicios realizados en el historial de servicios.' },
+    ],
+  },
+  {
+    title: 'Gestionar solicitudes',
+    permissions: [
+      { name: 'GESTIONAR_SOLICITUDES', label: 'Gestionar solicitudes', description: 'Permite ver órdenes de compra, servicios y requerimientos en Mi Órdenes.' },
     ],
   },
   {
@@ -109,12 +109,24 @@ const PERMISSION_SECTIONS = [
       { name: 'GESTIONAR_ROLES', label: 'Gestionar roles y permisos', description: 'Permite crear roles y administrar sus permisos.' },
     ],
   },
+  {
+    title: 'Cuentas de usuario',
+    permissions: [
+      { name: 'GESTIONAR_CUENTAS', label: 'Gestionar cuentas', description: 'Permite ver, crear, editar y eliminar cuentas de usuario.' },
+    ],
+  },
 ]
 
 const permissionMetaByName = PERMISSION_SECTIONS.flatMap((section) => section.permissions).reduce((accumulator, permission) => {
   accumulator[normalizePermissionName(permission.name)] = permission
   return accumulator
 }, {})
+
+const APPROVAL_FLOWS = [
+  { key: 'COMPRA', label: 'Flujo de compras' },
+  { key: 'SERVICIO_DENTRO_PLAN', label: 'Flujo de servicios dentro del plan' },
+  { key: 'SERVICIO_FUERA_PLAN', label: 'Flujo de servicios fuera del plan' },
+]
 
 export default function RolesPermissionsView() {
   const [roles, setRoles] = useState([])
@@ -124,13 +136,24 @@ export default function RolesPermissionsView() {
   const [newRoleName, setNewRoleName] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deletingRoleId, setDeletingRoleId] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [approvalConfigByFlow, setApprovalConfigByFlow] = useState({})
+  const [approvalSavingFlow, setApprovalSavingFlow] = useState('')
+  const [expandedApprovalFlowKey, setExpandedApprovalFlowKey] = useState(null)
 
   const selectedRole = useMemo(
     () => roles.find((role) => Number(role.id) === Number(selectedRoleId)) || null,
     [roles, selectedRoleId]
   )
+
+  const roleNameById = useMemo(() => {
+    return roles.reduce((accumulator, role) => {
+      accumulator[Number(role.id || 0)] = String(role.nombre || '').trim()
+      return accumulator
+    }, {})
+  }, [roles])
 
   const visibleSections = useMemo(() => {
     return PERMISSION_SECTIONS
@@ -158,15 +181,28 @@ export default function RolesPermissionsView() {
     setError('')
 
     try {
-      const [rolesData, permisosData] = await Promise.all([
+      const [rolesData, permisosData, approvalConfigData] = await Promise.all([
         fetchRoles(),
         fetchPermisos(),
+        fetchApprovalConfig(),
       ])
 
       const normalizedRoles = Array.isArray(rolesData) ? rolesData : []
       const normalizedPermisos = Array.isArray(permisosData) ? permisosData : []
       setRoles(normalizedRoles)
       setPermisos(normalizedPermisos)
+
+      const rawFlows = approvalConfigData?.flujos && typeof approvalConfigData.flujos === 'object'
+        ? approvalConfigData.flujos
+        : {}
+      const normalizedFlowConfig = {}
+      APPROVAL_FLOWS.forEach((flow) => {
+        const rows = Array.isArray(rawFlows[flow.key]) ? rawFlows[flow.key] : []
+        normalizedFlowConfig[flow.key] = rows
+          .map((row) => Number(row?.rol_id || 0))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      })
+      setApprovalConfigByFlow(normalizedFlowConfig)
 
       const firstRoleId = Number(normalizedRoles[0]?.id || 0) || null
       setSelectedRoleId(firstRoleId)
@@ -189,18 +225,6 @@ export default function RolesPermissionsView() {
       const permissionIds = (Array.isArray(data?.permisos) ? data.permisos : [])
         .map((item) => Number(item.id || 0))
         .filter((id) => Number.isInteger(id) && id > 0)
-
-      // If role-permission rows are empty in DB, show effective fallback permissions by role.
-      if (permissionIds.length === 0) {
-        const fallbackNames = getPermissionsByRole(Number(roleId)).map((name) => normalizePermissionName(name))
-        const fallbackIds = permisos
-          .filter((permiso) => fallbackNames.includes(normalizePermissionName(permiso.nombre)))
-          .map((permiso) => Number(permiso.id || 0))
-          .filter((id) => Number.isInteger(id) && id > 0)
-
-        setSelectedPermissionIds(fallbackIds)
-        return
-      }
 
       setSelectedPermissionIds(permissionIds)
     } catch (err) {
@@ -230,7 +254,6 @@ export default function RolesPermissionsView() {
       if (current.has(id)) {
         current.delete(id)
 
-        // Si se quita VER_INVENTARIO, tambien se quita EDITAR_INVENTARIO.
         if (toggledName === 'VER_INVENTARIO') {
           Object.entries(permissionNameById).forEach(([permissionId, permissionName]) => {
             if (permissionName === 'EDITAR_INVENTARIO') {
@@ -241,7 +264,6 @@ export default function RolesPermissionsView() {
       } else {
         current.add(id)
 
-        // Si se activa EDITAR_INVENTARIO, asegurar VER_INVENTARIO.
         if (toggledName === 'EDITAR_INVENTARIO') {
           Object.entries(permissionNameById).forEach(([permissionId, permissionName]) => {
             if (permissionName === 'VER_INVENTARIO') {
@@ -303,11 +325,96 @@ export default function RolesPermissionsView() {
     }
   }
 
+  const handleDeleteRole = async () => {
+    const roleId = Number(selectedRole?.id || 0)
+    if (!Number.isInteger(roleId) || roleId <= 0) return
+
+    const roleName = String(selectedRole?.nombre || `#${roleId}`)
+    const confirmed = window.confirm(`Se eliminara el rol "${roleName}". Esta accion no se puede deshacer. ¿Deseas continuar?`)
+    if (!confirmed) return
+
+    try {
+      setDeletingRoleId(roleId)
+      setError('')
+      setSuccess('')
+      await deleteRol(roleId)
+      await loadBaseData()
+      setSuccess('Rol eliminado correctamente')
+    } catch (err) {
+      setError(err.message || 'No se pudo eliminar el rol')
+    } finally {
+      setDeletingRoleId(null)
+    }
+  }
+
+  const toggleFlowRole = (flowKey, roleId) => {
+    const id = Number(roleId || 0)
+    if (!id) return
+
+    setApprovalConfigByFlow((prev) => {
+      const current = Array.isArray(prev[flowKey]) ? prev[flowKey] : []
+      if (current.includes(id)) {
+        return {
+          ...prev,
+          [flowKey]: current.filter((value) => value !== id),
+        }
+      }
+
+      return {
+        ...prev,
+        [flowKey]: [...current, id],
+      }
+    })
+  }
+
+  const moveFlowRole = (flowKey, roleId, direction) => {
+    const id = Number(roleId || 0)
+    if (!id) return
+
+    setApprovalConfigByFlow((prev) => {
+      const current = Array.isArray(prev[flowKey]) ? prev[flowKey] : []
+      const index = current.indexOf(id)
+      if (index < 0) return prev
+
+      const nextIndex = direction === 'up' ? index - 1 : index + 1
+      if (nextIndex < 0 || nextIndex >= current.length) return prev
+
+      const next = [...current]
+      const temp = next[index]
+      next[index] = next[nextIndex]
+      next[nextIndex] = temp
+
+      return {
+        ...prev,
+        [flowKey]: next,
+      }
+    })
+  }
+
+  const handleSaveFlow = async (flowKey) => {
+    const roleIds = Array.isArray(approvalConfigByFlow[flowKey]) ? approvalConfigByFlow[flowKey] : []
+    if (roleIds.length === 0) {
+      setError('Cada flujo debe tener al menos un rol aprobador')
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      setApprovalSavingFlow(flowKey)
+      await updateApprovalFlowConfig(flowKey, roleIds)
+      setSuccess(`Flujo ${flowKey} actualizado correctamente`)
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar el flujo de aprobaciones')
+    } finally {
+      setApprovalSavingFlow('')
+    }
+  }
+
   return (
     <section className="roles-permissions-page">
       <header className="roles-permissions-header">
         <h2>Gestión de Roles y Permisos</h2>
-        <p>Administra dinámicamente roles y permisos del sistema.</p>
       </header>
 
       <form className="role-create-form" onSubmit={handleCreateRole}>
@@ -323,6 +430,115 @@ export default function RolesPermissionsView() {
 
       {error && <div className="roles-permissions-message error">{error}</div>}
       {success && <div className="roles-permissions-message success">{success}</div>}
+
+      <article className="permissions-section-card approval-config-card standalone-approval-config-card">
+        <div className="permissions-section-header">
+          <h4>Aprobaciones dinámicas</h4>
+        </div>
+
+        <div className="approval-config-grid">
+          {APPROVAL_FLOWS.map((flow) => {
+            const selected = Array.isArray(approvalConfigByFlow[flow.key]) ? approvalConfigByFlow[flow.key] : []
+            const selectedSet = new Set(selected)
+            const availableRoles = roles.filter((role) => !selectedSet.has(Number(role.id || 0)))
+            const isExpanded = expandedApprovalFlowKey === flow.key
+
+            return (
+              <section key={flow.key} className="approval-flow-card">
+                <button
+                  type="button"
+                  className="approval-flow-toggle"
+                  onClick={() => setExpandedApprovalFlowKey((current) => (current === flow.key ? null : flow.key))}
+                  aria-expanded={isExpanded}
+                  aria-controls={`approval-flow-body-${flow.key}`}
+                >
+                  <span className="approval-flow-toggle-label">{flow.label}</span>
+                  <span className="approval-flow-toggle-meta">
+                    <strong>{selected.length}</strong>
+                    <span>pasos</span>
+                    <span className="approval-flow-toggle-icon">{isExpanded ? '−' : '+'}</span>
+                  </span>
+                </button>
+
+                {isExpanded && (
+                  <div id={`approval-flow-body-${flow.key}`} className="approval-flow-body">
+                    <div className="approval-flow-step-list">
+                      {selected.length === 0 ? (
+                        <div className="approval-flow-empty">No hay pasos definidos</div>
+                      ) : selected.map((roleId, index) => (
+                        <div key={`${flow.key}-step-${roleId}`} className="approval-flow-step-item">
+                          <div className="approval-flow-step-main">
+                            <span className="approval-flow-step-number">{index + 1}</span>
+                            <strong>{roleNameById[roleId] || `Rol #${roleId}`}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            className="approval-flow-step-remove"
+                            onClick={() => toggleFlowRole(flow.key, roleId)}
+                            disabled={saving || Boolean(approvalSavingFlow)}
+                            aria-label="Quitar del flujo"
+                            title="Quitar del flujo"
+                          >
+                            ×
+                          </button>
+                          <div className="approval-flow-step-actions">
+                            <button
+                              type="button"
+                              onClick={() => moveFlowRole(flow.key, roleId, 'up')}
+                              disabled={saving || Boolean(approvalSavingFlow) || index === 0}
+                              aria-label="Mover arriba"
+                              title="Mover arriba"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveFlowRole(flow.key, roleId, 'down')}
+                              disabled={saving || Boolean(approvalSavingFlow) || index === selected.length - 1}
+                              aria-label="Mover abajo"
+                              title="Mover abajo"
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="approval-flow-available-title">Agregar roles al flujo</div>
+                    <div className="approval-flow-list">
+                      {availableRoles.map((role) => {
+                        const roleId = Number(role.id || 0)
+                        return (
+                          <button
+                            key={`${flow.key}-${roleId}`}
+                            type="button"
+                            className="approval-flow-add-item"
+                            onClick={() => toggleFlowRole(flow.key, roleId)}
+                            disabled={saving || Boolean(approvalSavingFlow)}
+                          >
+                            <span>Agregar</span>
+                            <strong>{role.nombre}</strong>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="approval-save-btn"
+                      onClick={() => handleSaveFlow(flow.key)}
+                      disabled={saving || Boolean(approvalSavingFlow)}
+                    >
+                      {approvalSavingFlow === flow.key ? 'Guardando...' : 'Guardar flujo'}
+                    </button>
+                  </div>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      </article>
 
       {loading ? (
         <div className="roles-permissions-loading">Cargando roles y permisos...</div>
@@ -351,9 +567,19 @@ export default function RolesPermissionsView() {
           <section className="permissions-panel">
             <div className="permissions-header">
               <h3>{selectedRole ? `Permisos de ${selectedRole.nombre}` : 'Selecciona un rol'}</h3>
-              <button type="button" onClick={handleSavePermissions} disabled={!selectedRoleId || saving}>
-                {saving ? 'Guardando...' : 'Guardar cambios'}
-              </button>
+              <div className="permissions-actions">
+                <button type="button" onClick={handleSavePermissions} disabled={!selectedRoleId || saving}>
+                  {saving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+                <button
+                  type="button"
+                  className="permissions-delete-btn"
+                  onClick={handleDeleteRole}
+                  disabled={!selectedRoleId || saving || Number(deletingRoleId) === Number(selectedRoleId)}
+                >
+                  {Number(deletingRoleId) === Number(selectedRoleId) ? 'Eliminando...' : 'Eliminar rol'}
+                </button>
+              </div>
             </div>
 
             <div className="permissions-section-list">
@@ -395,4 +621,5 @@ export default function RolesPermissionsView() {
       )}
     </section>
   )
+
 }

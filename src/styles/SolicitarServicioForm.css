@@ -14,13 +14,14 @@
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
+  font-size: 13px;
   padding: 10px;
 }
-
 .service-request-form label {
   display: grid;
   gap: 6px;
   font-weight: 600;
+  font-size: 13px;
 }
 
 .service-provider-autocomplete {
@@ -33,6 +34,7 @@
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 10px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -72,7 +74,6 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
-
 .single-column-grid {
   grid-template-columns: minmax(220px, 320px);
 }

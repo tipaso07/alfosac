@@ -1,13 +1,14 @@
 /* Sidebar Styles */
 .sidebar {
   width: 268px;
-  background: #1b1f2a;
-  color: #e2e8f0;
-  border-right: 1px solid #2a2f3f;
+  background:
+    linear-gradient(180deg, #000059 0%, #011a83 62%, #03286f 100%);
+  color: #eaf7ff;
+  border-right: 1px solid rgba(50, 154, 214, 0.42);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  box-shadow: 8px 0 22px rgba(15, 23, 42, 0.1);
+  box-shadow: 10px 0 28px rgba(0, 0, 89, 0.22);
 }
 
 .sidebar-brand {
@@ -15,14 +16,14 @@
   align-items: center;
   gap: 12px;
   padding: 20px 18px;
-  border-bottom: 1px solid #2a2f3f;
+  border-bottom: 1px solid rgba(50, 154, 214, 0.35);
 }
 
 .brand-badge {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #7c3aed;
+  background: linear-gradient(135deg, #329ad6, #1f81bc);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -40,7 +41,7 @@
 .sidebar-brand p {
   margin: 2px 0 0;
   font-size: 11px;
-  color: #94a3b8;
+  color: #b9dbef;
 }
 
 .sidebar-nav {
@@ -58,7 +59,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 10px;
-  color: #cbd5e1;
+  color: #d9ecf8;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -68,15 +69,15 @@
 
 .nav-item:hover {
   transform: translateX(2px);
-  background: rgba(124, 58, 237, 0.16);
+  background: rgba(50, 154, 214, 0.2);
   color: #ffffff;
-  border-color: rgba(124, 58, 237, 0.3);
+  border-color: rgba(50, 154, 214, 0.45);
 }
 
 .nav-item.active {
-  background: #7c3aed;
+  background: linear-gradient(135deg, #329ad6 0%, #2d89c0 100%);
   color: #ffffff;
-  border-color: #6d28d9;
+  border-color: rgba(255, 255, 255, 0.32);
   box-shadow: var(--shadow-sm);
 }
 

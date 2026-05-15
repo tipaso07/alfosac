@@ -1,14 +1,20 @@
 import { useMemo, useState } from 'react'
-import { guardarCalificacionProveedor } from '../services/api'
+import { guardarCalificacionProveedor, marcarServicioRealizado } from '../services/api'
+import { hasPermission } from '../services/permissions'
 import '../styles/HistorialServiciosView.css'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
 
-const getFlow = (servicio) => normalize(servicio.estado_flujo || servicio.estado_servicio || '')
+const getFlow = (servicio) => normalize(servicio.estado_flujo || '')
 
 const isRealizado = (servicio) => {
   const flow = getFlow(servicio)
-  return ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(flow) || ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(normalize(servicio.estado_servicio))
+  return ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(flow)
+}
+
+const isPendienteOAprobado = (servicio) => {
+  const flow = getFlow(servicio)
+  return ['PENDIENTE', 'REALIZADO'].includes(flow)
 }
 
 const isAprobado = (servicio) => ['APROBADO', 'APROBADA'].includes(normalize(servicio.estado_aprobacion))
@@ -25,7 +31,7 @@ const parseDate = (value) => {
   return Number.isFinite(parsed.getTime()) ? parsed : null
 }
 
-export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null }) {
+export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null, currentUserPermissions = [] }) {
   const [areaFilter, setAreaFilter] = useState('TODAS')
   const [prioridadFilter, setPrioridadFilter] = useState('TODAS')
   const [fromDate, setFromDate] = useState('')
@@ -38,11 +44,17 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
   const [ratingNotice, setRatingNotice] = useState('')
   const [ratedByServiceId, setRatedByServiceId] = useState({})
   const [ratingSnapshotByServiceId, setRatingSnapshotByServiceId] = useState({})
-  const canCurrentUserRate = useMemo(() => [5, 7, 8, 9].includes(Number(currentUserRoleId || 0)), [currentUserRoleId])
+  const canCurrentUserRate = useMemo(() => {
+    return hasPermission(currentUserPermissions, 'CALIFICAR_COMPRA')
+      || hasPermission(currentUserPermissions, 'CALIFICAR_REQUERIMIENTO')
+        || hasPermission(currentUserPermissions, 'CALIFICAR_SERVICIO')
+        || hasPermission(currentUserPermissions, 'VER_HISTORIAL_SERVICIOS')
+      || [2, 3, 5, 7, 8, 9].includes(Number(currentUserRoleId || 0))
+  }, [currentUserPermissions, currentUserRoleId])
 
   const serviciosRealizados = useMemo(() => {
     return (servicios || [])
-      .filter((servicio) => isAprobado(servicio) && isRealizado(servicio))
+      .filter((servicio) => isAprobado(servicio) && isPendienteOAprobado(servicio))
       .sort((a, b) => {
         const left = parseDate(a.fecha)?.getTime() || 0
         const right = parseDate(b.fecha)?.getTime() || 0
@@ -51,11 +63,11 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
   }, [servicios])
 
   const areas = useMemo(() => {
-    const values = serviciosRealizados
+    const values = (servicios || [])
       .map((servicio) => String(servicio.area || '').trim())
       .filter(Boolean)
     return ['TODAS', ...new Set(values)]
-  }, [serviciosRealizados])
+  }, [servicios])
 
   const prioridades = useMemo(() => {
     const values = serviciosRealizados
@@ -93,7 +105,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
   }, [serviciosRealizados, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
 
   const openRatingModal = (servicio) => {
-    if (!canCurrentUserRate || !canRateProvider(servicio, ratedByServiceId)) return
+    if (!canCurrentUserRate || isRated(servicio, ratedByServiceId)) return
     setRatingService(servicio)
     setRatingError('')
     setRatingForm({ puntuacion: 5, comentario: '' })
@@ -137,6 +149,10 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
         puntuacion,
         comentario: String(ratingForm.comentario || '').trim(),
       })
+      
+      // Marcar servicio como realizado
+      await marcarServicioRealizado(Number(ratingService.id || 0))
+      
       setRatedByServiceId((prev) => ({ ...prev, [ratingService.id]: true }))
       setRatingSnapshotByServiceId((prev) => ({
         ...prev,
@@ -145,7 +161,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
           comentario: String(ratingForm.comentario || '').trim(),
         },
       }))
-      setRatingNotice('Proveedor ya calificado')
+      setRatingNotice('Servicio finalizado y proveedor calificado')
       closeRatingModal()
     } catch (error) {
       const message = String(error?.message || 'Error al guardar la calificacion')
@@ -165,7 +181,6 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
     <section className="hs-section">
       <header className="hs-header">
         <h1>Historial de servicios</h1>
-        <p>Total realizados: {filteredServices.length} de {serviciosRealizados.length}</p>
       </header>
 
       <div className="hs-filters">
@@ -216,7 +231,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
             <article className="hs-card" key={servicio.id}>
               <div className="hs-head">
                 <h3>Servicio #{servicio.id}</h3>
-                <span className="hs-status">REALIZADO</span>
+                <span className="hs-status">{getFlow(servicio)}</span>
               </div>
 
               <p><strong>Nombre:</strong> {servicio.nombre_servicio || 'Sin nombre'}</p>
@@ -244,20 +259,18 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
               <p><strong>Fecha:</strong> {parseDate(servicio.fecha)?.toLocaleDateString() || 'Sin fecha'}</p>
               <p><strong>Total:</strong> {Number(servicio.total || servicio.costo || 0).toFixed(2)} {servicio.moneda || ''}</p>
 
-              {canCurrentUserRate && isRealizado(servicio) && (
+              {canCurrentUserRate && getFlow(servicio) === 'PENDIENTE' && (
                 <div className="hs-rating-box">
                   {isRated(servicio, ratedByServiceId) ? (
-                    <span className="hs-rated-text">Proveedor ya calificado</span>
+                    <span className="hs-rated-text">Servicio finalizado</span>
                   ) : (
-                    canRateProvider(servicio, ratedByServiceId) && (
-                      <button
-                        type="button"
-                        className="hs-rating-button"
-                        onClick={() => openRatingModal(servicio)}
-                      >
-                        Calificar proveedor
-                      </button>
-                    )
+                    <button
+                      type="button"
+                      className="hs-rating-button"
+                      onClick={() => openRatingModal(servicio)}
+                    >
+                      Marcar finalizado
+                    </button>
                   )}
                 </div>
               )}
@@ -270,12 +283,12 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
         <div className="hs-modal-backdrop" onClick={closeRatingModal}>
           <div className="hs-modal" onClick={(event) => event.stopPropagation()}>
             <div className="hs-modal-head">
-              <h2>Calificar proveedor</h2>
+              <h2>Marcar servicio como finalizado</h2>
               <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
             </div>
 
             <p className="hs-modal-description">
-              Servicio #{ratingService.id} para {ratingService.proveedor || 'proveedor'}.
+              Servicio #{ratingService.id} con proveedor: {ratingService.proveedor || 'proveedor'}.
             </p>
 
             {ratingError ? <p className="hs-modal-error">{ratingError}</p> : null}
@@ -312,7 +325,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
                   Cancelar
                 </button>
                 <button type="submit" className="hs-modal-primary" disabled={ratingSaving}>
-                  {ratingSaving ? 'Guardando...' : 'Guardar calificacion'}
+                  {ratingSaving ? 'Finalizando...' : 'Finalizar servicio'}
                 </button>
               </div>
             </form>

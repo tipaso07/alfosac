@@ -133,7 +133,6 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
     <section className="purchase-request-section">
       <div className="section-header">
         <h1>Solicitar Compra</h1>
-        <p>Registra materiales para adquisicion</p>
       </div>
 
       <form className="purchase-form" onSubmit={handleSubmit} ref={formRef}>
@@ -142,12 +141,10 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
           <p><strong>Area:</strong> {currentArea || 'Sin area'}</p>
         </div>
 
-        <p className="purchase-form-hint">El proveedor se selecciona luego en Mis ordenes de compra.</p>
 
         <div className="purchase-items">
           <article className="purchase-item-row">
             <div className="purchase-item-head">
-              <h3>Material</h3>
             </div>
 
             <label>

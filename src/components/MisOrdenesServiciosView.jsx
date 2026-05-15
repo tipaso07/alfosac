@@ -1,9 +1,18 @@
 import { useMemo, useState } from 'react'
 import '../styles/MisOrdenesServiciosView.css'
-import { fetchMiCalificacionProveedor, guardarCalificacionProveedor } from '../services/api'
+import { guardarCalificacionProveedor } from '../services/api'
 import { hasPermission } from '../services/permissions'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
+const normalizeText = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toUpperCase()
+const isRetentionEnabled = (value) => {
+  if (typeof value === 'boolean') return value
+  return normalize(value) === 'SI'
+}
 const sortCommentsByDateAsc = (comments = []) => {
   return [...(comments || [])].sort((a, b) => {
     const left = new Date(a?.fecha || 0).getTime()
@@ -16,7 +25,23 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 const formatMoney = (value) => Number(toNumber(value)).toFixed(2)
-const getFlow = (service) => normalize(service.estado_flujo || service.estado_servicio)
+const getFlow = (service) => normalize(service.estado_flujo || 'PENDIENTE')
+const getApproval = (service) => normalize(service.estado_aprobacion || 'PENDIENTE')
+const getApprovalState = (service) => normalize(service.estado_aprobacion_detalle || service.estado_aprobacion || 'PENDIENTE')
+const isRealizadoFlow = (service) => getFlow(service) === 'REALIZADO'
+const isApprovedService = (service) => getApproval(service) === 'APROBADO'
+const isPendingFlow = (service) => {
+  const flow = getFlow(service)
+  return flow === 'PENDIENTE' || flow.startsWith('PENDIENTE_')
+}
+const isPendingApproval = (service) => {
+  const approval = getApprovalState(service)
+  return approval === 'PENDIENTE' || approval.startsWith('PENDIENTE_') || approval === 'EN_PROCESO'
+}
+const isPendingSectionService = (service) => {
+  if (isRealizadoFlow(service)) return false
+  return isPendingFlow(service)
+}
 
 const buildDraft = (base = {}) => {
   const subtotal = toNumber(base.subtotal)
@@ -24,6 +49,8 @@ const buildDraft = (base = {}) => {
 
   return {
     ...base,
+    nombre_servicio: base.nombre_servicio ?? '',
+    descripcion_servicio: base.descripcion_servicio ?? '',
     subtotal: base.subtotal ?? '',
     costo_envio: base.costo_envio ?? '',
     otros_costos: base.otros_costos ?? '',
@@ -33,12 +60,12 @@ const buildDraft = (base = {}) => {
 
 const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct }) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2))
-  const monedaNorm = String(moneda || '').trim().toUpperCase()
-  const isUsd = monedaNorm.includes('USD') || monedaNorm.includes('DOLAR')
-  const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL')
-  const totalSoles = isUsd ? Number((totalBase * 3.4).toFixed(2)) : totalBase
+  const monedaNorm = normalizeText(moneda)
+  const isUsd = /USD|DOLAR|DOLARES|US\$/.test(monedaNorm)
+  const isPen = /PEN|SOL|SOLES/.test(monedaNorm)
+  const totalSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase
   const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalSoles > 700)
-  const providerAllowsRetention = retencionFlag && Number.isFinite(retencionPct) && retencionPct > 0
+  const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
     ? Number((totalBase * (retencionPct / 100)).toFixed(2))
@@ -58,7 +85,6 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
 export default function MisOrdenesServiciosView({
   servicios = [],
   proveedores = [],
-  currentUserRoleId,
   currentUserPermissions = [],
   onCompletarDatos,
   onGenerarOrden,
@@ -66,7 +92,7 @@ export default function MisOrdenesServiciosView({
   onMarcarRealizado,
   onAgregarComentario,
 }) {
-  const [activeSection, setActiveSection] = useState('completar')
+  const [activeSection, setActiveSection] = useState('aprobados')
   const [expandedId, setExpandedId] = useState(null)
   const [queryByService, setQueryByService] = useState({})
   const [draftByService, setDraftByService] = useState({})
@@ -128,21 +154,25 @@ export default function MisOrdenesServiciosView({
     })
   }, [proveedores])
 
-  const serviciosAprobados = useMemo(() => {
-    return (servicios || [])
-      .filter((servicio) => normalize(servicio.estado_aprobacion) === 'APROBADO')
+  const serviciosOrdenados = useMemo(() => {
+    return [...(servicios || [])]
       .sort((a, b) => new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime())
   }, [servicios])
 
-  const serviciosParaCompletar = useMemo(() => {
-    return serviciosAprobados.filter((servicio) => {
-      const flow = getFlow(servicio)
-      return flow !== 'PENDIENTE' && flow !== 'REALIZADO'
-    })
-  }, [serviciosAprobados])
+  const serviciosAprobados = useMemo(() => {
+    return serviciosOrdenados
+      .filter((servicio) => {
+        const flow = getFlow(servicio)
+        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO'
+      })
+  }, [serviciosOrdenados])
 
   const serviciosPendientes = useMemo(() => {
-    return serviciosAprobados.filter((servicio) => getFlow(servicio) === 'PENDIENTE')
+    return serviciosOrdenados.filter((servicio) => isPendingSectionService(servicio))
+  }, [serviciosOrdenados])
+
+  const serviciosParaCompletar = useMemo(() => {
+    return serviciosAprobados.filter((servicio) => !isRealizadoFlow(servicio))
   }, [serviciosAprobados])
 
   const serviciosRealizados = useMemo(() => {
@@ -174,11 +204,19 @@ export default function MisOrdenesServiciosView({
     })
   }, [serviciosRealizados, realizadosAreaFilter, realizadosPrioridadFilter, realizadosFromDate, realizadosToDate])
 
+  const activeServicios = useMemo(() => {
+    if (activeSection === 'aprobados') return serviciosParaCompletar
+    if (activeSection === 'pendientes') return serviciosPendientes
+    return serviciosRealizadosFiltrados
+  }, [activeSection, serviciosParaCompletar, serviciosPendientes, serviciosRealizadosFiltrados])
+
   const getDraft = (servicio) => {
     const existingDraft = draftByService[servicio.id]
     if (existingDraft) return existingDraft
 
     return buildDraft({
+      nombre_servicio: servicio.nombre_servicio ?? servicio.descripcion_servicio ?? '',
+      descripcion_servicio: servicio.descripcion_servicio ?? '',
       proveedor_id: Number(servicio.proveedor_id || 0) || '',
       subtotal: servicio.subtotal ?? '',
       costo_envio: servicio.costo_envio ?? '',
@@ -198,13 +236,29 @@ export default function MisOrdenesServiciosView({
 
   const getProviderOptions = (serviceId) => {
     const term = String(queryByService[serviceId] || '').trim().toLowerCase()
-    if (!term) return serviceProviders
+    if (!term) return []
 
-    return serviceProviders.filter((provider) => {
-      const razonSocial = String(provider.razon_social || provider.nombre || '').toLowerCase()
-      const ruc = String(provider.ruc || '').toLowerCase()
-      return razonSocial.includes(term) || ruc.includes(term)
-    })
+    return serviceProviders
+      .map((provider) => {
+        const razonSocial = String(provider.razon_social || provider.nombre || '').trim()
+        const razonLower = razonSocial.toLowerCase()
+        const ruc = String(provider.ruc || '').trim()
+        const rucLower = ruc.toLowerCase()
+        let score = 0
+
+        if (razonLower.startsWith(term)) score += 80
+        else if (razonLower.includes(term)) score += 55
+
+        if (rucLower.startsWith(term)) score += 70
+        else if (rucLower.includes(term)) score += 45
+
+        if (String(provider.moneda_nombre || provider.moneda || '').toLowerCase().includes(term)) score += 10
+        return { provider, score, razonSocial, ruc }
+      })
+      .filter(({ score }) => score > 0)
+      .sort((left, right) => right.score - left.score || left.razonSocial.localeCompare(right.razonSocial))
+      .slice(0, 8)
+      .map(({ provider }) => provider)
   }
 
   const getSelectedProvider = (servicio) => {
@@ -224,7 +278,7 @@ export default function MisOrdenesServiciosView({
     const tipoRetencion = ['RETENCION', 'DETRACCION'].includes(normalize(provider.tipo_retencion || ''))
       ? normalize(provider.tipo_retencion)
       : 'RETENCION'
-    const retencionFlag = normalize(provider.retencion) === 'SI'
+    const retencionFlag = isRetentionEnabled(provider.retencion)
 
     const fields = [
       ['Razón social', provider.razon_social || provider.nombre || 'N/D'],
@@ -274,31 +328,62 @@ export default function MisOrdenesServiciosView({
         retencionPct,
       })
 
+      // Debug logs
+      console.log('[SERVICIO RETENTION DEBUG completarDatos]', {
+        'selectedProvider.retencion': selectedProvider?.retencion,
+        'selectedProvider.descuento': selectedProvider?.descuento,
+        'retencionFlag (is SI?)': retencionFlag,
+        'retencionPct': retencionPct,
+        'moneda': moneda,
+        'subtotal': subtotal,
+        'igv': igv,
+        'costoEnvio': costoEnvio,
+        'otrosCostos': otrosCostos,
+        'totalBase': retentionData.totalBase,
+        'aplicaRetencion': retentionData.aplicaRetencion,
+      })
+
       if (!proveedorId) {
         setError('Debes seleccionar un proveedor valido para el servicio')
-        return
+        return false
       }
 
       if (subtotal <= 0) {
         setError('El subtotal es obligatorio')
-        return
+        return false
       }
 
       if (retentionData.totalFinal <= 0) {
         setError('El total es obligatorio')
-        return
+        return false
       }
 
       await onCompletarDatos(servicio.id, {
         proveedor_id: proveedorId,
+        nombre_servicio: String(draft.nombre_servicio || '').trim(),
+        descripcion_servicio: String(draft.descripcion_servicio || '').trim(),
         subtotal,
         igv,
         costo_envio: costoEnvio,
         otros_costos: otrosCostos,
         total: retentionData.totalFinal,
       })
+      return true
     } catch (err) {
       setError(err?.message || 'Error al completar datos del servicio')
+      return false
+    }
+  }
+
+  const handleSaveAndGenerate = async (servicio) => {
+    const saved = await handleSubmit(servicio)
+    if (!saved) return
+
+    try {
+      setError('')
+      await onGenerarOrden(servicio.id)
+    } catch (err) {
+      setError(err?.message || 'Error al generar orden de servicio')
     }
   }
 
@@ -329,29 +414,6 @@ export default function MisOrdenesServiciosView({
     setRatingService(null)
     setRatingError('')
     setRatingForm({ puntuacion: 5, comentario: '' })
-  }
-
-  const openRatingAfterFinalize = (servicio) => {
-    if (!canRateProviders) return
-    setRatingNotice('')
-    const providerId = Number(servicio.proveedor_id || 0)
-    if (!providerId) return
-    return fetchMiCalificacionProveedor(providerId, {
-      tipo: 'servicio',
-      id_referencia: Number(servicio.id || 0),
-    })
-      .then((existing) => {
-        if (existing?.ya_calificado) {
-          setRatingNotice('Ya calificaste este proveedor')
-          return
-        }
-        setRatingService(servicio)
-        setRatingError('')
-        setRatingForm({ puntuacion: 5, comentario: '' })
-      })
-      .catch((err) => {
-        setError(err?.message || 'Error al verificar calificacion del proveedor')
-      })
   }
 
   const submitServiceRating = async (event) => {
@@ -418,7 +480,22 @@ export default function MisOrdenesServiciosView({
       retencionFlag,
       retencionPct,
     })
-    const canSave = flow !== 'DATOS_COMPLETADOS' && flow !== 'PENDIENTE' && flow !== 'REALIZADO'
+
+    // Debug logs
+    console.log('[SERVICIO RETENTION DEBUG renderCard]', {
+      'selectedProvider.retencion': selectedProvider?.retencion,
+      'selectedProvider.descuento': selectedProvider?.descuento,
+      'retencionFlag (is SI?)': retencionFlag,
+      'retencionPct': retencionPct,
+      'moneda': moneda,
+      'subtotal': toNumber(draft.subtotal),
+      'igv': toNumber(draft.igv),
+      'costoEnvio': toNumber(draft.costo_envio),
+      'otrosCostos': toNumber(draft.otros_costos),
+      'totalBase': retentionData.totalBase,
+      'aplicaRetencion': retentionData.aplicaRetencion,
+    })
+    const canSave = flow === 'DATOS_COMPLETADOS'
     const canGenerate = flow === 'DATOS_COMPLETADOS'
 
     return (
@@ -444,15 +521,7 @@ export default function MisOrdenesServiciosView({
                 {isExpanded ? 'Ocultar datos' : 'Completar datos'}
               </button>
             )}
-            {canGenerate && (
-              <button
-                type="button"
-                className="btn-generate"
-                onClick={() => onGenerarOrden(servicio.id).catch((err) => setError(err?.message || 'Error al generar orden de servicio'))}
-              >
-                Generar Orden de Servicio
-              </button>
-            )}
+            {/* Generar Orden ahora se muestra junto a Guardar datos dentro del formulario expandido */}
           </div>
         ) : mode === 'pendientes' ? (
           <div className="my-so-actions">
@@ -462,16 +531,6 @@ export default function MisOrdenesServiciosView({
               onClick={() => onDescargarPdf(servicio.id).catch((err) => setError(err?.message || 'Error al descargar PDF'))}
             >
               Descargar PDF
-            </button>
-            <button
-              type="button"
-              className="btn-receive"
-              onClick={() =>
-                onMarcarRealizado(servicio.id)
-                  .catch((err) => setError(err?.message || 'Error al marcar realizado'))
-              }
-            >
-              Marcar como REALIZADO
             </button>
           </div>
         ) : (
@@ -494,29 +553,52 @@ export default function MisOrdenesServiciosView({
                 type="text"
                 value={queryByService[servicio.id] || ''}
                 onChange={(event) => setQueryByService((prev) => ({ ...prev, [servicio.id]: event.target.value }))}
-                placeholder="Busca por razon social o RUC"
+                placeholder="Escribe para ver proveedores recomendados"
               />
-              <ul className="supplier-options">
-                {providerOptions.map((provider) => (
-                  <li key={`service-provider-${servicio.id}-${provider.id}`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDraft(servicio.id, {
-                          proveedor_id: Number(provider.id),
-                        })
-                        setQueryByService((prev) => ({ ...prev, [servicio.id]: String(provider.razon_social || provider.nombre || '') }))
-                      }}
-                    >
-                      <span>{provider.razon_social || provider.nombre}</span>
-                      <small>{provider.ruc ? `RUC ${provider.ruc}` : ''}</small>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {String(queryByService[servicio.id] || '').trim() ? (
+                <ul className="supplier-options">
+                  {providerOptions.map((provider) => (
+                    <li key={`service-provider-${servicio.id}-${provider.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDraft(servicio.id, {
+                            proveedor_id: Number(provider.id),
+                          })
+                          setQueryByService((prev) => ({ ...prev, [servicio.id]: String(provider.razon_social || provider.nombre || '') }))
+                        }}
+                      >
+                        <span>{provider.razon_social || provider.nombre}</span>
+                        <small>{provider.ruc ? `RUC ${provider.ruc}` : ''}</small>
+                      </button>
+                    </li>
+                  ))}
+                  {providerOptions.length === 0 && <li className="supplier-empty">Sin coincidencias</li>}
+                </ul>
+              ) : null}
             </label>
 
             {renderProviderDetails(selectedProvider)}
+
+            <label>
+              Nombre del servicio
+              <input
+                type="text"
+                value={draft.nombre_servicio}
+                onChange={(event) => setDraft(servicio.id, { nombre_servicio: event.target.value })}
+                placeholder="Nombre que aparece en la solicitud"
+              />
+            </label>
+
+            <label className="full-row">
+              Detalle del servicio
+              <textarea
+                rows={3}
+                value={draft.descripcion_servicio}
+                onChange={(event) => setDraft(servicio.id, { descripcion_servicio: event.target.value })}
+                placeholder="Detalle editable del servicio"
+              />
+            </label>
 
             <label>
               Subtotal
@@ -567,7 +649,7 @@ export default function MisOrdenesServiciosView({
               <p><strong>Costo envío:</strong> {formatMoney(draft.costo_envio)}</p>
               <p><strong>Otros costos:</strong> {formatMoney(draft.otros_costos)}</p>
               <p><strong>Total base:</strong> {formatMoney(retentionData.totalBase)}</p>
-              <p><strong>Retención aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
+              <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
               {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
               {retentionData.aplicaRetencion && <p><strong>Monto retenido:</strong> {retentionData.montoRetencion.toFixed(2)}</p>}
               <p><strong>TOTAL FINAL:</strong> {retentionData.totalFinal.toFixed(2)}</p>
@@ -579,62 +661,17 @@ export default function MisOrdenesServiciosView({
               <button type="button" className="btn-generate" onClick={() => handleSubmit(servicio)}>
                 Guardar datos
               </button>
+              <button
+                type="button"
+                className="btn-generate"
+                onClick={() => handleSaveAndGenerate(servicio)}
+                style={{ marginLeft: 8 }}
+              >
+                Generar Orden de Servicio
+              </button>
             </div>
           </div>
         )}
-
-        <div className="my-so-comments-box">
-          <strong>Comentarios</strong>
-          {getVisibleComments(servicio).length === 0 ? (
-            <p className="my-so-summary-line">Sin comentarios registrados.</p>
-          ) : (
-            <ul className="my-so-comments-list">
-              {getVisibleComments(servicio).map((item, idx) => (
-                <li key={`${servicio.id}-comment-${idx}`} className={`my-so-chat-item ${isOwnComment(item) ? 'is-own' : 'is-other'}`}>
-                  <div className="my-so-chat-meta">
-                    <div className="my-so-chat-user">
-                      {getCommentPhotoSrc(item) ? (
-                        <img className="my-so-chat-avatar" src={getCommentPhotoSrc(item)} alt={item.usuario || 'Usuario'} />
-                      ) : (
-                        <span className="my-so-chat-avatar my-so-chat-avatar-placeholder">{String(item.usuario || 'U').trim().charAt(0).toUpperCase() || 'U'}</span>
-                      )}
-                      <strong>{item.usuario || 'Usuario'}</strong>
-                    </div>
-                    <span>{item.fecha ? new Date(item.fecha).toLocaleString() : 'Sin fecha'}</span>
-                  </div>
-                  <p className="my-so-chat-message">{item.contenido}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="my-so-comments-form">
-            <textarea
-              value={commentDraftByService[servicio.id] || ''}
-              onChange={(event) => {
-                const value = event.target.value
-                setCommentDraftByService((prev) => ({ ...prev, [servicio.id]: value }))
-                if (String(value || '').trim()) {
-                  setCommentStatusByService((prev) => ({ ...prev, [servicio.id]: null }))
-                }
-              }}
-              placeholder="Escribe un comentario"
-            />
-            <button
-              type="button"
-              className="btn-generate"
-              onClick={() => handleAgregarComentario(servicio)}
-              disabled={!String(commentDraftByService[servicio.id] || '').trim()}
-            >
-              Enviar
-            </button>
-            {commentStatusByService[servicio.id]?.message ? (
-              <p className={`my-so-comment-feedback ${commentStatusByService[servicio.id]?.type || 'info'}`}>
-                {commentStatusByService[servicio.id].message}
-              </p>
-            ) : null}
-          </div>
-        </div>
       </article>
     )
   }
@@ -647,8 +684,8 @@ export default function MisOrdenesServiciosView({
       </div>
 
       <div className="my-so-filters">
-        <button type="button" className={activeSection === 'completar' ? 'active' : ''} onClick={() => setActiveSection('completar')}>
-          Completar datos ({serviciosParaCompletar.length})
+        <button type="button" className={activeSection === 'aprobados' ? 'active' : ''} onClick={() => setActiveSection('aprobados')}>
+          Aprobados ({serviciosParaCompletar.length})
         </button>
         <button type="button" className={activeSection === 'pendientes' ? 'active' : ''} onClick={() => setActiveSection('pendientes')}>
           Pendientes ({serviciosPendientes.length})
@@ -693,15 +730,21 @@ export default function MisOrdenesServiciosView({
       {error && <p className="my-so-error">{error}</p>}
       {ratingNotice ? <p className="my-so-comment-feedback success">{ratingNotice}</p> : null}
 
-      {serviciosAprobados.length === 0 ? (
-        <div className="empty-state">No tienes servicios aprobados para gestionar.</div>
+      {activeServicios.length === 0 ? (
+        <div className="empty-state">
+          {activeSection === 'pendientes'
+            ? 'No tienes servicios pendientes para gestionar.'
+            : activeSection === 'realizados'
+              ? 'No tienes servicios realizados para mostrar.'
+              : 'No tienes servicios aprobados para mostrar.'}
+        </div>
       ) : (
         <div className="my-so-list">
-          {activeSection === 'completar'
-            ? serviciosParaCompletar.map((servicio) => renderServicioCard(servicio, 'completar'))
+          {activeSection === 'aprobados'
+            ? activeServicios.map((servicio) => renderServicioCard(servicio, 'completar'))
             : activeSection === 'pendientes'
-              ? serviciosPendientes.map((servicio) => renderServicioCard(servicio, 'pendientes'))
-              : serviciosRealizadosFiltrados.map((servicio) => renderServicioCard(servicio, 'realizados'))}
+              ? activeServicios.map((servicio) => renderServicioCard(servicio, 'pendientes'))
+              : activeServicios.map((servicio) => renderServicioCard(servicio, 'realizados'))}
         </div>
       )}
 

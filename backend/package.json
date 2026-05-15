@@ -5,8 +5,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
-    "db:migrate": "node run-migrations.js"
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$p=(Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue).OwningProcess; if($p){Stop-Process -Id $p -Force -ErrorAction SilentlyContinue}; nodemon server.js\"",
+    "db:migrate": "node run-migrations.js",
+    "clean-test": "node clean-and-seed-test-data.js",
+    "db:demo": "node prepare-demo-db.js",
+    "db:empty": "node prepare-empty-db.js"
   },
   "keywords": [],
   "author": "",

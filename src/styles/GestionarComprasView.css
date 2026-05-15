@@ -5,6 +5,28 @@
   box-shadow: var(--shadow-sm);
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.section-header h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.section-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
 .purchase-status-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -39,10 +61,23 @@
   padding: 12px;
 }
 
+.purchase-manage-card h3,
+.purchase-manage-card p,
+.purchase-manage-card li {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .purchase-manage-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.purchase-manage-head h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
 }
 
 .purchase-status {

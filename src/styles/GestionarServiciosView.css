@@ -88,6 +88,21 @@
   color: #991b1b;
 }
 
+.service-finance-plan-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.service-finance-plan-field select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 600;
+  background: #fff;
+}
+
 .service-manage-actions {
   display: flex;
   gap: 8px;

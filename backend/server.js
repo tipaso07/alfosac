@@ -133,6 +133,10 @@ const MANAGER_ROLES = new Set([
 const isAdminRole = (role) => normalizeRoleName(role) === 'ADMIN';
 const isComprasRole = (role) => normalizeRoleName(role) === 'COMPRAS';
 const isAlmaceneroRole = (role) => normalizeRoleName(role) === 'ALMACENERO';
+const isWarehouseAreaName = (value) => {
+  const normalizedValue = normalizeRoleName(value);
+  return normalizedValue === 'GENERAL' || normalizedValue.includes('ALMACEN');
+};
 const getNormalizedRoles = (roleInput) => {
   if (Array.isArray(roleInput)) {
     return roleInput.map((role) => normalizeRoleName(role)).filter(Boolean);
@@ -176,11 +180,102 @@ const canManageRequirementsRole = (role) => hasAnyRole(role, ['ADMIN', ...MANAGE
 const canManagePurchasesRole = (role) => hasAnyRole(role, ['ADMIN', ...MANAGER_ROLES]);
 const canManageDeliveryRole = (role) => hasAnyRole(role, ['ADMIN', 'ALMACENERO']);
 
-const APPROVAL_ROLES_BY_LEVEL = [5, 6, 7, 8];
-const APPROVAL_CHAIN_COMPRA = [5, 6, 7, 8];
-const APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [5, 6, 7];
-const APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [5, 6, 7, 8];
+// Approval chains will be loaded from aprobaciones_config table at startup
+let APPROVAL_ROLES_BY_LEVEL = [5, 6, 7, 8];
+let APPROVAL_CHAIN_COMPRA = [5, 6, 7, 8];
+let APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [5, 6, 7];
+let APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [5, 6, 7, 8];
 let approvalsTableAvailableCache = null;
+let ROLE_NAME_BY_ID = new Map(); // Cache: roleId → roleName for generating PENDIENTE_* states
+let schemaMeta = {
+  loaded: false,
+  proveedoresColumns: new Set(),
+  comprasColumns: new Set(),
+  detalleComprasColumns: new Set(),
+  stockColumns: new Set(),
+  movimientosColumns: new Set(),
+  serviciosColumns: new Set(),
+  materialesColumns: new Set(),
+  requerimientosColumns: new Set(),
+  usuariosColumns: new Set(),
+  requerimientoReceptorIdColumn: null,
+  usuariosRoleIdColumn: 'id_role',
+  usuariosEmailColumn: 'email',
+  usuariosPasswordColumn: 'password_hash',
+  usuariosEstadoColumn: null,
+};
+
+const loadApprovalChainsFromConfig = async () => {
+  try {
+    const result = await pool.query(
+      `SELECT to_regclass('public.aprobaciones_config') IS NOT NULL AS exists`
+    );
+    const tableExists = Boolean(result.rows[0]?.exists);
+    if (!tableExists) {
+      return;
+    }
+
+    // Load all role names for state generation
+    try {
+      const rolesResult = await pool.query(`SELECT id, nombre FROM roles`);
+      ROLE_NAME_BY_ID.clear();
+      rolesResult.rows.forEach((row) => {
+        const roleId = Number(row.id || 0);
+        const roleName = String(row.nombre || '').trim();
+        if (roleId > 0 && roleName) {
+          ROLE_NAME_BY_ID.set(roleId, roleName);
+        }
+      });
+    } catch (err) {
+      console.warn('[APPROVAL] Could not load role names:', err.message);
+    }
+
+    const chainResult = await pool.query(
+      `
+        SELECT upper(trim(flujo)) AS flujo, orden, rol_id
+        FROM aprobaciones_config
+        WHERE activo = TRUE
+        ORDER BY flujo, orden ASC
+      `
+    );
+
+    const chainByFlow = new Map();
+    chainResult.rows.forEach((row) => {
+      const flow = String(row.flujo || '').trim().toUpperCase();
+      const roleId = Number(row.rol_id || 0);
+      if (!flow || !Number.isInteger(roleId) || roleId <= 0) return;
+
+      if (!chainByFlow.has(flow)) {
+        chainByFlow.set(flow, []);
+      }
+
+      chainByFlow.get(flow).push(roleId);
+    });
+
+    if (chainByFlow.has('COMPRA')) {
+      APPROVAL_CHAIN_COMPRA = chainByFlow.get('COMPRA');
+      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_COMPRA])];
+    }
+
+    if (chainByFlow.has('SERVICIO_DENTRO_PLAN')) {
+      APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = chainByFlow.get('SERVICIO_DENTRO_PLAN');
+      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN])];
+    }
+
+    if (chainByFlow.has('SERVICIO_FUERA_PLAN')) {
+      APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = chainByFlow.get('SERVICIO_FUERA_PLAN');
+      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_SERVICIO_FUERA_PLAN])];
+    }
+
+    console.log('[APPROVAL] Chains loaded from aprobaciones_config:', {
+      COMPRA: APPROVAL_CHAIN_COMPRA,
+      DENTRO_PLAN: APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN,
+      FUERA_PLAN: APPROVAL_CHAIN_SERVICIO_FUERA_PLAN,
+    });
+  } catch (err) {
+    console.error('[APPROVAL] Error loading approval chains from config:', err.message);
+  }
+};
 
 const normalizeApprovalTipo = (value) => normalize(value).replace(/\s+/g, '_');
 
@@ -189,7 +284,17 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   const creatorRole = Number(creatorRoleId || 0);
 
   if (normalizedTipo === 'COMPRA') {
-    return [...APPROVAL_CHAIN_COMPRA];
+    const purchaseChain = [...APPROVAL_CHAIN_COMPRA];
+    if (purchaseChain.length === 0) {
+      return [];
+    }
+
+    const creatorIndex = creatorRole > 0 ? purchaseChain.indexOf(creatorRole) : -1;
+    if (creatorIndex >= 0) {
+      return purchaseChain.slice(creatorIndex + 1);
+    }
+
+    return purchaseChain;
   }
 
   if (normalizedTipo === 'SERVICIO') {
@@ -206,7 +311,31 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   return [];
 };
 
-const isApprovalHierarchyRoleId = (roleId) => APPROVAL_ROLES_BY_LEVEL.includes(Number(roleId || 0));
+const isApprovalHierarchyRoleId = (roleId) => {
+  const numericRoleId = Number(roleId || 0);
+  
+  // Primero verifica el array cargado dinámicamente
+  if (APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId)) {
+    return true;
+  }
+  
+  // Si no está en el array, verifica si tiene un permiso de aprobación basándose en ROLE_NAME_BY_ID
+  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
+  if (roleName) {
+    const normalizedName = normalizeRoleName(roleName);
+    // Si el rol tiene un nombre que sugiere que es un rol de aprobación, considerarlo como parte de la jerarquía
+    if (
+      normalizedName === 'ADMIN' ||
+      normalizedName.includes('FINANZAS') ||
+      (normalizedName.includes('GERENCIA') && normalizedName.includes('AREA')) ||
+      normalizedName.includes('JEFE')
+    ) {
+      return true;
+    }
+  }
+  
+  return false;
+};
 
 const APPROVAL_ROLE_ID_BY_NAME = new Map([
   [normalizeRoleName('JEFE DE AREA/SUBGERENTE'), 5],
@@ -253,6 +382,13 @@ const getApprovalRoleLabel = (roleId, roleName = '') => {
     return explicitName;
   }
 
+  // Primero intenta del cache de roles cargados dinámicamente
+  const cachedName = ROLE_NAME_BY_ID.get(numericRoleId);
+  if (cachedName) {
+    return cachedName;
+  }
+
+  // Fallback a los hardcoded para compatibilidad si no está en cache
   if (numericRoleId === 5) return 'Jefe de Area/Subgerente';
   if (numericRoleId === 6) return 'Gerencia del Area';
   if (numericRoleId === 7) return 'Gerencia de Finanzas';
@@ -286,19 +422,36 @@ const tienePermiso = (usuario, permiso) => {
   if (!normalizedPermission) return false;
 
   const roleId = Number(usuario?.id_role || usuario?.rol_id || 0);
-  const hasDirectPermissions = Array.isArray(usuario?.permisos);
-  const directPermissions = hasDirectPermissions ? usuario.permisos : [];
+  const directPermissions = Array.isArray(usuario?.permisos) ? usuario.permisos : [];
   const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
     ? getPermissionsByRoleId(roleId)
     : [];
-  const permissions = hasDirectPermissions ? directPermissions : fallbackPermissions;
+  const permissions = [...new Set([...directPermissions, ...fallbackPermissions])];
 
   return permissions.some((item) => normalizePermissionName(item) === normalizedPermission);
 };
 
 const getRequiredApprovalPermissionByRoleId = (roleId) => {
   const numericRoleId = Number(roleId || 0);
-  return String(APPROVAL_PERMISSION_BY_ROLE_ID.get(numericRoleId) || '').trim().toUpperCase();
+  
+  // Primero intenta el mapa hardcodeado (para compatibilidad hacia atrás)
+  const hardcodedPermission = APPROVAL_PERMISSION_BY_ROLE_ID.get(numericRoleId);
+  if (hardcodedPermission) {
+    return String(hardcodedPermission).trim().toUpperCase();
+  }
+
+  // Si no está en el mapa hardcodeado, intenta buscar dinámicamente en ROLE_NAME_BY_ID
+  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
+  if (roleName) {
+    const normalizedName = normalizeRoleName(roleName);
+    // Mapear nombres de rol a permisos de aprobación
+    if (normalizedName === 'ADMIN') return 'APROBAR_ADMIN';
+    if (normalizedName.includes('FINANZAS')) return 'APROBAR_FINANZAS';
+    if (normalizedName.includes('GERENCIA') && normalizedName.includes('AREA')) return 'APROBAR_GERENCIA_AREA';
+    if (normalizedName.includes('JEFE') || normalizedName.includes('SUBGERENTE')) return 'APROBAR_JEFE_AREA';
+  }
+
+  return '';
 };
 
 const getApprovalPermissionByState = (state) => {
@@ -321,6 +474,27 @@ const getApprovalStateByPermission = (permission) => {
 
 const getApprovalRoleIdByPermission = (permission) => {
   const normalizedPermission = normalize(permission);
+  
+  // Mapeo de permiso a nombre de rol esperado
+  let expectedRoleName = '';
+  if (normalizedPermission === 'APROBAR_ADMIN') expectedRoleName = 'ADMIN';
+  else if (normalizedPermission === 'APROBAR_FINANZAS') expectedRoleName = 'GERENCIA DE FINANZAS';
+  else if (normalizedPermission === 'APROBAR_GERENCIA_AREA') expectedRoleName = 'GERENCIA DEL AREA';
+  else if (normalizedPermission === 'APROBAR_JEFE_AREA') expectedRoleName = 'JEFE DE AREA';
+  else return 0;
+  
+  // Buscar el rol en ROLE_NAME_BY_ID que coincida con este nombre
+  if (expectedRoleName) {
+    const normalizedExpected = normalizeRoleName(expectedRoleName);
+    for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
+      const normalizedCached = normalizeRoleName(roleName);
+      if (normalizedCached === normalizedExpected) {
+        return roleId;
+      }
+    }
+  }
+  
+  // Fallback: retornar los IDs hardcodeados
   if (normalizedPermission === 'APROBAR_JEFE_AREA') return 5;
   if (normalizedPermission === 'APROBAR_GERENCIA_AREA') return 6;
   if (normalizedPermission === 'APROBAR_FINANZAS') return 7;
@@ -388,10 +562,13 @@ const getNextApprovalState = ({ tipo, currentState, dentroPlan }) => {
   };
 };
 
-const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
+const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options = {}) => {
   const normalizedTipo = normalize(tipo);
   const referenceId = Number(id || 0);
   const normalizedDecision = normalize(decision) === 'RECHAZADO' ? 'RECHAZADO' : 'APROBADO';
+  const overrideDentroPlan = Object.prototype.hasOwnProperty.call(options || {}, 'dentro_plan')
+    ? options.dentro_plan
+    : null;
 
   if (!['COMPRA', 'SERVICIO'].includes(normalizedTipo)) {
     throw new Error('Tipo de entidad invalido');
@@ -416,7 +593,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
         tableName: 'compras',
         stateColumn: 'estado',
         selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_JEFE_AREA'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
-        updateQuery: 'UPDATE compras SET estado = $1, fecha_actualizacion = NOW() WHERE id = $2',
+        updateQuery: 'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
       }
       : {
         tableName: 'servicios',
@@ -443,7 +620,18 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
 
     const entityRow = entityResult.rows[0];
     const estadoAnterior = normalizeApprovalState(entityRow.estado);
-    const dentroPlan = Boolean(entityRow.dentro_plan);
+    let dentroPlan = Boolean(entityRow.dentro_plan);
+
+    if (normalizedTipo === 'SERVICIO' && overrideDentroPlan !== null) {
+      dentroPlan = Boolean(overrideDentroPlan);
+      const servicePlanColumn = getServicioDentroPlanColumn();
+      if (servicePlanColumn) {
+        await client.query(
+          `UPDATE servicios SET ${quoteIdentifier(servicePlanColumn)} = $1 WHERE id = $2`,
+          [dentroPlan, referenceId]
+        );
+      }
+    }
 
     if (estadoAnterior === 'APROBADO') {
       throw new Error('Ya esta aprobado');
@@ -472,7 +660,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
 
     const approvalRow = await client.query(
       `
-        SELECT id, orden, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
+        SELECT id, orden, rol_aprobador, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
         FROM aprobaciones
         WHERE upper(trim(tipo)) = $1
           AND referencia_id = $2
@@ -493,7 +681,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
       throw new Error('Esta etapa ya fue aprobada');
     }
 
-    if (normalize(currentApproval.estado) !== 'PENDIENTE') {
+    const normalizedEstado = normalize(currentApproval.estado);
+    const isPendingState = normalizedEstado === 'PENDIENTE' || normalizedEstado.startsWith('PENDIENTE_');
+    if (!isPendingState) {
       throw new Error('La etapa actual no esta pendiente');
     }
 
@@ -514,30 +704,141 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
       throw new Error('No se puede aprobar: aun hay niveles anteriores sin aprobar');
     }
 
+    // Para servicios, el primer aprobador debe indicar explícitamente si está dentro del plan.
+    // Si la petición no incluye la decisión (`overrideDentroPlan === null`) y la etapa es la primera, rechazar.
+    if (normalizedTipo === 'SERVICIO' && currentApproval && Number(currentApproval.orden || 0) === 1 && overrideDentroPlan === null) {
+      throw new Error('DECISION DE APROBACION INVALIDA: En la primera aprobacion debe especificarse si el servicio esta dentro_plan');
+    }
+
     const actorId = Number(usuario?.id || 0) || null;
     await client.query(
       `
         UPDATE aprobaciones
-        SET estado = $1,
+        SET estado = $1::text,
             usuario_id = $2,
             fecha = NOW()
         WHERE id = $3
-          AND upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+          AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+               OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
       `,
       [normalizedDecision, actorId, Number(currentApproval.id)]
     );
 
     if (normalizedTipo === 'COMPRA') {
-      await client.query(
-        'UPDATE compras SET estado = $1, fecha_actualizacion = NOW() WHERE id = $2',
-        [estadoNuevo, referenceId]
-      );
+      // Actualizar estado de compra
+      if (normalizedDecision === 'APROBADO') {
+        // Verificar si hay aprobaciones pendientes DESPUÉS de la actual
+        const nextPending = await client.query(
+          `
+            SELECT rol_aprobador
+            FROM aprobaciones
+            WHERE upper(trim(tipo)) = $1
+              AND referencia_id = $2
+              AND orden > $3
+              AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+                   OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+            ORDER BY orden ASC
+            LIMIT 1
+          `,
+          [normalizedTipo, referenceId, Number(currentApproval.orden || 0)]
+        );
+
+        const nextPendingRow = nextPending.rows[0];
+        const hasPendingNext = !!nextPendingRow;
+        
+        if (hasPendingNext) {
+          // Si hay pendientes posteriores, actualizar a PENDIENTE_<NEXT_ROLE>
+          const nextRoleId = nextPendingRow.rol_aprobador;
+          let nextRoleName = ROLE_NAME_BY_ID.get(Number(nextRoleId)) || `ROL_${nextRoleId}`;
+          nextRoleName = normalizeRoleName(nextRoleName);
+          const nextEstado = `PENDIENTE_${nextRoleName}`;
+          
+          await client.query(
+            'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+            [nextEstado, referenceId]
+          );
+        } else {
+          // Si no hay pendientes, marcar como APROBADO y registrar estado_pedido
+          await client.query(
+            'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+            [estadoNuevo, referenceId]
+          );
+          
+          await client.query(
+            `UPDATE compras SET estado_pedido = $1::text, fecha_actualizacion = NOW() WHERE id = $2`,
+            ['APROBADO', referenceId]
+          );
+        }
+      } else {
+        // Si se rechaza, actualizar directamente
+        await client.query(
+          'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+          [estadoNuevo, referenceId]
+        );
+      }
     } else {
       const serviceStateColumn = getServicioApprovalColumn();
-      await client.query(
-        `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
-        [estadoNuevo, referenceId]
-      );
+      const serviceFlowColumn = getServicioStatusColumn();
+      const dentroPlanColumn = getServicioDentroPlanColumn();
+
+      // Para servicios, si es la primera aprobación y se especifica dentro_plan, reconstruir la cadena de aprobaciones PRIMERO
+      if (normalizedTipo === 'SERVICIO' && overrideDentroPlan !== null && currentApproval && Number(currentApproval.orden || 0) === 1) {
+        // Actualizar el valor dentro_plan con la decisión del usuario
+        if (dentroPlanColumn) {
+          await client.query(
+            `UPDATE servicios SET ${quoteIdentifier(dentroPlanColumn)} = $1 WHERE id = $2`,
+            [overrideDentroPlan, referenceId]
+          );
+        }
+        await rebuildServiceApprovalChain(client, referenceId, overrideDentroPlan);
+      }
+
+      // Luego, actualizar estado del servicio
+      if (normalizedDecision === 'APROBADO') {
+        // Verificar si aun hay aprobaciones pendientes CON ORDEN MAYOR (posteriores a la actual)
+        const nextPending = await client.query(
+          `
+            SELECT rol_aprobador
+            FROM aprobaciones
+            WHERE upper(trim(tipo)) = $1
+              AND referencia_id = $2
+              AND orden > $3
+              AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+                   OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+            ORDER BY orden ASC
+            LIMIT 1
+          `,
+          [normalizedTipo, referenceId, Number(currentApproval.orden || 0)]
+        );
+
+        const nextPendingRow = nextPending.rows[0];
+        const hasPendingNext = !!nextPendingRow;
+        
+        if (!hasPendingNext) {
+          // Solo marcar como APROBADO si no hay más aprobaciones pendientes después de esta
+          const newFlow = 'APROBADO';
+          await client.query(
+            `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1, ${quoteIdentifier(serviceFlowColumn)} = $2 WHERE id = $3`,
+            [estadoNuevo, newFlow, referenceId]
+          );
+        } else {
+          // Si hay aprobaciones pendientes posteriores, actualizar estado_aprobacion a PENDIENTE_<NEXT_ROLE>
+          const nextRoleId = nextPendingRow.rol_aprobador;
+          let nextRoleName = ROLE_NAME_BY_ID.get(Number(nextRoleId)) || `ROL_${nextRoleId}`;
+          nextRoleName = normalizeRoleName(nextRoleName);
+          const nextEstado = `PENDIENTE_${nextRoleName}`;
+          
+          await client.query(
+            `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
+            [nextEstado, referenceId]
+          );
+        }
+      } else {
+        await client.query(
+          `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
+          [estadoNuevo, referenceId]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -557,7 +858,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO') => {
 
 const resolveApprovalRoleIdByPermissions = (user) => {
   const roleId = Number(user?.id_role || user?.rol_id || 0);
-  const hasDirectPermissions = Array.isArray(user?.permisos);
+  const hasDirectPermissions = Array.isArray(user?.permisos) && user.permisos.length > 0;
   const directPermissions = hasDirectPermissions ? user.permisos : [];
   const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
     ? getPermissionsByRoleId(roleId)
@@ -566,11 +867,30 @@ const resolveApprovalRoleIdByPermissions = (user) => {
     .map((perm) => String(perm || '').trim().toUpperCase())
     .filter(Boolean));
 
-  const rolePriority = [8, 7, 6];
-  for (const approvalRoleId of rolePriority) {
-    const requiredPermission = getRequiredApprovalPermissionByRoleId(approvalRoleId);
-    if (requiredPermission && permissionSet.has(requiredPermission)) {
-      return approvalRoleId;
+  // Mapeo de permisos a nombres de roles esperados
+  const permissionToRoleName = new Map([
+    ['APROBAR_ADMIN', 'ADMIN'],
+    ['APROBAR_FINANZAS', 'GERENCIA DE FINANZAS'],
+    ['APROBAR_GERENCIA_AREA', 'GERENCIA DEL AREA'],
+    ['APROBAR_JEFE_AREA', 'JEFE DE AREA'],
+  ]);
+
+  // Buscar dinámicamente: si tiene un permiso de aprobación, encontrar el rol correspondiente en ROLE_NAME_BY_ID
+  for (const [permission, expectedRoleName] of permissionToRoleName.entries()) {
+    if (permissionSet.has(permission)) {
+      // Buscar el rol en ROLE_NAME_BY_ID que coincida con este permiso
+      for (const [roleIdFromCache, roleName] of ROLE_NAME_BY_ID.entries()) {
+        const normalizedCached = normalizeRoleName(roleName);
+        const normalizedExpected = normalizeRoleName(expectedRoleName);
+        if (normalizedCached === normalizedExpected) {
+          return roleIdFromCache;
+        }
+      }
+      // Fallback: si no está en el cache, usar el mapa hardcodeado
+      const fallbackRoleId = getApprovalRoleIdByPermission(permission);
+      if (fallbackRoleId > 0) {
+        return fallbackRoleId;
+      }
     }
   }
 
@@ -582,10 +902,54 @@ const getIntermediateApprovalStateByRoleId = (roleId) => {
   return String(INTERMEDIATE_APPROVAL_STATE_BY_ROLE_ID.get(numericRoleId) || '').trim().toUpperCase();
 };
 
+const generatePendingStateByRoleId = (roleId) => {
+  const numericRoleId = Number(roleId || 0);
+  if (numericRoleId <= 0) {
+    return 'PENDIENTE';
+  }
+
+  // First try the hardcoded map (for backward compatibility)
+  const hardcodedState = INTERMEDIATE_APPROVAL_STATE_BY_ROLE_ID.get(numericRoleId);
+  if (hardcodedState) {
+    return String(hardcodedState).trim().toUpperCase();
+  }
+
+  // Then try the dynamic role name cache
+  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
+  if (roleName) {
+    // Normalize the role name: uppercase, remove accents, replace spaces with underscores
+    const normalized = normalizeRoleName(roleName)
+      .replace(/[\s]+/g, '_')
+      .replace(/[^A-Z0-9_]/g, '')
+      .replace(/^_+|_+$/g, '');
+    if (normalized) {
+      return `PENDIENTE_${normalized}`;
+    }
+  }
+
+  // Fallback
+  return 'PENDIENTE';
+};
+
 const getInitialApprovalStateForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
+  const normalizedTipo = normalizeApprovalTipo(tipo);
+  const creatorRole = Number(creatorRoleId || 0);
+
+  if (normalizedTipo === 'COMPRA' && creatorRole > 0 && APPROVAL_CHAIN_COMPRA.includes(creatorRole)) {
+    const purchaseChain = [...APPROVAL_CHAIN_COMPRA];
+    const creatorIndex = purchaseChain.indexOf(creatorRole);
+    const nextRoleId = creatorIndex >= 0 ? purchaseChain[creatorIndex + 1] : 0;
+
+    if (!nextRoleId) {
+      return 'APROBADA';
+    }
+
+    return generatePendingStateByRoleId(nextRoleId) || 'PENDIENTE';
+  }
+
   const roleChain = getApprovalChainForEntity({ tipo, dentroPlan, creatorRoleId });
   const firstRole = Number(roleChain[0] || 0);
-  const mapped = getIntermediateApprovalStateByRoleId(firstRole);
+  const mapped = generatePendingStateByRoleId(firstRole);
   return mapped || 'PENDIENTE';
 };
 
@@ -622,14 +986,14 @@ const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRol
   const numericCreatorRoleId = Number(creatorRoleId || 0);
   const creatorLabel = String(creatorName || '').trim();
 
-  if (creatorId > 0 && creatorLabel && isApprovalHierarchyRoleId(numericCreatorRoleId)) {
+  if (creatorId > 0 && creatorLabel) {
     const creatorAlreadyIncluded = ordered.some((row) => Number(row.usuario_id || 0) === creatorId || Number(row.rol_aprobador || 0) === numericCreatorRoleId);
     if (!creatorAlreadyIncluded) {
       ordered.unshift({
-        orden: numericCreatorRoleId,
+        orden: 0,
         rol_aprobador: numericCreatorRoleId,
-        rol: getApprovalRoleLabel(numericCreatorRoleId),
-        etapa: getApprovalStageKeyByRoleId(numericCreatorRoleId),
+        rol: getApprovalRoleLabel(numericCreatorRoleId) || 'Solicitante',
+        etapa: 'SOLICITANTE',
         aprobador: creatorLabel,
         usuario_id: creatorId,
         fecha: null,
@@ -729,7 +1093,8 @@ const fetchPendingApprovalReferenceIdsByRole = async (client, {
       FROM aprobaciones a
       WHERE upper(trim(a.tipo)) = $1
         AND a.rol_aprobador = $2
-        AND upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+        AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         AND NOT EXISTS (
           SELECT 1
           FROM aprobaciones prev
@@ -820,7 +1185,8 @@ const fetchFinalApprovedReferenceIdsByRole = async (client, {
           FROM aprobaciones pending
           WHERE upper(trim(pending.tipo)) = upper(trim(a.tipo))
             AND pending.referencia_id = a.referencia_id
-            AND upper(trim(COALESCE(pending.estado, 'PENDIENTE'))) = 'PENDIENTE'
+            AND (upper(trim(COALESCE(pending.estado, 'PENDIENTE'))) = 'PENDIENTE'
+                 OR upper(trim(COALESCE(pending.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         )
       ORDER BY a.referencia_id DESC
     `,
@@ -865,75 +1231,83 @@ const hasFinalApprovalByRole = async (client, {
   return result.rows.length > 0;
 };
 
-// Considera aprobacion final efectiva para casos autoaprobados por rol 7
-// (creador de la solicitud) donde no necesariamente existe fila en aprobaciones.
+// Verifica aprobacion final sin depender de un rol fijo.
+// Si existen aprobaciones persistidas, se exige que no queden pendientes.
+// Si no hay tabla o no hay filas de aprobacion, se cae al estado final de la entidad.
 const hasEffectiveFinalApprovalByRole = async (client, {
   tipo,
   referenciaId,
-  roleId,
-}) => {
-  const explicitFinal = await hasFinalApprovalByRole(client, {
-    tipo,
-    referenciaId,
-    roleId,
-  });
-
-  if (explicitFinal) {
-    return true;
-  }
-
-  const finalRole = Number(roleId || 0);
+} = {}) => {
   const reference = Number(referenciaId || 0);
-  const normalizedTipo = normalizeApprovalTipo(tipo);
-
-  if (finalRole !== 7 || !reference) {
+  if (!reference) {
     return false;
   }
 
-  if (normalizedTipo === 'COMPRA') {
-    const autoApproved = await client.query(
+  const normalizedTipo = normalizeApprovalTipo(tipo);
+  const tableExists = await hasAprobacionesTable(client);
+
+  if (tableExists) {
+    const approvalStateResult = await client.query(
       `
-        SELECT 1
+        SELECT
+          COUNT(*) FILTER (
+            WHERE upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'APROBADO'
+          ) AS aprobadas,
+          COUNT(*) FILTER (
+            WHERE upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'RECHAZADO'
+          ) AS rechazadas,
+          COUNT(*) FILTER (
+            WHERE upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+              OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%'
+          ) AS pendientes
+        FROM aprobaciones
+        WHERE upper(trim(tipo)) = $1
+          AND referencia_id = $2
+      `,
+      [normalizedTipo, reference]
+    );
+
+    const aprobadas = Number(approvalStateResult.rows[0]?.aprobadas || 0);
+    const rechazadas = Number(approvalStateResult.rows[0]?.rechazadas || 0);
+    const pendientes = Number(approvalStateResult.rows[0]?.pendientes || 0);
+
+    if (rechazadas > 0) {
+      return false;
+    }
+
+    if (pendientes === 0 && aprobadas > 0) {
+      return true;
+    }
+  }
+
+  if (normalizedTipo === 'COMPRA') {
+    const compraResult = await client.query(
+      `
+        SELECT upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) AS estado
         FROM compras c
-        JOIN usuarios u ON u.id = c.id_usuario
         WHERE c.id = $1
-          AND ${getUserRoleIdExpr('u')} = 7
-          AND upper(trim(COALESCE(to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')
-          AND NOT EXISTS (
-            SELECT 1
-            FROM aprobaciones a
-            WHERE upper(trim(a.tipo)) = 'COMPRA'
-              AND a.referencia_id = c.id
-          )
         LIMIT 1
       `,
       [reference]
     );
 
-    return autoApproved.rows.length > 0;
+    const estado = normalize(compraResult.rows[0]?.estado || '');
+    return ['APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO'].includes(estado);
   }
 
   if (normalizedTipo === 'SERVICIO') {
-    const autoApproved = await client.query(
+    const servicioResult = await client.query(
       `
-        SELECT 1
+        SELECT upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', ''))) AS estado
         FROM servicios s
-        JOIN usuarios u ON u.id = NULLIF(COALESCE(to_jsonb(s)->>'id_usuario', to_jsonb(s)->>'usuario_id', ''), '')::int
         WHERE s.id = $1
-          AND ${getUserRoleIdExpr('u')} = 7
-          AND upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', ''))) = 'APROBADO'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM aprobaciones a
-            WHERE upper(trim(a.tipo)) = 'SERVICIO'
-              AND a.referencia_id = s.id
-          )
         LIMIT 1
       `,
       [reference]
     );
 
-    return autoApproved.rows.length > 0;
+    const estado = normalize(servicioResult.rows[0]?.estado || '');
+    return ['APROBADO', 'APROBADA', 'DATOS_COMPLETADOS', 'REALIZADO'].includes(estado);
   }
 
   return false;
@@ -963,7 +1337,8 @@ const fetchNextPendingApprovalRoleByReferences = async (client, {
       FROM aprobaciones a
       WHERE upper(trim(a.tipo)) = $1
         AND a.referencia_id = ANY($2::int[])
-        AND upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+        AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE' 
+             OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         AND NOT EXISTS (
           SELECT 1
           FROM aprobaciones prev
@@ -1047,7 +1422,7 @@ const fetchAutoApprovedByCreatorRoleIds = async (client, {
         JOIN usuarios u ON u.id = c.id_usuario
         WHERE ${getUserRoleIdExpr('u')} = $1
           ${ownerFilter}
-          AND upper(trim(COALESCE(to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')
+          AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) IN ('APROBADA','APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')
           AND NOT EXISTS (
             SELECT 1
             FROM aprobaciones a
@@ -1121,7 +1496,7 @@ const fetchOwnCreatedByRoleIds = async (client, {
         JOIN usuarios u ON u.id = c.id_usuario
         WHERE c.id_usuario = $1
           AND ${getUserRoleIdExpr('u')} = $2
-          AND upper(trim(COALESCE(to_jsonb(c)->>'estado', 'PENDIENTE'))) <> 'RECHAZADA'
+          AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE'))) <> 'RECHAZADA'
         ORDER BY c.id DESC
       `,
       [userId, roleId]
@@ -1156,8 +1531,15 @@ const fetchOwnCreatedByRoleIds = async (client, {
 
 const isComprasOperatorUser = (user) => {
   const numericRoleId = Number(user?.id_role || user?.rol_id || 0);
-  return isAdminRole(user?.rol) || isComprasRole(user?.rol) || numericRoleId === 9;
+  return isAdminRole(user?.rol) || isComprasRole(user?.rol) || numericRoleId === 9 || hasPurchaseOrdersAccess(user);
 };
+
+const canAccessPurchaseOrdersModule = (user) => (
+  tienePermiso(user, 'GESTIONAR_SOLICITUDES')
+  || hasPurchaseOrdersAccess(user)
+  || isAdminRole(user?.rol)
+  || isComprasRole(user?.rol)
+);
 
 const createApprovalRowsForEntity = async (client, {
   tipo,
@@ -1179,22 +1561,57 @@ const createApprovalRowsForEntity = async (client, {
   }
 
   if (roleChain.length === 0) {
+    if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
+      return { usesApprovalTable: true, autoApproved: true };
+    }
+
     throw new Error(`No se pudo resolver la cadena de aprobaciones para tipo ${normalizedTipo}`);
   }
 
   await client.query('DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2', [normalizedTipo, reference]);
 
   for (let idx = 0; idx < roleChain.length; idx += 1) {
+    const roleId = roleChain[idx];
+    const pendingState = generatePendingStateByRoleId(roleId);
     await client.query(
       `
         INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, estado)
-        VALUES ($1, $2, $3, $4, 'PENDIENTE')
+        VALUES ($1, $2, $3, $4, $5)
       `,
-      [normalizedTipo, reference, idx + 1, roleChain[idx]]
+      [normalizedTipo, reference, idx + 1, roleId, pendingState]
     );
   }
 
   return { usesApprovalTable: true, autoApproved: false };
+};
+
+const rebuildServiceApprovalChain = async (client, referenciaId, dentroPlan = false, creatorRoleId = 0) => {
+  const normalizedTipo = 'SERVICIO';
+  const currentOrder = 1;
+  const roleChain = getApprovalChainForEntity({ tipo: normalizedTipo, dentroPlan, creatorRoleId });
+  if (!Array.isArray(roleChain) || roleChain.length <= currentOrder) {
+    await client.query(
+      `DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2 AND orden > $3`,
+      [normalizedTipo, Number(referenciaId), currentOrder]
+    );
+    return;
+  }
+
+  await client.query(
+    `DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2 AND orden > $3`,
+    [normalizedTipo, Number(referenciaId), currentOrder]
+  );
+
+  const pendingRoles = roleChain.slice(currentOrder);
+  for (let idx = 0; idx < pendingRoles.length; idx += 1) {
+    const roleId = pendingRoles[idx];
+    const pendingState = generatePendingStateByRoleId(roleId);
+    await client.query(
+      `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, estado)
+        VALUES ($1, $2, $3, $4, $5)`,
+      [normalizedTipo, Number(referenciaId), currentOrder + idx + 1, roleId, pendingState]
+    );
+  }
 };
 
 const fetchActionableApprovalReferenceIds = async (client, {
@@ -1223,7 +1640,8 @@ const fetchActionableApprovalReferenceIds = async (client, {
       FROM aprobaciones a
       WHERE upper(trim(a.tipo)) = $1
         AND a.rol_aprobador = $2
-        AND upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+        AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         AND a.referencia_id = ANY($3::int[])
         AND NOT EXISTS (
           SELECT 1
@@ -1233,6 +1651,43 @@ const fetchActionableApprovalReferenceIds = async (client, {
             AND prev.orden < a.orden
             AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
         )
+    `,
+    [normalizedTipo, role, ids]
+  );
+
+  return new Set(result.rows.map((row) => Number(row.referencia_id)).filter((value) => Number.isInteger(value) && value > 0));
+};
+
+const fetchFirstApprovalReferenceIdsByRole = async (client, {
+  tipo,
+  roleId,
+  referenceIds,
+}) => {
+  const tableExists = await hasAprobacionesTable(client);
+  if (!tableExists) {
+    return new Set();
+  }
+
+  const normalizedTipo = normalizeApprovalTipo(tipo);
+  const role = Number(roleId || 0);
+  const ids = Array.isArray(referenceIds)
+    ? referenceIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+
+  if (!role || ids.length === 0) {
+    return new Set();
+  }
+
+  const result = await client.query(
+    `
+      SELECT DISTINCT a.referencia_id
+      FROM aprobaciones a
+      WHERE upper(trim(a.tipo)) = $1
+        AND a.rol_aprobador = $2
+        AND a.orden = 1
+        AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+        AND a.referencia_id = ANY($3::int[])
     `,
     [normalizedTipo, role, ids]
   );
@@ -1331,7 +1786,8 @@ const applyApprovalDecision = async (client, {
           usuario_id = $2,
           fecha = NOW()
       WHERE id = $3
-        AND upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
       RETURNING id
     `,
     [normalizedDecision, actor || null, Number(targetApproval.id)]
@@ -1352,7 +1808,8 @@ const applyApprovalDecision = async (client, {
       FROM aprobaciones
       WHERE upper(trim(tipo)) = $1
         AND referencia_id = $2
-        AND upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
     `,
     [normalizedTipo, reference]
   );
@@ -1427,7 +1884,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
         LEFT JOIN roles r ON r.id = ${getUserRoleIdExpr('u')}
         WHERE c.id = $1
           AND ${getUserRoleIdExpr('u')} = 7
-          AND upper(trim(COALESCE(to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')
+          AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')
           AND NOT EXISTS (
             SELECT 1
             FROM aprobaciones a
@@ -2112,9 +2569,21 @@ const buildProveedorNotificationEntry = async (db, { proveedorId, summary, puntu
     [Number(proveedorId || 0)]
   );
 
+  const proveedorNombreFromDb = String(providerResult.rows[0]?.proveedor_nombre || '').trim();
+  if (!proveedorNombreFromDb || proveedorNombreFromDb.toLowerCase() === 'sin proveedor') {
+    return null
+  }
+
   const resolveOrigin = async () => {
     const normalizedTipo = normalizeRatingType(tipo);
     const referenceId = Number(idReferencia || 0);
+    const rawTipo = String(tipo || '').trim();
+
+    const buildDefaultOrigin = (typeLabel, fallbackName) => ({
+      origen_tipo: typeLabel,
+      origen_nombre: Number.isInteger(referenceId) && referenceId > 0 ? `${fallbackName} #${referenceId}` : '',
+      origen_detalle: '',
+    });
 
     if (normalizedTipo === 'servicio' && Number.isInteger(referenceId) && referenceId > 0) {
       try {
@@ -2127,11 +2596,7 @@ const buildProveedorNotificationEntry = async (db, { proveedorId, summary, puntu
           origen_detalle: String(servicio?.descripcion_servicio || '').trim(),
         };
       } catch (_error) {
-        return {
-          origen_tipo: 'Servicio',
-          origen_nombre: `Servicio #${referenceId}`,
-          origen_detalle: '',
-        };
+        return buildDefaultOrigin('Servicio', 'Servicio');
       }
     }
 
@@ -2156,7 +2621,6 @@ const buildProveedorNotificationEntry = async (db, { proveedorId, summary, puntu
         const detalle = detalleResult.rows[0] || null;
         if (detalle) {
           const materialNombre = String(detalle.material_nombre || '').trim() || `Material #${referenceId}`;
-
           return {
             origen_tipo: 'Producto',
             origen_nombre: materialNombre,
@@ -2182,24 +2646,71 @@ const buildProveedorNotificationEntry = async (db, { proveedorId, summary, puntu
           origen_detalle: String(compra?.proveedor || '').trim() || `Compra #${referenceId}`,
         };
       } catch (_error) {
-        return {
-          origen_tipo: 'Producto',
-          origen_nombre: `Compra #${referenceId}`,
-          origen_detalle: '',
-        };
+        return buildDefaultOrigin('Producto', 'Compra');
       }
     }
 
-    return {
-      origen_tipo: normalizedTipo === 'servicio' ? 'Servicio' : 'Producto',
-      origen_nombre: Number.isInteger(referenceId) && referenceId > 0 ? `${normalizedTipo === 'servicio' ? 'Servicio' : 'Compra'} #${referenceId}` : '',
-      origen_detalle: '',
-    };
+    if (Number.isInteger(referenceId) && referenceId > 0) {
+      try {
+        const servicioOrigin = await (async () => {
+          const servicios = await fetchServiciosRows([referenceId], 'WHERE s.id = $1');
+          if (servicios.length > 0) {
+            const servicio = servicios[0];
+            const servicioNombre = String(servicio?.nombre_servicio || servicio?.descripcion_servicio || '').trim();
+            return {
+              origen_tipo: 'Servicio',
+              origen_nombre: servicioNombre || `Servicio #${referenceId}`,
+              origen_detalle: String(servicio?.descripcion_servicio || '').trim(),
+            };
+          }
+          return null;
+        })();
+
+        if (servicioOrigin) return servicioOrigin;
+      } catch (_error) {
+        // ignore fallback errors
+      }
+
+      try {
+        const compraOrigin = await (async () => {
+          const compras = await fetchComprasRows([referenceId], 'WHERE c.id = $1');
+          if (compras.length > 0) {
+            const compra = compras[0];
+            const itemNames = Array.isArray(compra?.items)
+              ? compra.items.map((item) => String(item?.material || item?.descripcion || '').trim()).filter(Boolean)
+              : [];
+            const uniqueItems = [...new Set(itemNames)];
+            const topItems = uniqueItems.slice(0, 3);
+            const extraCount = Math.max(uniqueItems.length - topItems.length, 0);
+            const itemLabel = topItems.length > 0
+              ? topItems.join(', ') + (extraCount > 0 ? ` y ${extraCount} más` : '')
+              : `Compra #${referenceId}`;
+            return {
+              origen_tipo: 'Producto',
+              origen_nombre: itemLabel,
+              origen_detalle: String(compra?.proveedor || '').trim() || `Compra #${referenceId}`,
+            };
+          }
+          return null;
+        })();
+
+        if (compraOrigin) return compraOrigin;
+      } catch (_error) {
+        // ignore fallback errors
+      }
+    }
+
+    if (rawTipo) {
+      const fallbackType = normalizeRatingType(rawTipo) === 'servicio' ? 'Servicio' : 'Producto';
+      return buildDefaultOrigin(fallbackType, fallbackType === 'Servicio' ? 'Servicio' : 'Compra');
+    }
+
+    return buildDefaultOrigin('Producto', 'Compra');
   };
 
   const origin = await resolveOrigin();
 
-  const proveedorNombre = String(providerResult.rows[0]?.proveedor_nombre || 'Sin proveedor').trim() || 'Sin proveedor';
+  const proveedorNombre = proveedorNombreFromDb || (Number(proveedorId || 0) > 0 ? `Proveedor #${proveedorId}` : 'Proveedor desconocido');
   const promedio = Number(summary?.calificacion_promedio ?? summary?.promedio_puntuacion ?? 0) || 0;
   const individual = Number(puntuacion ?? summary?.mi_calificacion ?? 0) || 0;
   const total = Number(summary?.calificacion_total ?? summary?.total_calificaciones ?? 0) || 0;
@@ -2269,7 +2780,7 @@ const hydrateProveedorNotificationsFromDb = async (db) => {
         MIN(cp.puntuacion) OVER (PARTITION BY cp.id_proveedor)::int AS puntuacion_minima,
         COUNT(*) OVER (PARTITION BY cp.id_proveedor)::int AS total_calificaciones
       FROM calificaciones_proveedor cp
-      LEFT JOIN proveedores p ON p.id = cp.id_proveedor
+      INNER JOIN proveedores p ON p.id = cp.id_proveedor
       WHERE lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
         AND cp.puntuacion <= 3
       ORDER BY cp.fecha DESC, cp.id DESC
@@ -2563,7 +3074,13 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   };
 
   const estimateBlockHeight = (rows = []) => {
-    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
+    const rowGap = 4;
+    const paddingY = 4;
+    const titleHeight = 16;
+    const labelWidth = Math.max(98, Math.floor((usableWidth / 2 - 20) * 0.38));
+    const valueWidth = usableWidth / 2 - 20 - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
       const textLabel = `${safeText(label)}:`;
       const textValue = safeText(value);
       doc.font('Helvetica-Bold').fontSize(8.5);
@@ -2573,19 +3090,17 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       return Math.max(18, Math.max(labelHeight, valueHeight));
     };
 
-    let total = 26;
-    const labelWidth = 98;
-    const valueWidth = 136;
+    let total = titleHeight + (paddingY * 2);
     rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value, labelWidth, valueWidth) + 8;
+      total += measureRowHeight(label, value) + rowGap;
     });
-    return total + 10;
+    return total;
   };
 
   const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 8;
+    const rowGap = 6;
     const paddingX = 10;
-    const paddingY = 8;
+    const paddingY = 6;
     const titleHeight = 18;
     const labelWidth = Math.max(98, Math.floor(width * 0.38));
     const valueWidth = width - (paddingX * 2) - labelWidth - 8;
@@ -2625,9 +3140,21 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
         width: labelWidth,
       });
-      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-        width: valueWidth,
-      });
+
+      // Make the TOTAL FINAL value bold
+      const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
+        || String(label || '').toLowerCase().includes('total final')
+        || String(label || '').toLowerCase().includes('totalfinal');
+
+      if (isTotalFinal) {
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      } else {
+        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      }
 
       rowY += rowHeight + rowGap;
     });
@@ -2646,7 +3173,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       const estimatedPairHeight = Math.max(
         estimateBlockHeight(leftBlock?.rows || []),
         rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
-      ) + 10;
+      );
 
       ensureSpace(estimatedPairHeight);
       cursorY = Math.max(cursorY, doc.y);
@@ -2671,7 +3198,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         pairBottom = Math.max(leftBottom, rightBottom);
       }
 
-      cursorY = pairBottom + 10;
+      cursorY = pairBottom + 1;
       doc.y = cursorY;
     }
   };
@@ -2694,7 +3221,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
     doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
     doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
-    doc.y = 140;
+    doc.y = 124;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
@@ -2702,7 +3229,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
 
   doc.on('pageAdded', () => {
-    doc.y = 140;
+    doc.y = 124;
   });
 
   drawHeader();
@@ -2723,8 +3250,22 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     creatorName: compra.usuario,
   });
   const approversSummary = approverEntries
-    .map((row) => `${safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))} - ${safeText(row.aprobador || 'Pendiente')}`)
-    .join(' | ');
+    .filter((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+      return !isRequesterRow || approverEntries.length === 1
+    })
+    .map((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+        ? fallbackRoleLabel
+        : safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`
+    })
+    .join('\n');
   const entregaInfo = compra.entrega_area && compra.entrega_area.entregado === true
     ? {
       ...compra.entrega_area,
@@ -2769,7 +3310,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     });
     resumenY += rowHeight;
   });
-  doc.y = resumenY + 10;
+  doc.y = resumenY + 2;
 
   renderTwoColumnBlocks([
     {
@@ -2812,11 +3353,14 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
         ['Teléfono', compra.telefono],
         ['Aprobaciones', approversSummary || 'Sin aprobaciones registradas'],
-        ['Comentarios', compra.comentarios],
+        ...(String(compra.comentarios || '').trim()
+          ? [['Comentarios', compra.comentarios]]
+          : []),
       ],
     },
   ]);
 
+  const purchaseDetailText = String(compra.detalle || compra.comentarios || '').trim();
   if (entregaInfo) {
     renderTwoColumnBlocks([
       {
@@ -2836,80 +3380,97 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     ]);
   }
 
-  writeSectionTitle('Detalle');
-  const items = Array.isArray(compra.items) ? compra.items : [];
-  const colWidths = [263, 80, 90, 90];
-  const headers = ['Material/Servicio', 'Cantidad', 'Precio unitario', 'Total'];
-  let x = left;
-  const drawDetailHeader = (startY) => {
-    let headerX = left;
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
-    headers.forEach((header, index) => {
-      doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-      doc.text(header, headerX + 6, startY + 6, {
-        width: colWidths[index] - 12,
-        align: index === 0 ? 'left' : 'center',
-      });
-      headerX += colWidths[index];
+  if (purchaseDetailText) {
+    writeSectionTitle('Detalle de la solicitud');
+    ensureSpace(40);
+    const detailBoxTop = doc.y;
+    const detailHeight = Math.max(28, doc.heightOfString(purchaseDetailText, { width: usableWidth - 20 }) + 14);
+    doc.rect(left, detailBoxTop, usableWidth, detailHeight).fillAndStroke('#ffffff', '#e2e8f0');
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(purchaseDetailText, left + 10, detailBoxTop + 7, {
+      width: usableWidth - 20,
+      align: 'left',
     });
-    return startY + 20;
-  };
-  let rowY = drawDetailHeader(doc.y);
-
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  items.forEach((item) => {
-    const qty = Number(item.cantidad || 0);
-    const unit = Number(item.precio_unitario || 0);
-    const rowTotal = Number((qty * unit).toFixed(2));
-    const descripcion = safeText(item.material || item.descripcion || item.nombre);
-    const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
-
-    if (rowY + rowHeight > bottomLimit - 32) {
-      doc.addPage();
-      drawHeader();
-      writeSectionTitle('Detalle (continuación)');
-      rowY = drawDetailHeader(doc.y);
-    }
-
-    x = left;
-    const cells = [
-      descripcion,
-      String(qty),
-      money(unit, compra.moneda),
-      money(rowTotal, compra.moneda),
-    ];
-    cells.forEach((cell, cellIndex) => {
-      doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
-      doc.text(cell, x + 6, rowY + 5, {
-        width: colWidths[cellIndex] - 12,
-        align: cellIndex === 0 ? 'left' : 'center',
-      });
-      x += colWidths[cellIndex];
-    });
-    rowY += rowHeight;
-  });
-
-  if (rowY + 24 > bottomLimit - 4) {
-    doc.addPage();
-    drawHeader();
-    writeSectionTitle('Detalle (continuación)');
-    rowY = doc.y;
+    doc.y = detailBoxTop + detailHeight + 3;
   }
 
-  const resumenTotalY = rowY;
-  const totalLabelWidth = colWidths[0] + colWidths[1] + colWidths[2];
-  doc.rect(left, resumenTotalY, totalLabelWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-  doc.rect(left + totalLabelWidth, resumenTotalY, colWidths[3], 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
-    width: totalLabelWidth - 16,
-    align: 'right',
-  });
-  doc.text(money(totalFinal, compra.moneda), left + totalLabelWidth + 6, resumenTotalY + 7, {
-    width: colWidths[3] - 12,
-    align: 'center',
-  });
+  const items = Array.isArray(compra.items) ? compra.items : [];
+  if (items.length > 0) {
+    writeSectionTitle('Items');
+    const colWidths = [403, 120];
+    const headers = ['Material/Servicio', 'Cantidad'];
+    let x = left;
 
-  doc.y = resumenTotalY + 28;
+    const drawDetailHeader = (startY) => {
+      let headerX = left;
+      headers.forEach((header, index) => {
+        doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(header, headerX + 6, startY + 6, {
+          width: colWidths[index] - 12,
+          align: index === 0 ? 'left' : 'center',
+        });
+        headerX += colWidths[index];
+      });
+      return startY + 20;
+    };
+    let rowY = drawDetailHeader(doc.y);
+
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+    items.forEach((item) => {
+      const qty = Number(item.cantidad || 0);
+      const descripcion = safeText(item.material || item.descripcion || item.nombre);
+      const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
+
+      if (rowY + rowHeight > bottomLimit - 32) {
+        doc.addPage();
+        drawHeader();
+        writeSectionTitle('Items (continuación)');
+        rowY = drawDetailHeader(doc.y);
+      }
+
+      x = left;
+      const cells = [
+        descripcion,
+        String(qty),
+      ];
+      cells.forEach((cell, cellIndex) => {
+        doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
+        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(cell, x + 6, rowY + 5, {
+          width: colWidths[cellIndex] - 12,
+          align: cellIndex === 0 ? 'left' : 'center',
+        });
+        x += colWidths[cellIndex];
+      });
+      rowY += rowHeight;
+    });
+
+    if (rowY + 24 > bottomLimit - 4) {
+      doc.addPage();
+      drawHeader();
+      writeSectionTitle('Items (continuación)');
+      rowY = doc.y;
+    }
+    const resumenTotalY = rowY;
+    doc.rect(left, resumenTotalY, usableWidth - 130, 22)
+      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+
+    doc.rect(left + usableWidth - 130, resumenTotalY, 130, 22)
+      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
+      .text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
+        width: usableWidth - 146,
+        align: 'right',
+      });
+
+    doc.text(money(totalFinal || 0, compra.moneda), left + usableWidth - 124, resumenTotalY + 7, {
+      width: 118,
+      align: 'center',
+    });
+
+    doc.y = resumenTotalY + 2;
+  } 
 
   doc.moveDown(1);
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
@@ -2966,19 +3527,19 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       return Math.max(18, Math.max(labelHeight, valueHeight));
     };
 
-    let total = 26;
+    let total = 24;
     const labelWidth = 98;
     const valueWidth = 136;
     rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value, labelWidth, valueWidth) + 8;
+      total += measureRowHeight(label, value, labelWidth, valueWidth) + 6;
     });
-    return total + 10;
+    return total + 6;
   };
 
   const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 8;
+    const rowGap = 5;
     const paddingX = 10;
-    const paddingY = 8;
+    const paddingY = 6;
     const titleHeight = 18;
     const labelWidth = Math.max(98, Math.floor(width * 0.38));
     const valueWidth = width - (paddingX * 2) - labelWidth - 8;
@@ -3064,7 +3625,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
         pairBottom = Math.max(leftBottom, rightBottom);
       }
 
-      cursorY = pairBottom + 10;
+      cursorY = pairBottom + 1;
       doc.y = cursorY;
     }
   };
@@ -3119,10 +3680,19 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   }
 
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
-  const aplicaRetencion = Boolean(servicio.aplica_retencion);
   const porcentajeRetencion = Number(servicio.proveedor_retencion_pct || servicio.retencion || 0);
+  const currencyNorm = normalizeRoleName(servicio.proveedor_moneda || currencyLabel || servicio.moneda || '');
+  const isUsdCurrency = currencyNorm.includes('USD') || currencyNorm.includes('DOLAR');
+  const isPenCurrency = currencyNorm.includes('PEN') || currencyNorm.includes('SOL');
+  const totalBaseSoles = isUsdCurrency ? Number((totalBase * 3.5).toFixed(2)) : totalBase;
+  const exceedsThreshold = (isPenCurrency && totalBase > 700) || (isUsdCurrency && totalBaseSoles > 700);
+  const providerAllowsRetention = normalize(servicio.proveedor_retencion) === 'SI' && porcentajeRetencion > 0;
+  const aplicaRetencion = Boolean(servicio.aplica_retencion) || (providerAllowsRetention && exceedsThreshold);
   const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
-  const totalFinal = parseAmount(servicio.total || totalBase);
+  let totalFinal = parseAmount(servicio.total || totalBase);
+  if (aplicaRetencion) {
+    totalFinal = Number((totalBase - montoRetenido).toFixed(2));
+  }
   const approverEntries = buildPdfApprovalEntries({
     approvals: servicio.aprobadores,
     creatorUserId: servicio.id_usuario,
@@ -3130,58 +3700,53 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     creatorName: servicio.usuario,
   });
   const approversSummary = approverEntries
-    .map((row) => `${safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))} - ${safeText(row.aprobador || 'Pendiente')}`)
-    .join(' | ');
+    .filter((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+      return !isRequesterRow || approverEntries.length === 1
+    })
+    .map((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+        ? fallbackRoleLabel
+        : safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`;
+    })
+    .join('\n');
 
   writeSectionTitle('Resumen');
-  ensureSpace(98);
-  const resumenTop = doc.y;
-  const resumenRows = [
-    ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
-    ['Fecha', new Date(servicio.fecha || Date.now()).toLocaleDateString()],
-    ['Proveedor', servicio.proveedor],
-    ['Área destino', servicio.area],
-  ];
-  const resumenRowHeight = 20;
-  const resumenLabelWidth = 160;
+  ensureSpace(50);
 
-  doc.rect(left, resumenTop, usableWidth, 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('Datos de la orden', left + 10, resumenTop + 6, {
-    width: usableWidth - 20,
-    align: 'left',
-  });
+  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
+    ? 'PENDIENTE DE REALIZACION'
+    : (servicio.estado_flujo || servicio.estado_servicio);
 
-  let resumenY = resumenTop + 20;
-  resumenRows.forEach(([label, value], index) => {
-    const isAlternate = index % 2 === 0;
-    const valueHeight = doc.heightOfString(safeText(value), {
-      width: usableWidth - resumenLabelWidth - 20,
-      align: 'left',
-    });
-    const rowHeight = Math.max(resumenRowHeight, valueHeight + 12);
-    doc.rect(left, resumenY, usableWidth, rowHeight).fillAndStroke(isAlternate ? '#f8fafc' : '#ffffff', '#e2e8f0');
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 10, resumenY + 6, {
-      width: resumenLabelWidth,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(safeText(value), left + 10 + resumenLabelWidth, resumenY + 6, {
-      width: usableWidth - resumenLabelWidth - 20,
-      align: 'left',
-    });
-    resumenY += rowHeight;
+  const servicioEstadoBottom = drawInfoBlock({
+    title: 'Servicio y estado',
+    rows: [
+      ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
+      ['Descripción', servicio.descripcion_servicio],
+      ['Prioridad', servicio.prioridad],
+      ['Estado', estadoServicio],
+      ['Estado aprobación', servicio.estado_aprobacion],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
   });
-  doc.y = resumenY + 10;
+  doc.y = servicioEstadoBottom + 0;
 
   renderTwoColumnBlocks([
     {
-      title: 'Servicio y estado',
+      title: 'Datos de la orden',
       rows: [
-        ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
-        ['Descripción', servicio.descripcion_servicio],
-        ['Solicitante', servicio.usuario],
-        ['Prioridad', servicio.prioridad],
-        ['Estado', normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (servicio.estado_flujo || servicio.estado_servicio)],
-        ['Estado aprobación', servicio.estado_aprobacion],
+        ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
+        ['Fecha', new Date(servicio.fecha || Date.now()).toLocaleDateString()],
+        ['Proveedor', servicio.proveedor],
+        ['Área destino', servicio.area],
       ],
     },
     {
@@ -3207,6 +3772,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
         ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
         ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
         ['Monto retenido', money(montoRetenido)],
+        ['Total final', money(totalFinal)],
       ],
     },
     {
@@ -3217,86 +3783,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     },
   ]);
 
-  writeSectionTitle('Detalle');
-  const servicioDescripcion = safeText(servicio.nombre_servicio || servicio.descripcion_servicio || 'Servicio');
-  const colWidths = [263, 80, 90, 90];
-  const headers = ['Material/Servicio', 'Cantidad', 'Precio unitario', 'Total'];
-  let x = left;
-  const drawDetailHeader = (startY) => {
-    let headerX = left;
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
-    headers.forEach((header, index) => {
-      doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-      doc.text(header, headerX + 6, startY + 6, {
-        width: colWidths[index] - 12,
-        align: index === 0 ? 'left' : 'center',
-      });
-      headerX += colWidths[index];
-    });
-    return startY + 20;
-  };
-  let rowY = drawDetailHeader(doc.y);
-
-  const servicioRows = Array.isArray(servicio.items) && servicio.items.length > 0
-    ? servicio.items
-    : [{ descripcion: servicioDescripcion, cantidad: 1, precio_unitario: subtotal || totalFinal, total: totalFinal }];
-
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  servicioRows.forEach((item) => {
-    const qty = Number(item.cantidad || 1);
-    const unit = Number(item.precio_unitario || item.precio || subtotal || 0);
-    const rowTotal = Number((item.total ?? (qty * unit)).toFixed(2));
-    const descripcion = safeText(item.material || item.servicio || item.descripcion || item.nombre || servicioDescripcion);
-    const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
-
-    if (rowY + rowHeight > bottomLimit - 32) {
-      doc.addPage();
-      drawHeader();
-      writeSectionTitle('Detalle (continuación)');
-      rowY = drawDetailHeader(doc.y);
-    }
-
-    x = left;
-    const cells = [
-      descripcion,
-      String(qty),
-      money(unit),
-      money(rowTotal),
-    ];
-    cells.forEach((cell, cellIndex) => {
-      doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
-      doc.text(cell, x + 6, rowY + 5, {
-        width: colWidths[cellIndex] - 12,
-        align: cellIndex === 0 ? 'left' : 'center',
-      });
-      x += colWidths[cellIndex];
-    });
-    rowY += rowHeight;
-  });
-
-  if (rowY + 24 > bottomLimit - 4) {
-    doc.addPage();
-    drawHeader();
-    writeSectionTitle('Detalle (continuación)');
-    rowY = doc.y;
-  }
-
-  const resumenTotalY = rowY;
-  const totalLabelWidth = colWidths[0] + colWidths[1] + colWidths[2];
-  doc.rect(left, resumenTotalY, totalLabelWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-  doc.rect(left + totalLabelWidth, resumenTotalY, colWidths[3], 22).fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
-    width: totalLabelWidth - 16,
-    align: 'right',
-  });
-  doc.text(money(totalFinal), left + totalLabelWidth + 6, resumenTotalY + 7, {
-    width: colWidths[3] - 12,
-    align: 'center',
-  });
-
-  doc.y = resumenTotalY + 28;
-
-  doc.moveDown(1);
+  doc.moveDown(0.2);
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
@@ -3306,38 +3793,6 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
 
   doc.end();
 });
-
-const schemaMeta = {
-  loaded: false,
-  proveedoresColumns: new Set(),
-  comprasColumns: new Set(),
-  detalleComprasColumns: new Set(),
-  stockColumns: new Set(),
-  movimientosColumns: new Set(),
-  serviciosColumns: new Set(),
-  materialesColumns: new Set(),
-  requerimientosColumns: new Set(),
-  usuariosColumns: new Set(),
-  requerimientoReceptorIdColumn: null,
-  usuariosRoleIdColumn: 'id_role',
-  usuariosEmailColumn: 'email',
-  usuariosPasswordColumn: 'password_hash',
-  usuariosEstadoColumn: null,
-};
-
-const getColumnSet = async (tableName) => {
-  const result = await pool.query(
-    `
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = $1
-    `,
-    [tableName]
-  );
-
-  return new Set(result.rows.map((row) => row.column_name));
-};
 
 const dbFunctionExists = async (signature) => {
   const [namePart, argsPart = ''] = String(signature || '').split('(');
@@ -3455,6 +3910,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
   const servicioAreaExpr = `NULLIF(COALESCE(to_jsonb(s)->>'area_id', to_jsonb(s)->>'id_area', ''), '')::int`;
   const servicioUserExpr = `NULLIF(COALESCE(to_jsonb(s)->>'id_usuario', to_jsonb(s)->>'usuario_id', ''), '')::int`;
   const servicioMonedaExpr = `NULLIF(COALESCE(to_jsonb(s)->>'moneda_id', to_jsonb(s)->>'id_moneda', ''), '')::int`;
+  const servicioStatusColumn = getServicioStatusColumn();
 
   const result = await pool.query(
     `
@@ -3486,8 +3942,8 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         NULLIF(COALESCE(to_jsonb(s)->>'retencion', to_jsonb(s)->>'descuento', ''), '')::numeric AS retencion,
         COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(s)->>'tipo_retencion', ''))), ''), 'RETENCION') AS tipo_retencion,
         COALESCE(upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', 'PENDIENTE'))), 'PENDIENTE') AS estado_aprobacion,
-        COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(s)->>'estado_flujo', to_jsonb(s)->>'estado_servicio', ''))), ''), NULL) AS estado_flujo,
-        COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(s)->>'estado_flujo', to_jsonb(s)->>'estado_servicio', ''))), ''), NULL) AS estado_servicio,
+        COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(s)->>'${servicioStatusColumn}', ''))), ''), NULL) AS estado_flujo,
+        COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(s)->>'${servicioStatusColumn}', ''))), ''), NULL) AS estado_servicio,
         COALESCE(
           NULLIF(to_jsonb(s)->>'fecha_creacion', '')::timestamp,
           NULLIF(to_jsonb(s)->>'created_at', '')::timestamp,
@@ -3564,13 +4020,27 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
     row.comentarios_historial = commentsByServicio.get(Number(row.id || 0)) || [];
   });
 
+  // Normalize legacy estado_flujo values: treat 'APROBADO' as 'DATOS_COMPLETADOS'
+  servicios.forEach((row) => {
+    if (String(row.estado_flujo || '').trim().toUpperCase() === 'APROBADO') {
+      row.estado_flujo = 'DATOS_COMPLETADOS';
+    }
+  });
+
   const approvalRoleId = Number(options?.approvalRoleId || 0);
   const approvalPermissionGranted = Boolean(options?.approvalPermissionGranted);
   if (approvalRoleId > 0) {
+    const referenceIds = servicios.map((row) => Number(row.id || 0));
     const actionableIds = await fetchActionableApprovalReferenceIds(pool, {
       tipo: 'SERVICIO',
       roleId: approvalRoleId,
-      referenceIds: servicios.map((row) => Number(row.id || 0)),
+      referenceIds,
+    });
+
+    const firstApproverIds = await fetchFirstApprovalReferenceIdsByRole(pool, {
+      tipo: 'SERVICIO',
+      roleId: approvalRoleId,
+      referenceIds,
     });
 
     servicios.forEach((row) => {
@@ -3579,6 +4049,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         && isPendingApprovalState(row.estado_aprobacion);
       row.puede_aprobar = canApprove;
       row.puede_rechazar = canApprove;
+      row.es_primer_aprobador = canApprove && firstApproverIds.has(Number(row.id || 0));
     });
   }
 
@@ -3648,6 +4119,20 @@ const insertMovimiento = async (client, {
   return Number(result.rows[0]?.id || 0);
 };
 
+const getColumnSet = async (tableName) => {
+  const result = await pool.query(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    `,
+    [tableName]
+  );
+
+  return new Set(result.rows.map((row) => row.column_name));
+};
+
 const loadSchemaMeta = async () => {
   schemaMeta.proveedoresColumns = await getColumnSet('proveedores');
   schemaMeta.comprasColumns = await getColumnSet('compras');
@@ -3703,9 +4188,21 @@ const buildProveedorSelectExpressions = () => {
   Object.keys(proveedorFieldCandidates).forEach((field) => {
     const column = getProveedorColumn(field);
     if (column) {
-      exprs.push(`COALESCE(NULLIF(trim(p.${column}::text), ''), '') AS ${field}`);
+      if (field === 'descuento') {
+        exprs.push(`COALESCE(NULLIF(p.${column}::numeric, NULL), 0) AS ${field}`);
+      } else if (field === 'id_moneda' || field === 'id_area_destino') {
+        exprs.push(`NULLIF(p.${column}::int, NULL) AS ${field}`);
+      } else {
+        exprs.push(`COALESCE(NULLIF(trim(p.${column}::text), ''), '') AS ${field}`);
+      }
     } else {
-      exprs.push(`''::text AS ${field}`);
+      if (field === 'descuento') {
+        exprs.push(`0::numeric AS ${field}`);
+      } else if (field === 'id_moneda' || field === 'id_area_destino') {
+        exprs.push(`NULL::int AS ${field}`);
+      } else {
+        exprs.push(`''::text AS ${field}`);
+      }
     }
   });
 
@@ -3780,6 +4277,7 @@ const ensureComprasColumns = async () => {
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS tipo_retencion VARCHAR(20);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS importe_final NUMERIC(12,2);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS condiciones_pago VARCHAR(100);`,
+    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS detalle TEXT;`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS subtotal NUMERIC(12,2);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS costo_envio NUMERIC(12,2);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS otros_costos NUMERIC(12,2);`,
@@ -4335,7 +4833,20 @@ const requireRoleIds = (...roleIds) => (req, res, next) => {
 
 const requireAdmin = requireRoles('ADMIN');
 const requireCompras = requireRoles('ADMIN', 'COMPRAS');
-const requireRoleAdminOrCompras = requireRoleIds(8, 9);
+
+const hasPurchaseOrdersAccess = (user) => (
+  tienePermiso(user, 'GESTIONAR_COMPRAS')
+  || tienePermiso(user, 'GESTIONAR_ORDENES_COMPRA')
+);
+
+const requireRoleAdminOrCompras = (req, res, next) => {
+  const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+  if (isAdminRole(req.user?.rol) || isComprasRole(req.user?.rol) || roleId === 9 || hasPurchaseOrdersAccess(req.user)) {
+    return next();
+  }
+
+  return res.status(403).json({ error: 'No autorizado' });
+};
 
 const BASE_PERMISSION_NAMES = [
   'VER_INVENTARIO',
@@ -4358,6 +4869,7 @@ const ROLE_PERMISSION_NAMES_BY_ID = new Map([
     'GESTIONAR_ROLES',
     'CALIFICAR_COMPRA',
     'CALIFICAR_REQUERIMIENTO',
+    'CALIFICAR_SERVICIO',
     'GESTIONAR_ORDENES_COMPRA',
     'GESTIONAR_PROVEEDORES',
     'EDITAR_INVENTARIO',
@@ -4370,7 +4882,7 @@ const ROLE_PERMISSION_NAMES_BY_ID = new Map([
   ]],
   [9, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ORDENES_COMPRA', 'GESTIONAR_PROVEEDORES', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL', 'VER_NOTIFICACIONES_PROVEEDOR', 'VER_HISTORIAL_SERVICIOS']],
   [10, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ENTREGAS']],
-  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS']],
+  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS', 'CALIFICAR_SERVICIO']],
 ]);
 
 const getPermissionsByRoleId = (roleId) => {
@@ -4891,6 +5403,90 @@ app.put('/api/roles/:id/permisos', authMiddleware, async (req, res) => {
   }
 });
 
+app.delete('/api/roles/:id', authMiddleware, async (req, res) => {
+  if (!canManageRoles(req.user)) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    const roleId = Number(req.params?.id || 0);
+    if (!Number.isInteger(roleId) || roleId <= 0) {
+      return res.status(400).json({ error: 'id_rol invalido' });
+    }
+
+    await client.query('BEGIN');
+
+    const roleResult = await client.query(
+      'SELECT id, nombre FROM roles WHERE id = $1 LIMIT 1 FOR UPDATE',
+      [roleId]
+    );
+
+    if (roleResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Rol no encontrado' });
+    }
+
+    const roleName = String(roleResult.rows[0]?.nombre || '').trim();
+    if (!roleName) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No se pudo resolver el nombre del rol' });
+    }
+
+    if (normalizeRoleName(roleName) === 'ADMIN') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No se puede eliminar el rol ADMIN' });
+    }
+
+    const userRoleColumn = getUserRoleIdExpr('u');
+    const usersResult = await client.query(
+      `
+        SELECT COUNT(*) AS total
+        FROM usuarios u
+        WHERE ${userRoleColumn} = $1
+      `,
+      [roleId]
+    );
+
+    const assignedUsers = Number(usersResult.rows[0]?.total || 0);
+    if (assignedUsers > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `No se puede eliminar el rol porque tiene ${assignedUsers} usuario${assignedUsers === 1 ? '' : 's'} asignado${assignedUsers === 1 ? '' : 's'}`,
+      });
+    }
+
+    await client.query('DELETE FROM rol_permiso WHERE id_rol = $1', [roleId]);
+
+    const approvalConfigExistsResult = await client.query(
+      "SELECT to_regclass('public.aprobaciones_config') IS NOT NULL AS exists"
+    );
+    if (Boolean(approvalConfigExistsResult.rows[0]?.exists)) {
+      await client.query('DELETE FROM aprobaciones_config WHERE rol_id = $1', [roleId]);
+    }
+
+    await client.query('DELETE FROM roles WHERE id = $1', [roleId]);
+    await client.query('COMMIT');
+
+    return res.json({
+      ok: true,
+      id: roleId,
+      nombre: roleName,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+
+    if (error?.code === '23503') {
+      return res.status(409).json({ error: 'No se puede eliminar el rol porque tiene dependencias registradas' });
+    }
+
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.post('/api/roles', authMiddleware, async (req, res) => {
   if (!canManageRoles(req.user)) {
     return res.status(403).json({ error: 'No autorizado' });
@@ -4936,6 +5532,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
           usuarios.id,
           usuarios.nombre,
           ${userEmailExpr} AS email,
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'dni', '')), ''), '') AS dni,
           ${userRoleExpr} AS id_role,
           usuarios.id_area,
           COALESCE(${userEstadoExpr}, 'ACTIVO') AS estado,
@@ -4955,7 +5552,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
 app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { nombre, email, id_role, id_area, estado } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, password } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     if (!nombre || !String(nombre).trim()) {
@@ -4964,6 +5561,17 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
     if (!email || !String(email).trim()) {
       return res.status(400).json({ error: 'Correo es requerido' });
+    }
+
+    if (!dni || !String(dni).trim()) {
+      return res.status(400).json({ error: 'DNI es requerido' });
+    }
+
+    const providedPassword = password && String(password).trim();
+    const rawPassword = providedPassword || 'admin';
+
+    if (providedPassword && providedPassword.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
     }
 
     if (!id_role) {
@@ -4988,18 +5596,24 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Correo ya existe' });
     }
 
-    const hashedPassword = await hashPassword(sanitizedEmail);
+    const cleanPassword = String(rawPassword).trim();
+    if (providedPassword && cleanPassword.toLowerCase() === sanitizedEmail) {
+      return res.status(400).json({ error: 'La contraseña no puede ser igual al correo' });
+    }
+
+    const hashedPassword = await hashPassword(cleanPassword);
 
     const result = await pool.query(
       `
-        INSERT INTO usuarios (nombre, email, password_hash, ${userRoleColumn}, id_area, estado)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, nombre, email, ${userRoleColumn} AS id_role, id_area, estado
+        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado
       `,
       [
         String(nombre).trim(),
         sanitizedEmail,
         hashedPassword,
+        String(dni).trim(),
         Number(id_role),
         id_area ? Number(id_area) : null,
         estado || 'ACTIVO'
@@ -5015,7 +5629,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, email, id_role, id_area, estado } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     const userId = Number(id);
@@ -5044,6 +5658,10 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
       if (emailCheck.rows.length > 0) {
         return res.status(400).json({ error: 'Email ya existe' });
       }
+    }
+
+    if (dni !== undefined && !String(dni).trim()) {
+      return res.status(400).json({ error: 'DNI no puede estar vacio' });
     }
 
     if (id_role) {
@@ -5076,6 +5694,12 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
       paramCount += 1;
     }
 
+    if (dni !== undefined) {
+      updates.push(`dni = $${paramCount}`);
+      values.push(String(dni).trim());
+      paramCount += 1;
+    }
+
     if (id_role) {
       updates.push(`${userRoleColumn} = $${paramCount}`);
       values.push(Number(id_role));
@@ -5105,7 +5729,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
         UPDATE usuarios
         SET ${updates.join(', ')}
         WHERE id = $${paramCount}
-        RETURNING id, nombre, email, ${userRoleColumn} AS id_role, id_area, estado
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado
       `,
       values
     );
@@ -5540,6 +6164,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
         CROSS JOIN movimiento_detalle_resumen mdr
         CROSS JOIN detalle_movimiento_resumen dmr
         CROSS JOIN usuario_actual ua
+        WHERE sr.id_material IS NOT NULL OR cr.id_material IS NULL
         ORDER BY m.id DESC
       `,
       params
@@ -6240,6 +6865,46 @@ app.get('/api/areas', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/areas', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { nombre, descripcion } = req.body;
+    
+    console.log('POST /api/areas - Datos recibidos:', { nombre, descripcion, body: req.body });
+
+    if (!nombre || !String(nombre).trim()) {
+      console.log('Error: nombre vacío o no existe');
+      return res.status(400).json({ error: 'Nombre es requerido' });
+    }
+
+    const sanitizedNombre = String(nombre).trim();
+    console.log('Nombre sanitizado:', sanitizedNombre);
+    
+    // Verificar si ya existe
+    const existCheck = await pool.query(
+      'SELECT id FROM areas WHERE LOWER(nombre) = LOWER($1)',
+      [sanitizedNombre]
+    );
+    if (existCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'El área ya existe' });
+    }
+
+    const result = await pool.query(
+      `
+        INSERT INTO areas (nombre, descripcion)
+        VALUES ($1, $2)
+        RETURNING id, nombre, descripcion
+      `,
+      [sanitizedNombre, descripcion || null]
+    );
+
+    console.log('Área creada:', result.rows[0]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.log('Error en POST /api/areas:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/categorias', authMiddleware, async (req, res) => {
   try {
     const tableCheck = await pool.query("SELECT to_regclass('public.categorias') IS NOT NULL AS exists");
@@ -6579,6 +7244,15 @@ app.get('/api/proveedores/calificaciones/promedios', authMiddleware, async (_req
             return res.status(400).json({ error: 'El movimiento de salida no tiene area destino valida' });
           }
 
+          const userArea = String(req.user?.area || '').trim();
+          if (!userArea) {
+            return res.status(400).json({ error: 'No se pudo determinar el area del usuario para la calificacion' });
+          }
+
+          if (normalize(userArea) !== normalize(areaDestino)) {
+            return res.status(403).json({ error: 'Solo puedes calificar materiales entregados a tu area' });
+          }
+
           resolvedReferenceId = Number(salidaContext.id_movimiento_detalle || 0);
           if (!Number.isInteger(resolvedReferenceId) || resolvedReferenceId <= 0) {
             return res.status(400).json({ error: 'No se pudo resolver detalle de movimiento para la calificacion' });
@@ -6745,6 +7419,20 @@ app.get('/api/notificaciones/proveedores', authMiddleware, requirePermissions('V
       permisos: Array.isArray(req.user?.permisos) ? req.user.permisos : [],
       total: notificaciones.length,
       notificaciones,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/notificaciones/proveedores/limpiar', authMiddleware, requirePermissions('VER_NOTIFICACIONES_PROVEEDOR'), async (req, res) => {
+  try {
+    const cleanupTimestamp = Date.now();
+    
+    res.json({
+      success: true,
+      cleanupTimestamp,
+      message: 'Notificaciones limpiadas correctamente',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7936,7 +8624,7 @@ const mapCompraRows = (rows) => {
     if (!acc[row.id]) {
       const parsedComments = parsePurchaseComments(row.comentarios);
       const areaDestinoNorm = normalize(row.area_final || row.area_solicitante);
-      const isOtherArea = Boolean(areaDestinoNorm && areaDestinoNorm !== 'GENERAL');
+      const isOtherArea = Boolean(areaDestinoNorm && !isWarehouseAreaName(areaDestinoNorm));
       const entregaArea = parsedComments.entrega_area && typeof parsedComments.entrega_area === 'object'
         ? parsedComments.entrega_area
         : null;
@@ -7982,6 +8670,7 @@ const mapCompraRows = (rows) => {
         otros_costos: Number(row.otros_costos || 0),
         igv: Number(row.igv || 0),
         total: Number(row.total || 0),
+        detalle: String(row.detalle || '').trim(),
         comentarios: parsedComments.comentarios,
         comentarios_historial: [],
         recibido_por: parsedComments.recibido_por,
@@ -8029,7 +8718,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
     `
       SELECT
         c.id,
-        COALESCE(upper(trim(COALESCE(to_jsonb(c)->>'estado', ''))), 'PENDIENTE') AS estado,
+        COALESCE(upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))), 'PENDIENTE') AS estado,
         NULLIF(to_jsonb(c)->>'id_usuario', '')::int AS id_usuario,
         NULLIF(to_jsonb(c)->>'id_proveedor', '')::int AS id_proveedor,
         u.nombre AS usuario,
@@ -8053,7 +8742,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         COALESCE(to_jsonb(c)->>'cci', '') AS cci,
         COALESCE(to_jsonb(c)->>'retencion', '') AS retencion,
         COALESCE(NULLIF(to_jsonb(c)->>'descuento', '')::numeric, 0) AS descuento,
-        COALESCE(NULLIF(to_jsonb(c)->>'aplica_retencion', '')::boolean, false) AS aplica_retencion,
+        CASE WHEN upper(trim(COALESCE(to_jsonb(c)->>'aplica_retencion', to_jsonb(c)->>'retencion', ''))) IN ('TRUE', 'T', '1', 'SI', 'YES') THEN TRUE ELSE FALSE END AS aplica_retencion,
         COALESCE(to_jsonb(c)->>'tipo', '') AS tipo,
         COALESCE(to_jsonb(c)->>'tipo_retencion', '') AS tipo_retencion,
         COALESCE(NULLIF(to_jsonb(c)->>'importe_final', '')::numeric, 0) AS importe_final,
@@ -8063,6 +8752,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         COALESCE(NULLIF(to_jsonb(c)->>'otros_costos', '')::numeric, 0) AS otros_costos,
         COALESCE(NULLIF(to_jsonb(c)->>'igv', '')::numeric, 0) AS igv,
         COALESCE(NULLIF(to_jsonb(c)->>'total', '')::numeric, 0) AS total,
+        COALESCE(to_jsonb(c)->>'detalle', to_jsonb(c)->>'observaciones', '') AS detalle,
         COALESCE(to_jsonb(c)->>'comentarios', '') AS comentarios,
         COALESCE(to_jsonb(c)->>'numero_orden', '') AS numero_orden,
         c.fecha_creacion,
@@ -8177,84 +8867,32 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
 
 app.get('/api/compras', authMiddleware, async (req, res) => {
   try {
-    const approvalStagePermission = getApprovalStagePermissionForUser(req.user);
-    const approvalStageState = getApprovalStateByPermission(approvalStagePermission);
-    if (approvalStageState) {
-      const approvalRoleId = resolveApprovalRoleId(req.user);
-      const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(approvalRoleId);
-      const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
-      const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
-        tipo: 'COMPRA',
-        roleId: approvalRoleId,
-      });
-      const managedByUser = await fetchManagedApprovalStatesByUser(pool, {
-        tipo: 'COMPRA',
-        roleId: approvalRoleId,
-        userId: Number(req.user?.id || 0),
-      });
-      const referenceIds = [...new Set([...pendingReferenceIds, ...managedByUser.keys()])];
-
-      if (referenceIds.length === 0) {
-        return res.json([]);
-      }
-
-      const comprasAprobacion = await fetchComprasRows(
-        [referenceIds],
-        'WHERE c.id = ANY($1::int[])',
-        { approvalRoleId, approvalPermissionGranted: canApproveInCurrentStage }
-      );
-
-      comprasAprobacion.forEach((row) => {
-        const managedState = managedByUser.get(Number(row.id || 0));
-        if (managedState) {
-          row.gestion_estado_usuario = managedState;
-        } else {
-          row.gestion_estado_usuario = approvalStageState;
-        }
-      });
-
-      return res.json(comprasAprobacion);
-    }
-
     const userRole = String(req.user?.rol || '');
-    const canSeeAllPurchases = isAdminRole(userRole)
-      || isComprasRole(userRole)
+    const canSeeAllPurchases = canAccessPurchaseOrdersModule(req.user)
       || canManagePurchasesRole(userRole)
       || canManageDeliveryRole(userRole);
     const roleId = resolveApprovalRoleId(req.user);
     const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
     const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
 
-    if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
-      const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
-        tipo: 'COMPRA',
-        roleId,
-      });
-      const referenceIds = [...new Set(pendingReferenceIds)];
-
-      if (referenceIds.length === 0) {
-        return res.json([]);
-      }
-
-      const compras = await fetchComprasRows(
-        [referenceIds],
-        'WHERE c.id = ANY($1::int[])',
-        {
-          approvalRoleId: roleId,
-          approvalPermissionGranted: canApproveInCurrentStage,
-        }
-      );
-
-      compras.forEach((row) => {
-        row.gestion_estado_usuario = String(row.estado_aprobacion_detalle || 'PENDIENTE').trim().toUpperCase();
-      });
-
-      return res.json(compras);
-    }
-
     const compras = canSeeAllPurchases
       ? await fetchComprasRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage })
       : await fetchComprasRows([req.user.id], 'WHERE c.id_usuario = $1', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage });
+
+    if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
+      const managedByUser = await fetchManagedApprovalStatesByUser(pool, {
+        tipo: 'COMPRA',
+        roleId,
+        userId: Number(req.user?.id || 0),
+      });
+
+      compras.forEach((row) => {
+        const managedState = managedByUser.get(Number(row.id || 0));
+        if (managedState) {
+          row.gestion_estado_usuario = managedState;
+        }
+      });
+    }
 
     res.json(compras);
   } catch (error) {
@@ -8266,13 +8904,42 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
   try {
     const approvalStagePermission = getApprovalStagePermissionForUser(req.user);
     const approvalStageState = getApprovalStateByPermission(approvalStagePermission);
+
+    if (canAccessPurchaseOrdersModule(req.user)) {
+      const roleId = resolveApprovalRoleId(req.user);
+      const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
+      const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+      const compras = await fetchComprasRows(
+        [],
+        "WHERE upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')",
+        { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage }
+      );
+
+      if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
+        const managedByUser = await fetchManagedApprovalStatesByUser(pool, {
+          tipo: 'COMPRA',
+          roleId,
+          userId: Number(req.user?.id || 0),
+        });
+
+        compras.forEach((row) => {
+          const managedState = managedByUser.get(Number(row.id || 0));
+          if (managedState) {
+            row.gestion_estado_usuario = managedState;
+          }
+        });
+      }
+
+      return res.json(compras);
+    }
+
     if (approvalStageState) {
       const approvalRoleId = resolveApprovalRoleId(req.user);
       const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(approvalRoleId);
       const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
       const comprasAprobacion = await fetchComprasRows(
         [req.user.id, approvalStageState],
-        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado', 'PENDIENTE_JEFE_AREA'))) = $2",
+        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE_JEFE_AREA'))) = $2",
         { approvalRoleId, approvalPermissionGranted: canApproveInCurrentStage }
       );
 
@@ -8315,26 +8982,10 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
       return res.json(comprasJerarquicas);
     }
 
-    if (isComprasOperatorUser(req.user)) {
-      const finalApprovedIds = await fetchFinalApprovedReferenceIdsByRole(pool, {
-        tipo: 'COMPRA',
-        roleId: 7,
-      });
-
-      const autoApprovedByRole7 = await fetchAutoApprovedByCreatorRoleIds(pool, {
-        tipo: 'COMPRA',
-        creatorRoleId: 7,
-      });
-
-      const visibleIds = [...new Set([...finalApprovedIds, ...autoApprovedByRole7])];
-
-      if (visibleIds.length === 0) {
-        return res.json([]);
-      }
-
+    if (canAccessPurchaseOrdersModule(req.user)) {
       const comprasAprobadasFinales = await fetchComprasRows(
-        [visibleIds],
-        "WHERE c.id = ANY($1::int[]) AND upper(trim(COALESCE(to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')",
+        [],
+        "WHERE upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')",
         { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage }
       );
 
@@ -8773,16 +9424,18 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       }
     }
 
-    if (normalize(row.estado) !== 'APROBADA') {
+    if (!['APROBADA', 'APROBADO'].includes(normalize(row.estado))) {
       return res.status(400).json({ error: 'Solo se pueden completar datos en compras APROBADAS' });
     }
 
     const payload = req.body || {};
+    const detallePersist = String(payload.detalle || '').trim();
 
     const parsedExistingComments = parsePurchaseComments(row.comentarios);
-    const shouldReplaceVisibleComments = Object.prototype.hasOwnProperty.call(payload, 'comentarios');
+    const shouldReplaceVisibleComments = Object.prototype.hasOwnProperty.call(payload, 'detalle')
+      || Object.prototype.hasOwnProperty.call(payload, 'comentarios');
     const visibleCommentsToPersist = shouldReplaceVisibleComments
-      ? String(payload.comentarios || '').trim()
+      ? String(payload.detalle || payload.comentarios || '').trim()
       : parsedExistingComments.comentarios;
     const comentariosPersist = buildPurchaseComment({
       comentarios: visibleCommentsToPersist,
@@ -8845,7 +9498,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       return res.status(400).json({ error: 'La moneda seleccionada no tiene nombre valido' });
     }
 
-    const providerRetencionFlag = normalize(providerData?.retencion || 'NO') === 'SI';
+    const providerRetencionFlag = String(providerData?.retencion || '').trim().toUpperCase() === 'SI';
     const descuentoNum = Number(providerData?.descuento ?? 0);
     if (!Number.isFinite(descuentoNum) || descuentoNum < 0) {
       return res.status(400).json({ error: 'retencion (%) debe ser numerica y >= 0' });
@@ -8856,11 +9509,15 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       return res.status(400).json({ error: 'tipo_retencion solo puede ser RETENCION o DETRACCION' });
     }
 
-    const monedaNorm = normalize(monedaNombre);
-    const isUsd = monedaNorm.includes('USD') || monedaNorm.includes('DOLAR');
-    const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL');
+    if (!providerData?.id_moneda) {
+      return res.status(400).json({ error: 'El proveedor no tiene moneda configurada en BD' });
+    }
+
+    const monedaNorm = String(monedaNombre || '').toUpperCase();
+    const isUsd = /USD|US\$|\$|DOL|DÓLAR|DOLAR/.test(monedaNorm);
+    const isPen = /PEN|SOL/.test(monedaNorm);
     const totalBase = totalCalc;
-    const totalEnSoles = isUsd ? Number((totalBase * 3.4).toFixed(2)) : totalBase;
+    const totalEnSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase;
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalEnSoles > 700);
     const aplicaRetencion = providerRetencionFlag && descuentoNum > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
@@ -8942,10 +9599,11 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
             otros_costos = $25,
             igv = $26,
             total = $27,
-            comentarios = $28,
-            id_area_final = $29,
+            detalle = $28,
+            comentarios = $29,
+            id_area_final = $30,
             fecha_actualizacion = NOW()
-        WHERE id = $30
+          WHERE id = $31
       `,
       [
         providerId,
@@ -8964,7 +9622,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         (providerData?.numero_cuenta || payload.cuenta || payload.numero_cuenta || null),
         (providerData?.cci || payload.cci || null),
         retencionPersist,
-        String(descuentoNum),
+        descuentoNum,
         aplicaRetencion,
         (providerData?.tipo || payload.tipo || null),
         tipoRetencionNorm,
@@ -8975,6 +9633,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         otrosCostos,
         igvCalc,
         importeFinalCalc,
+        detallePersist,
         comentariosPersist,
         payload.id_area_final ? Number(payload.id_area_final) : null,
         id,
@@ -9031,7 +9690,7 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
       }
     }
 
-    if (normalize(compra.estado) !== 'APROBADA') {
+    if (!['APROBADA', 'APROBADO'].includes(normalize(compra.estado))) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Solo se puede generar orden para compras APROBADAS' });
     }
@@ -9058,16 +9717,16 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
 
     const orderCode = compra.numero_orden || `OC-${String(compra.id).padStart(6, '0')}`;
 
-    await client.query(
-      `
-        UPDATE compras
-        SET estado = 'POR_RECIBIR',
-            numero_orden = $1,
-            fecha_actualizacion = NOW()
-        WHERE id = $2
-      `,
-      [orderCode, id]
-    );
+    const hasEstadoPedidoColumn = schemaMeta.comprasColumns.has('estado_pedido');
+    const updateOrderQuery = `
+      UPDATE compras
+      SET ${hasEstadoPedidoColumn ? "estado_pedido = 'POR_RECIBIR'," : ''}
+          numero_orden = $1,
+          fecha_actualizacion = NOW()
+      WHERE id = $2
+    `;
+
+    await client.query(updateOrderQuery, [orderCode, id]);
 
     await client.query('COMMIT');
 
@@ -9116,7 +9775,7 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
       `
         SELECT
           id,
-          COALESCE(to_jsonb(compras)->>'estado', '') AS estado,
+          COALESCE(to_jsonb(compras)->>'estado_pedido', to_jsonb(compras)->>'estado', '') AS estado,
           NULLIF(to_jsonb(compras)->>'id_area_final', '')::int AS id_area_final,
           NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante
         FROM compras
@@ -9143,6 +9802,20 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
     const idAreaSolicitante = Number(compra.id_area_solicitante || 0);
     const isGeneralDestination = idAreaFinal === 0 || idAreaFinal === idAreaSolicitante;
 
+    // Obtener el nombre del área destino
+    const areaDestinoQuery = await client.query(
+      `
+        SELECT COALESCE(a_fin.nombre, a_sol.nombre, '') AS area_destino_nombre
+        FROM compras c
+        LEFT JOIN areas a_sol ON a_sol.id = c.id_area_solicitante
+        LEFT JOIN areas a_fin ON a_fin.id = c.id_area_final
+        WHERE c.id = $1
+      `,
+      [idCompra]
+    );
+    const areaDestinoNorm = normalize(areaDestinoQuery.rows[0]?.area_destino_nombre || '');
+    const isWarehouseDestination = isWarehouseAreaName(areaDestinoNorm);
+
     const detailRows = await client.query(
       `
         SELECT id_material, SUM(cantidad)::numeric AS cantidad_total
@@ -9159,69 +9832,76 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
       return res.status(400).json({ error: 'La compra no tiene materiales vinculados' });
     }
 
-    const defaultWarehouse = await client.query(
-      `
-        SELECT id
-        FROM almacenes
-        ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
-        LIMIT 1
-      `
-    );
+    let idMovimientoEntrada = null;
+    let idAlmacen = null;
 
-    if (defaultWarehouse.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'No existe un almacen configurado para registrar recepcion' });
-    }
-
-    const idAlmacen = Number(defaultWarehouse.rows[0].id);
-
-    const idMovimientoEntrada = await insertMovimiento(client, {
-      tipo: 'ENTRADA',
-      usuarioRegistro: req.user.id,
-    });
-
-    for (const detail of detailRows.rows) {
-      const idMaterial = Number(detail.id_material || 0);
-      const qty = Number(detail.cantidad_total || 0);
-
-      if (!idMaterial || qty <= 0) continue;
-
-      await client.query(
+    // Solo actualizar inventario si el destino es almacén
+    if (isWarehouseDestination) {
+      const defaultWarehouse = await client.query(
         `
-          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
-          VALUES ($1, $2, $3)
-        `,
-        [idMovimientoEntrada, idMaterial, qty]
+          SELECT id
+          FROM almacenes
+          ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
+          LIMIT 1
+        `
       );
 
-      const stockRow = await client.query(
-        'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
-        [idMaterial, idAlmacen]
-      );
+      if (defaultWarehouse.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'No existe un almacen configurado para registrar recepcion' });
+      }
 
-      if (stockRow.rows.length === 0) {
+      idAlmacen = Number(defaultWarehouse.rows[0].id);
+
+      idMovimientoEntrada = await insertMovimiento(client, {
+        tipo: 'ENTRADA',
+        usuarioRegistro: req.user.id,
+      });
+
+      for (const detail of detailRows.rows) {
+        const idMaterial = Number(detail.id_material || 0);
+        const qty = Number(detail.cantidad_total || 0);
+
+        if (!idMaterial || qty <= 0) continue;
+
         await client.query(
-          'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
-          [idMaterial, idAlmacen, qty]
+          `
+            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+            VALUES ($1, $2, $3)
+          `,
+          [idMovimientoEntrada, idMaterial, qty]
         );
-      } else {
-        await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+
+        const stockRow = await client.query(
+          'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
+          [idMaterial, idAlmacen]
+        );
+
+        if (stockRow.rows.length === 0) {
+          await client.query(
+            'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
+            [idMaterial, idAlmacen, qty]
+          );
+        } else {
+          await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+        }
       }
     }
 
     await client.query(
-      'UPDATE compras SET estado = $1, fecha_actualizacion = NOW() WHERE id = $2',
+      'UPDATE compras SET estado_pedido = $1, fecha_actualizacion = NOW() WHERE id = $2',
       [isGeneralDestination ? 'RECIBIDA' : 'RECIBIDO_EN_ALMACEN', idCompra]
     );
 
     await client.query('COMMIT');
 
     const result = await fetchComprasRows([idCompra], 'WHERE c.id = $1');
-    res.json({
-      ...result[0],
-      movimientos_generados: [idMovimientoEntrada],
-      id_almacen_entrada: idAlmacen,
-    });
+    const response = { ...result[0] };
+    if (isWarehouseDestination) {
+      response.movimientos_generados = [idMovimientoEntrada];
+      response.id_almacen_entrada = idAlmacen;
+    }
+    res.json(response);
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
@@ -9245,7 +9925,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       `
         SELECT
           id,
-          COALESCE(to_jsonb(compras)->>'estado', '') AS estado,
+          COALESCE(to_jsonb(compras)->>'estado_pedido', to_jsonb(compras)->>'estado', '') AS estado,
           COALESCE(to_jsonb(compras)->>'comentarios', '') AS comentarios,
           NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante,
           NULLIF(to_jsonb(compras)->>'id_area_final', '')::int AS id_area_final,
@@ -9285,7 +9965,8 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
     );
     const estadoActual = normalize(row.estado);
     const areaDestinoNorm = normalize(areaRow.rows[0]?.area_destino_nombre || '');
-    const isOtherAreaDelivery = Boolean(areaDestinoNorm && areaDestinoNorm !== 'GENERAL');
+    const isWarehouseDestination = isWarehouseAreaName(areaDestinoNorm);
+    const isOtherAreaDelivery = Boolean(areaDestinoNorm && !isWarehouseDestination);
 
     if (estadoActual === 'RECIBIDA') {
       await client.query('ROLLBACK');
@@ -9618,38 +10299,43 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
     const idAlmacen = Number(defaultWarehouse.rows[0].id);
     const movimientoIds = [];
 
-    const idMovimientoEntrada = await insertMovimiento(client, {
-      tipo: 'ENTRADA',
-      usuarioRegistro: req.user.id,
-    });
-    movimientoIds.push(idMovimientoEntrada);
+    let idMovimientoEntrada = null;
 
-    for (const detail of detailRows.rows) {
-      const idMaterial = Number(detail.id_material || 0);
-      const qty = Number(detail.cantidad_total || 0);
+    // Solo actualizar inventario si el destino es almacén
+    if (isWarehouseDestination) {
+      idMovimientoEntrada = await insertMovimiento(client, {
+        tipo: 'ENTRADA',
+        usuarioRegistro: req.user.id,
+      });
+      movimientoIds.push(idMovimientoEntrada);
 
-      if (!idMaterial || qty <= 0) continue;
+      for (const detail of detailRows.rows) {
+        const idMaterial = Number(detail.id_material || 0);
+        const qty = Number(detail.cantidad_total || 0);
 
-      await client.query(
-        `
-          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
-          VALUES ($1, $2, $3)
-        `,
-        [idMovimientoEntrada, idMaterial, qty]
-      );
+        if (!idMaterial || qty <= 0) continue;
 
-      const stockRow = await client.query(
-        'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
-        [idMaterial, idAlmacen]
-      );
-
-      if (stockRow.rows.length === 0) {
         await client.query(
-          'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
-          [idMaterial, idAlmacen, qty]
+          `
+            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+            VALUES ($1, $2, $3)
+          `,
+          [idMovimientoEntrada, idMaterial, qty]
         );
-      } else {
-        await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+
+        const stockRow = await client.query(
+          'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
+          [idMaterial, idAlmacen]
+        );
+
+        if (stockRow.rows.length === 0) {
+          await client.query(
+            'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
+            [idMaterial, idAlmacen, qty]
+          );
+        } else {
+          await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+        }
       }
     }
 
@@ -9662,6 +10348,8 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
         }
       : null;
 
+    const estadoFinal = isWarehouseDestination ? 'ENTREGADO' : 'PENDIENTE_ENTREGA';
+
     const comentariosConRecepcion = buildPurchaseComment({
       comentarios: parsedCompraComments.comentarios,
       itemCategorias: itemCategoriesFromComments,
@@ -9671,19 +10359,22 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
     });
 
     await client.query(
-      'UPDATE compras SET estado = $1, comentarios = $2 WHERE id = $3',
-      ['RECIBIDA', comentariosConRecepcion, id]
+      'UPDATE compras SET estado_pedido = $1, comentarios = $2 WHERE id = $3',
+      [estadoFinal, comentariosConRecepcion, id]
     );
 
     await client.query('COMMIT');
 
     const result = await fetchComprasRows([id], 'WHERE c.id = $1');
-    res.json({
+    const response = {
       ...result[0],
       receptor: null,
       movimientos_generados: movimientoIds,
-      id_almacen_entrada: idAlmacen,
-    });
+    };
+    if (isWarehouseDestination) {
+      response.id_almacen_entrada = idAlmacen;
+    }
+    res.json(response);
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
@@ -9712,7 +10403,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
       `
         SELECT
           id,
-          COALESCE(to_jsonb(compras)->>'estado', '') AS estado,
+          COALESCE(to_jsonb(compras)->>'estado_pedido', to_jsonb(compras)->>'estado', '') AS estado,
           COALESCE(to_jsonb(compras)->>'comentarios', '') AS comentarios,
           NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante,
           NULLIF(to_jsonb(compras)->>'id_area_final', '')::int AS id_area_final
@@ -9730,9 +10421,9 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
 
     const row = compra.rows[0];
     const estadoActual = normalize(row.estado);
-    if (estadoActual !== 'RECIBIDO_EN_ALMACEN') {
+    if (estadoActual !== 'PENDIENTE_ENTREGA') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'La orden debe estar en estado RECIBIDO_EN_ALMACEN para marcar entrega al area' });
+      return res.status(400).json({ error: 'La orden debe estar en estado PENDIENTE_ENTREGA para marcar entrega al area' });
     }
 
     const areaRow = await client.query(
@@ -9747,7 +10438,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
     );
 
     const areaDestinoNorm = normalize(areaRow.rows[0]?.area_destino_nombre || '');
-    if (!areaDestinoNorm || areaDestinoNorm === 'GENERAL') {
+    if (!areaDestinoNorm || isWarehouseAreaName(areaDestinoNorm)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Esta orden no requiere entrega al area porque su destino es General' });
     }
@@ -9801,52 +10492,26 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
       [id]
     );
 
-    if (detailRows.rows.length === 0) {
-      throw new Error('La compra no tiene materiales vinculados para generar salida');
-    }
+    let idMovimientoSalida = null;
+    if (detailRows.rows.length > 0) {
+      idMovimientoSalida = await insertMovimiento(client, {
+        tipo: 'SALIDA',
+        usuarioRegistro: req.user.id,
+      });
 
-    const defaultWarehouse = await client.query(
-      `
-        SELECT id
-        FROM almacenes
-        ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
-        LIMIT 1
-      `
-    );
+      for (const detail of detailRows.rows) {
+        const idMaterial = Number(detail.id_material || 0);
+        const qty = Number(detail.cantidad_total || 0);
+        if (!idMaterial || qty <= 0) continue;
 
-    if (defaultWarehouse.rows.length === 0) {
-      throw new Error('No existe un almacen configurado para registrar entrega');
-    }
-
-    const idAlmacen = Number(defaultWarehouse.rows[0].id);
-    const idMovimientoSalida = await insertMovimiento(client, {
-      tipo: 'SALIDA',
-      usuarioRegistro: req.user.id,
-    });
-
-    for (const detail of detailRows.rows) {
-      const idMaterial = Number(detail.id_material || 0);
-      const qty = Number(detail.cantidad_total || 0);
-      if (!idMaterial || qty <= 0) continue;
-
-      await client.query(
-        `
-          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
-          VALUES ($1, $2, $3)
-        `,
-        [idMovimientoSalida, idMaterial, qty]
-      );
-
-      const stockRow = await client.query(
-        'SELECT id, cantidad FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
-        [idMaterial, idAlmacen]
-      );
-
-      if (stockRow.rows.length === 0 || Number(stockRow.rows[0].cantidad) < qty) {
-        throw new Error(`Stock insuficiente para material ${idMaterial} al generar salida`);
+        await client.query(
+          `
+            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+            VALUES ($1, $2, $3)
+          `,
+          [idMovimientoSalida, idMaterial, qty]
+        );
       }
-
-      await client.query('UPDATE stock SET cantidad = cantidad - $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
     }
 
     const itemCategoriesFromComments = parsedCompraComments.item_categorias || {};
@@ -9866,7 +10531,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
     });
 
     await client.query(
-      'UPDATE compras SET estado = $1, comentarios = $2 WHERE id = $3',
+      'UPDATE compras SET estado_pedido = $1, comentarios = $2 WHERE id = $3',
       ['ENTREGADO', comentariosConEntrega, id]
     );
 
@@ -9881,8 +10546,8 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
         dni: receptorDni,
         imagen: receptor.imagen || DEFAULT_USER_AVATAR,
       },
-      movimientos_generados: [idMovimientoSalida],
-      id_almacen_salida: idAlmacen,
+      movimientos_generados: idMovimientoSalida ? [idMovimientoSalida] : [],
+      id_almacen_salida: null,
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -9916,7 +10581,7 @@ app.get('/api/compras/:id/receptores', authMiddleware, async (req, res) => {
     }
 
     const areaNameNorm = normalize(compraArea.rows[0].area_destino_nombre || '');
-    if (!areaNameNorm || areaNameNorm === 'GENERAL') {
+    if (!areaNameNorm || isWarehouseAreaName(areaNameNorm)) {
       return res.json([]);
     }
 
@@ -9975,55 +10640,13 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
     }
 
     const userRole = String(req.user?.rol || '');
-    const canSeeAllServices = isAdminRole(userRole) || isComprasRole(userRole) || canManagePurchasesRole(userRole);
     const roleId = resolveApprovalRoleId(req.user);
     const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
     const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
 
-    const approvalStagePermission = getApprovalStagePermissionForUser(req.user);
-    const approvalStageState = getApprovalStateByPermission(approvalStagePermission);
-    if (approvalStageState) {
-      const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
-        tipo: 'SERVICIO',
-        roleId,
-      });
-      const managedByUser = await fetchManagedApprovalStatesByUser(pool, {
-        tipo: 'SERVICIO',
-        roleId,
-        userId: Number(req.user?.id || 0),
-      });
-      const referenceIds = [...new Set([...pendingReferenceIds, ...managedByUser.keys()])];
 
-      if (referenceIds.length === 0) {
-        return res.json([]);
-      }
-
-      const serviciosAprobacion = await fetchServiciosRows(
-        [referenceIds],
-        'WHERE s.id = ANY($1::int[])',
-        { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage }
-      );
-
-      serviciosAprobacion.forEach((row) => {
-        const managedState = managedByUser.get(Number(row.id || 0));
-        if (managedState) {
-          row.gestion_estado_usuario = managedState;
-        } else {
-          row.gestion_estado_usuario = approvalStageState;
-        }
-      });
-
-      return res.json(serviciosAprobacion);
-    }
-
-    const servicios = canSeeAllServices
-      ? await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage })
-      : await fetchServiciosRows(
-        [req.user.id],
-        "WHERE NULLIF(COALESCE(to_jsonb(s)->>'id_usuario', to_jsonb(s)->>'usuario_id', ''), '')::int = $1",
-        { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage }
-      );
-
+    // Devolver todos los servicios para "Mis órdenes de servicios" independientemente del rol
+    const servicios = await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage });
     res.json(servicios);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -10181,7 +10804,8 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
         FROM aprobaciones a
         WHERE upper(trim(a.tipo)) IN ('COMPRA', 'SERVICIO')
           AND a.rol_aprobador = $1
-          AND upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+          AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+               OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
           AND NOT EXISTS (
             SELECT 1
             FROM aprobaciones prev
@@ -10198,6 +10822,93 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/aprobaciones/config', authMiddleware, async (req, res) => {
+  try {
+    const tableExists = await hasAprobacionesTable(pool);
+    if (!tableExists) {
+      return res.json({ flujos: {} });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT upper(trim(ac.flujo)) AS flujo, ac.orden, ac.rol_id, upper(trim(r.nombre)) AS rol_nombre
+        FROM aprobaciones_config ac
+        JOIN roles r ON r.id = ac.rol_id
+        WHERE ac.activo = TRUE
+        ORDER BY ac.flujo, ac.orden ASC
+      `
+    );
+
+    const flujos = {};
+    result.rows.forEach((row) => {
+      const flow = String(row.flujo || '').trim().toUpperCase();
+      const roleId = Number(row.rol_id || 0);
+      const order = Number(row.orden || 0);
+      const roleName = String(row.rol_nombre || '').trim().toUpperCase();
+      if (flow && Number.isInteger(roleId) && roleId > 0) {
+        if (!flujos[flow]) {
+          flujos[flow] = [];
+        }
+        flujos[flow].push({ rol_id: roleId, orden: order, rol_nombre: roleName });
+      }
+    });
+
+    res.json({ flujos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/aprobaciones/config/:flujo', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    // Only ADMIN can modify approval flows
+    if (!isAdminRole(req.user?.rol)) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar la configuración de aprobaciones' });
+    }
+
+    const flujo = String(req.params.flujo || '').trim().toUpperCase();
+    const roleIds = Array.isArray(req.body?.roleIds) ? req.body.roleIds.map(id => Number(id)).filter(id => Number.isInteger(id) && id > 0) : [];
+
+    if (!flujo || !['COMPRA', 'SERVICIO_DENTRO_PLAN', 'SERVICIO_FUERA_PLAN'].includes(flujo)) {
+      return res.status(400).json({ error: 'Flujo no valido' });
+    }
+
+    if (roleIds.length === 0) {
+      return res.status(400).json({ error: 'Debe proporcionar al menos un rol' });
+    }
+
+    const tableExists = await hasAprobacionesTable(client);
+    if (!tableExists) {
+      return res.status(500).json({ error: 'Tabla de aprobaciones no existe' });
+    }
+
+    // Delete existing roles for this flow
+    await client.query(
+      'DELETE FROM aprobaciones_config WHERE upper(trim(flujo)) = $1',
+      [flujo]
+    );
+
+    // Insert new roles for this flow with correct order
+    for (let idx = 0; idx < roleIds.length; idx += 1) {
+      await client.query(
+        'INSERT INTO aprobaciones_config (flujo, orden, rol_id, activo) VALUES ($1, $2, $3, TRUE)',
+        [flujo, idx + 1, roleIds[idx]]
+      );
+    }
+
+    // Reload chains from config
+    await loadApprovalChainsFromConfig();
+
+    res.json({ success: true, message: `Flujo ${flujo} actualizado correctamente` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -10370,10 +11081,17 @@ app.put('/api/servicios/:id/aprobar', authMiddleware, async (req, res) => {
 
     const useApprovalTable = approvalRows.rows.length > 0;
 
+    const hasDentroPlan = Object.prototype.hasOwnProperty.call(req.body || {}, 'dentro_plan')
+      || Object.prototype.hasOwnProperty.call(req.body || {}, 'dentroPlan')
+      || Object.prototype.hasOwnProperty.call(req.body || {}, 'en_plan');
+    const planChoice = hasDentroPlan
+      ? parseBooleanFlag(req.body?.dentro_plan ?? req.body?.dentroPlan ?? req.body?.en_plan, false)
+      : null;
+
     if (useApprovalTable) {
       await client.query('ROLLBACK');
 
-      const approvalResult = await aprobarEntidad(req.user, 'servicio', id, estadoAprobacion);
+      const approvalResult = await aprobarEntidad(req.user, 'servicio', id, estadoAprobacion, { dentro_plan: planChoice });
       if (!approvalResult?.ok) {
         return res.status(500).json({ error: 'No se pudo aprobar el servicio' });
       }
@@ -10397,6 +11115,16 @@ app.put('/api/servicios/:id/aprobar', authMiddleware, async (req, res) => {
         return res.status(403).json({ error: 'Sin permiso para gestionar servicios' });
       }
 
+      if (planChoice !== null) {
+        const planColumn = getServicioDentroPlanColumn();
+        if (planColumn) {
+          await client.query(
+            `UPDATE servicios SET ${quoteIdentifier(planColumn)} = $1 WHERE id = $2`,
+            [planChoice, id]
+          );
+        }
+      }
+
       await client.query(
         `
           UPDATE servicios
@@ -10404,7 +11132,7 @@ app.put('/api/servicios/:id/aprobar', authMiddleware, async (req, res) => {
               ${quoteIdentifier(statusColumn)} = $2
           WHERE id = $3
         `,
-        [estadoAprobacion, null, id]
+        [estadoAprobacion, estadoAprobacion === 'APROBADO' ? 'APROBADO' : null, id]
       );
     }
 
@@ -10588,6 +11316,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
           COALESCE(upper(trim(COALESCE(to_jsonb(p)->>'retencion', 'NO'))), 'NO') AS retencion,
           COALESCE(NULLIF(upper(trim(COALESCE(to_jsonb(p)->>'tipo_retencion', ''))), ''), 'RETENCION') AS tipo_retencion,
           COALESCE(NULLIF(COALESCE(to_jsonb(p)->>'descuento', ''), '')::numeric, 0) AS retencion_pct,
+          NULLIF(COALESCE(to_jsonb(p)->>'id_moneda', ''), '')::int AS id_moneda,
           COALESCE(mo.nombre, '') AS moneda_nombre
         FROM proveedores p
         LEFT JOIN monedas mo ON mo.id = NULLIF(COALESCE(to_jsonb(p)->>'id_moneda', ''), '')::int
@@ -10607,11 +11336,11 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
       ? normalize(providerRow.tipo_retencion)
       : 'RETENCION';
     const retencionPct = Number(providerRow.retencion_pct || 0);
-    const monedaNorm = normalize(providerRow.moneda_nombre || 'PEN');
+    const monedaNorm = normalizeRoleName(providerRow.moneda_nombre || 'PEN');
     const isUsd = monedaNorm.includes('USD') || monedaNorm.includes('DOLAR');
     const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL');
     const totalBase = Number((subtotalInput + igvInput + costoEnvioInput + otrosCostosInput).toFixed(2));
-    const totalBaseSoles = isUsd ? Number((totalBase * 3.4).toFixed(2)) : totalBase;
+    const totalBaseSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase;
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalBaseSoles > 700);
     const aplicaRetencion = providerRetencionFlag && retencionPct > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
@@ -10624,6 +11353,8 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
 
     const providerIdColumn = getServicioProviderIdColumn();
     const statusColumn = getServicioStatusColumn();
+    const nameColumn = getServicioNameColumn();
+    const descriptionColumn = getServicioDescriptionColumn();
     const subtotalColumn = getServicioSubtotalColumn();
     const igvColumn = getServicioIgvColumn();
     const costoEnvioColumn = getServicioCostoEnvioColumn();
@@ -10632,6 +11363,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const aplicaRetencionColumn = getServicioAplicaRetencionColumn();
     const retencionColumn = getServicioRetencionColumn();
     const tipoRetencionColumn = getServicioTipoRetencionColumn();
+    const monedaIdColumn = getServicioCurrencyIdColumn();
 
     const setClauses = [
       `${quoteIdentifier(providerIdColumn)} = $1`,
@@ -10643,7 +11375,27 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
       `${quoteIdentifier(statusColumn)} = $7`,
     ];
 
+    if (monedaIdColumn && Number(providerRow.id_moneda || 0) > 0) {
+      setClauses.push(`${quoteIdentifier(monedaIdColumn)} = $${setClauses.length + 1}`);
+    }
+
+    const nombreServicioInput = String(req.body?.nombre_servicio ?? req.body?.nombre ?? '').trim();
+    const descripcionServicioInput = String(req.body?.descripcion_servicio ?? req.body?.descripcion ?? '').trim();
     const values = [providerId, subtotalInput, igvInput, costoEnvioInput, otrosCostosInput, totalFinal, 'DATOS_COMPLETADOS'];
+
+    if (monedaIdColumn && Number(providerRow.id_moneda || 0) > 0) {
+      values.push(Number(providerRow.id_moneda || 0));
+    }
+
+    if (nameColumn) {
+      setClauses.push(`${quoteIdentifier(nameColumn)} = $${values.length + 1}`);
+      values.push(nombreServicioInput);
+    }
+
+    if (descriptionColumn) {
+      setClauses.push(`${quoteIdentifier(descriptionColumn)} = $${values.length + 1}`);
+      values.push(descripcionServicioInput);
+    }
 
     if (aplicaRetencionColumn) {
       setClauses.push(`${quoteIdentifier(aplicaRetencionColumn)} = $${values.length + 1}`);
@@ -10837,15 +11589,11 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
     });
 
     const pdfBase64 = await buildServicioPdfBase64(servicio);
+    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
-    res.json({
-      id: servicio.id,
-      archivo: {
-        nombre: `servicio_${servicio.id}.pdf`,
-        mime: 'application/pdf',
-        base64: pdfBase64,
-      },
-    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="servicio_${servicio.id}.pdf"`);
+    res.send(pdfBuffer);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -10891,15 +11639,11 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
     });
 
     const pdfBase64 = await buildCompraPdfBase64(compra);
+    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
-    res.json({
-      compra,
-      archivo: {
-        nombre: `orden_compra_${compra.id}.pdf`,
-        mime: 'application/pdf',
-        base64: pdfBase64,
-      },
-    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="orden_compra_${compra.id}.pdf"`);
+    res.send(pdfBuffer);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -11006,6 +11750,12 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             LEFT JOIN usuarios um ON um.id = mf.usuario_id
             WHERE ($1::date IS NULL OR mf.fecha_mov >= $1::date)
               AND ($2::date IS NULL OR mf.fecha_mov <= $2::date)
+            
+            UNION
+            
+            SELECT DISTINCT
+              NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int AS area_id
+            FROM servicios s
           )
           SELECT area_id
           FROM areas_activas
@@ -11054,6 +11804,10 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
     const materialPrecioExpr = materialPrecioColumn
       ? `COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)`
       : '0::numeric';
+    const servicioMontoColumn = pickExistingColumn(schemaMeta.serviciosColumns, ['total', 'subtotal', 'costo', 'importe', 'monto']);
+    const servicioMontoExpr = servicioMontoColumn
+      ? `COALESCE(NULLIF(to_jsonb(s)->>'${servicioMontoColumn}', '')::numeric, 0)`
+      : '0::numeric';
     const movimientosSalidaCte = `
       WITH movimientos_salida AS (
         SELECT
@@ -11085,11 +11839,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             NOW()
           )::date AS fecha_mov
         FROM movimientos m
-        WHERE upper(trim(COALESCE(
-          NULLIF(to_jsonb(m)->>'tipo_movimiento', ''),
-          NULLIF(to_jsonb(m)->>'tipo', ''),
-          'N/D'
-        ))) = 'SALIDA'
+        WHERE upper(trim(NULLIF(to_jsonb(m)->>'tipo', ''))) = 'SALIDA'
       ),
       movimientos_enriquecidos AS (
         SELECT
@@ -11101,8 +11851,8 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         LEFT JOIN areas a_req ON a_req.id = COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, ur.id_area)
         LEFT JOIN usuarios um ON um.id = ms.usuario_id
         LEFT JOIN areas a_mov ON a_mov.id = um.id_area
-        WHERE ($1::date IS NULL OR ms.fecha_mov >= $1::date)
-          AND ($2::date IS NULL OR ms.fecha_mov <= $2::date)
+        WHERE (CAST($1 AS date) IS NULL OR ms.fecha_mov >= CAST($1 AS date))
+          AND (CAST($2 AS date) IS NULL OR ms.fecha_mov <= CAST($2 AS date))
       )
     `;
 
@@ -11111,7 +11861,10 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       comprasAreaRows,
       reqAreaRows,
       serviciosAreaRows,
+      serviciosMontoRows,
       dashboardMovimientosRows,
+      topProvidersRows,
+      worstProvidersRows,
     ] = await Promise.all([
       pool.query(
         `
@@ -11133,10 +11886,63 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               ${servWhere}
             ) AS total_servicios,
             (
-              SELECT COALESCE(SUM(NULLIF(to_jsonb(c)->>'total', '')::numeric), 0)
+              SELECT COALESCE(SUM(
+                CASE 
+                  WHEN NULLIF(to_jsonb(c)->>'id_moneda', '')::int = 2 
+                    THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * 3.5
+                  ELSE NULLIF(to_jsonb(c)->>'total_importe', '')::numeric
+                END
+              ), 0)
               FROM compras c
               ${comprasWhere}
-            ) AS monto_total_compras
+            ) AS monto_total_compras,
+            COALESCE((
+              SELECT SUM(
+                CASE 
+                  WHEN NULLIF(to_jsonb(s)->>'moneda_id', '')::int = 2 
+                    THEN ${servicioMontoExpr} * 3.5
+                  ELSE ${servicioMontoExpr}
+                END
+              )
+              FROM servicios s
+              ${servWhere}
+            ), 0)
+            +
+            COALESCE((
+              SELECT SUM(COALESCE(md.cantidad, 0)::numeric * 
+                CASE 
+                  WHEN NULLIF(to_jsonb(mat)->>'id_moneda', '')::int = 2 
+                    THEN COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0) * 3.5
+                  ELSE COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)
+                END
+              )
+              FROM movimientos mov
+              INNER JOIN movimiento_detalles md ON mov.id = md.id_movimiento
+              INNER JOIN materiales mat ON md.id_material = mat.id
+              WHERE upper(trim(COALESCE(to_jsonb(mov)->>'tipo_movimiento', COALESCE(to_jsonb(mov)->>'tipo', 'N/D')))) = 'SALIDA'
+                AND (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) >= '${fechaInicio}'::date` : '1=1'})
+                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) <= '${fechaFin}'::date` : '1=1'})
+            ), 0) AS monto_total_consumo,
+            (
+              SELECT COALESCE(SUM(
+                COALESCE(md.cantidad, 0)::numeric
+              ), 0)
+              FROM movimientos mov
+              INNER JOIN movimiento_detalles md ON mov.id = md.id_movimiento
+              WHERE upper(trim(NULLIF(to_jsonb(mov)->>'tipo', ''))) = 'ENTRADA'
+                AND (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) >= '${fechaInicio}'::date` : '1=1'})
+                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) <= '${fechaFin}'::date` : '1=1'})
+            ) AS total_entradas_movimientos,
+            (
+              SELECT COALESCE(SUM(
+                COALESCE(md.cantidad, 0)::numeric
+              ), 0)
+              FROM movimientos mov
+              INNER JOIN movimiento_detalles md ON mov.id = md.id_movimiento
+              WHERE upper(trim(NULLIF(to_jsonb(mov)->>'tipo', ''))) = 'SALIDA'
+                AND (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) >= '${fechaInicio}'::date` : '1=1'})
+                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) <= '${fechaFin}'::date` : '1=1'})
+            ) AS total_salidas_movimientos
         `,
         params
       ),
@@ -11145,7 +11951,13 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             COUNT(*)::int AS total,
-            COALESCE(SUM(NULLIF(to_jsonb(c)->>'total', '')::numeric), 0) AS monto_total
+            COALESCE(SUM(
+              CASE 
+                WHEN NULLIF(to_jsonb(c)->>'id_moneda', '')::int = 2 
+                  THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * 3.5
+                ELSE NULLIF(to_jsonb(c)->>'total_importe', '')::numeric
+              END
+            ), 0) AS monto_total
           FROM compras c
           LEFT JOIN areas a ON a.id = COALESCE(
             NULLIF(to_jsonb(c)->>'id_area_final', '')::int,
@@ -11183,6 +11995,27 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           ${servWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC
+          LIMIT 8
+        `,
+        params
+      ),
+      pool.query(
+        `
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            COUNT(*)::int AS total,
+            COALESCE(SUM(
+              CASE 
+                WHEN NULLIF(to_jsonb(s)->>'moneda_id', '')::int = 2 
+                  THEN ${servicioMontoExpr} * 3.5
+                ELSE ${servicioMontoExpr}
+              END
+            ), 0) AS monto_total
+          FROM servicios s
+          LEFT JOIN areas a ON a.id = NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int
+          ${servWhere}
+          GROUP BY COALESCE(a.nombre, 'Sin area')
+          ORDER BY COUNT(*) DESC, monto_total DESC
           LIMIT 8
         `,
         params
@@ -11280,6 +12113,36 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         `,
         [fechaInicio, fechaFin]
       ),
+      pool.query(
+        `
+          SELECT
+            COALESCE(p.nombre, 'Proveedor desconocido') AS proveedor,
+            cp.id_proveedor,
+            ROUND(AVG(cp.puntuacion)::numeric, 2) AS promedio_puntuacion,
+            COUNT(*)::int AS total_calificaciones
+          FROM calificaciones_proveedor cp
+          LEFT JOIN proveedores p ON p.id = cp.id_proveedor
+          WHERE lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
+          GROUP BY COALESCE(p.nombre, 'Proveedor desconocido'), cp.id_proveedor
+          ORDER BY promedio_puntuacion DESC NULLS LAST, total_calificaciones DESC
+          LIMIT 5
+        `
+      ),
+      pool.query(
+        `
+          SELECT
+            COALESCE(p.nombre, 'Proveedor desconocido') AS proveedor,
+            cp.id_proveedor,
+            ROUND(AVG(cp.puntuacion)::numeric, 2) AS promedio_puntuacion,
+            COUNT(*)::int AS total_calificaciones
+          FROM calificaciones_proveedor cp
+          LEFT JOIN proveedores p ON p.id = cp.id_proveedor
+          WHERE lower(trim(COALESCE(cp.tipo, ''))) IN ('compra', 'servicio')
+          GROUP BY COALESCE(p.nombre, 'Proveedor desconocido'), cp.id_proveedor
+          ORDER BY promedio_puntuacion ASC NULLS LAST, total_calificaciones DESC
+          LIMIT 5
+        `
+      ),
     ]);
 
     const totals = totalsRows.rows[0] || {};
@@ -11295,6 +12158,11 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         total_requerimientos: Number(totals.total_requerimientos || 0),
         total_servicios: Number(totals.total_servicios || 0),
         monto_total_compras: Number(totals.monto_total_compras || 0),
+        monto_total_requerimientos: Number((dashboardMovimientos.gasto_salida_por_area || []).reduce((sum, row) => sum + Number(row.total_gastado || 0), 0)),
+        monto_total_servicios: Number((serviciosMontoRows.rows || []).reduce((sum, row) => sum + Number(row.monto_total || 0), 0)),
+        monto_total_consumo: Number(totals.monto_total_consumo || 0),
+        total_entradas_movimientos: Number(totals.total_entradas_movimientos || 0),
+        total_salidas_movimientos: Number(totals.total_salidas_movimientos || 0),
       },
       compras_por_area: comprasAreaRows.rows.map((row) => ({
         area: row.area,
@@ -11308,6 +12176,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       servicios_por_area: serviciosAreaRows.rows.map((row) => ({
         area: row.area,
         total: Number(row.total || 0),
+        monto_total: Number((serviciosMontoRows.rows.find((item) => item.area === row.area) || {}).monto_total || 0),
       })),
       materiales_mas_utilizados: (Array.isArray(dashboardMovimientos.materiales_mas_utilizados)
         ? dashboardMovimientos.materiales_mas_utilizados
@@ -11333,6 +12202,18 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         : []).map((row) => ({
         area: row.area,
         total_materiales_recibidos: Number(row.total_materiales_recibidos || 0),
+      })),
+      proveedores_top_rated: topProvidersRows.rows.map((row) => ({
+        proveedor: String(row.proveedor || 'Proveedor desconocido').trim(),
+        id_proveedor: Number(row.id_proveedor || 0),
+        promedio_puntuacion: Number(row.promedio_puntuacion || 0),
+        total_calificaciones: Number(row.total_calificaciones || 0),
+      })),
+      proveedores_worst_rated: worstProvidersRows.rows.map((row) => ({
+        proveedor: String(row.proveedor || 'Proveedor desconocido').trim(),
+        id_proveedor: Number(row.id_proveedor || 0),
+        promedio_puntuacion: Number(row.promedio_puntuacion || 0),
+        total_calificaciones: Number(row.total_calificaciones || 0),
       })),
     });
   } catch (error) {
@@ -11368,6 +12249,7 @@ const startServer = async () => {
 
   await loadSchemaMeta();
   await ensureCoreApprovalPermissions();
+  await loadApprovalChainsFromConfig();
   if (String(process.env.RUN_DEMO_SEED || 'false').toLowerCase() === 'true') {
     await seedInventoryDemoData();
   }

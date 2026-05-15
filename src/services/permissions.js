@@ -1,47 +1,4 @@
-const BASE_PERMISSION_NAMES = [
-  'VER_INVENTARIO',
-  'CREAR_REQUERIMIENTO',
-  'CREAR_SOLICITUD_COMPRA',
-  'VER_AJUSTES',
-]
-
-const ROLE_PERMISSION_NAMES_BY_ID = new Map([
-  [4, [...BASE_PERMISSION_NAMES, 'CREAR_SOLICITUD_SERVICIO', 'CAMBIAR_ESTADO_SERVICIO']],
-  [5, [...BASE_PERMISSION_NAMES, 'APROBAR_JEFE_AREA']],
-  [6, [...BASE_PERMISSION_NAMES, 'APROBAR_GERENCIA_AREA', 'CALIFICAR_COMPRA', 'CALIFICAR_REQUERIMIENTO']],
-  [7, [...BASE_PERMISSION_NAMES, 'APROBAR_FINANZAS']],
-  [8, [
-    ...BASE_PERMISSION_NAMES,
-    'APROBAR_JEFE_AREA',
-    'APROBAR_GERENCIA_AREA',
-    'APROBAR_FINANZAS',
-    'APROBAR_ADMIN',
-    'GESTIONAR_ROLES',
-    'CALIFICAR_COMPRA',
-    'CALIFICAR_REQUERIMIENTO',
-    'GESTIONAR_ORDENES_COMPRA',
-    'GESTIONAR_PROVEEDORES',
-    'EDITAR_INVENTARIO',
-    'AGREGAR_INVENTARIO_MANUAL',
-    'VER_NOTIFICACIONES_PROVEEDOR',
-    'GESTIONAR_ENTREGAS',
-    'CREAR_SOLICITUD_SERVICIO',
-    'CAMBIAR_ESTADO_SERVICIO',
-    'VER_HISTORIAL_SERVICIOS',
-  ]],
-  [9, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ORDENES_COMPRA', 'GESTIONAR_PROVEEDORES', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL', 'VER_NOTIFICACIONES_PROVEEDOR', 'VER_HISTORIAL_SERVICIOS']],
-  [10, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ENTREGAS']],
-  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS']],
-])
-
-export const getPermissionsByRole = (rolId) => {
-  const numericRoleId = Number(rolId || 0)
-  if (ROLE_PERMISSION_NAMES_BY_ID.has(numericRoleId)) {
-    return [...new Set(ROLE_PERMISSION_NAMES_BY_ID.get(numericRoleId))]
-  }
-
-  return [...BASE_PERMISSION_NAMES]
-}
+// Permission helpers for frontend authorization checks
 
 const normalizePermissionName = (value) => String(value || '')
   .trim()
@@ -51,14 +8,34 @@ const normalizePermissionName = (value) => String(value || '')
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '')
 
+const PERMISSION_ALIASES = {
+  EDITAR_MATERIAL: 'EDITAR_INVENTARIO',
+  GESTIONAR_ORDENES_COMPRA: 'GESTIONAR_COMPRAS',
+}
+
+const canonicalizePermissionName = (value) => {
+  const normalized = normalizePermissionName(value)
+  return PERMISSION_ALIASES[normalized] || normalized
+}
+
 export const hasPermission = (sourcePermissions, permission) => {
-  const normalizedPermission = normalizePermissionName(permission)
+  const normalizedPermission = canonicalizePermissionName(permission)
   if (!normalizedPermission) return false
 
   const permissions = Array.isArray(sourcePermissions) ? sourcePermissions : []
-  return permissions.some((item) => normalizePermissionName(item) === normalizedPermission)
+  return permissions.some((item) => canonicalizePermissionName(item) === normalizedPermission)
 }
 
 export const hasAnyPermission = (sourcePermissions, permissions = []) => {
   return permissions.some((permission) => hasPermission(sourcePermissions, permission))
+}
+
+export const tienePermiso = (user, permission) => {
+  if (!user || !user.permisos) return false
+  return hasPermission(user.permisos, permission)
+}
+
+export const tieneCualquierPermiso = (user, permissions = []) => {
+  if (!user || !user.permisos) return false
+  return hasAnyPermission(user.permisos, permissions)
 }

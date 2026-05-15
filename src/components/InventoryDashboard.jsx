@@ -13,15 +13,15 @@ import GestionarProveedoresView from './GestionarProveedoresView'
 import DeliveryManager from './DeliveryManager'
 import MisOrdenesCompraView from './MisOrdenesCompraView'
 import MisOrdenesServiciosView from './MisOrdenesServiciosView'
-import MisRequerimientosView from './MisRequerimientosView'
 import MovimientosView from './MovimientosView'
 import AjustesView from './AjustesView'
 import AdminDashboardView from './AdminDashboardView'
 import HistorialServiciosView from './HistorialServiciosView'
 import NotificationsView from './NotificationsView'
 import RolesPermissionsView from './RolesPermissionsView'
-import CalificarProductosView from './CalificarProductosView'
-import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID, getPermissionsByRole } from '../services/moduleAccess'
+import GestionarUsuariosView from './GestionarUsuariosView'
+import CalificarMaterialesView from './CalificarMaterialesView'
+import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
 import { hasAnyPermission, hasPermission } from '../services/permissions'
 import {
   createMaterial,
@@ -80,7 +80,21 @@ const TAB_ROUTES = {
   settings: '/ajustes',
   notifications: '/notificaciones',
   'roles-permissions': '/roles-permisos',
+  'manage-accounts': '/gestionar-cuentas',
   'rate-products': '/calificar-productos',
+}
+
+const getDefaultAdminDashboardRange = () => {
+  const today = new Date()
+  const start = new Date(today)
+  start.setDate(today.getDate() - 30)
+
+  const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+  return {
+    fecha_inicio: formatDate(start),
+    fecha_fin: formatDate(today),
+  }
 }
 
 export default function InventoryDashboard({ initialTab = 'materials', onLogout, onAuthExpired }) {
@@ -97,7 +111,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [searchTerm, setSearchTerm] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('Todos')
   const [requerimientos, setRequerimientos] = useState([])
-  const [misRequerimientos, setMisRequerimientos] = useState([])
   const [compras, setCompras] = useState([])
   const [misCompras, setMisCompras] = useState([])
   const [movimientos, setMovimientos] = useState([])
@@ -119,17 +132,16 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [activeOrdersView, setActiveOrdersView] = useState('compras')
   const [adminDashboardData, setAdminDashboardData] = useState(null)
   const [adminDashboardLoading, setAdminDashboardLoading] = useState(false)
-  const [adminDashboardDateRange, setAdminDashboardDateRange] = useState({ fecha_inicio: '', fecha_fin: '' })
+  const initialAdminDashboardRange = useMemo(() => getDefaultAdminDashboardRange(), [])
+  const [adminDashboardDateRange, setAdminDashboardDateRange] = useState(initialAdminDashboardRange)
 
   const isUnauthorizedError = useCallback((err) => Number(err?.status || 0) === 401, [])
   const isForbiddenError = useCallback((err) => Number(err?.status || 0) === 403, [])
   const currentUserPermissions = useMemo(() => {
-    if (Array.isArray(currentUserProfile?.permisos)) {
-      return currentUserProfile.permisos
-    }
-
-    return getPermissionsByRole(currentUserRoleId)
-  }, [currentUserProfile, currentUserRoleId])
+    return Array.isArray(currentUserProfile?.permisos)
+      ? currentUserProfile.permisos
+      : []
+  }, [currentUserProfile])
   const allowedModules = useMemo(() => {
     return buildAllowedModules(currentUserRoleId, currentUserPermissions)
   }, [currentUserPermissions, currentUserRoleId])
@@ -137,6 +149,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     return modules.filter((mod) => allowedModules.includes(mod.id))
   }, [allowedModules])
   const allowedTabs = useMemo(() => buildAllowedTabs(currentUserRoleId, currentUserPermissions), [currentUserPermissions, currentUserRoleId])
+  const canReturnHomeFromError = useMemo(() => String(error || '').toLowerCase().includes('no autorizado'), [error])
   const canEditMaterials = hasPermission(currentUserPermissions, 'EDITAR_INVENTARIO')
   const canAddManualInventory = hasPermission(currentUserPermissions, 'AGREGAR_INVENTARIO_MANUAL')
   const canManageServiceApprovals = useMemo(() => {
@@ -157,13 +170,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       throw err
     }
   }, [isUnauthorizedError, isForbiddenError])
-
-  // Cargar materiales y estadísticas
-  useEffect(() => {
-    // Keep first-load behavior stable; loadData is defined later in scope.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    loadData()
-  }, [])
 
   useEffect(() => {
     setActiveTab(initialTab)
@@ -199,9 +205,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setCurrentUserArea(currentUser?.area || 'Sin area')
       setCurrentUserAreaId(Number(currentUser?.id_area || 0) || null)
       const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
-      const runtimePermissions = (Array.isArray(currentUser?.permisos) && currentUser.permisos.length > 0)
-        ? currentUser.permisos
-        : getPermissionsByRole(roleId)
+      const runtimePermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
       console.log('Rol usuario:', currentUser?.rol_id ?? currentUser?.id_role)
       setCurrentUserRoleId(Number.isFinite(roleId) && roleId > 0 ? roleId : null)
 
@@ -210,7 +214,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         statsData,
         adminDashboardDataResp,
         reqsData,
-        myReqsData,
         comprasData,
         misComprasData,
         serviciosData,
@@ -223,7 +226,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         almacenesData,
       ] = await Promise.all([
         hasPermission(runtimePermissions, 'VER_INVENTARIO')
-          ? fetchMateriales()
+          ? loadOptionalData(fetchMateriales, [])
           : Promise.resolve([]),
         loadOptionalData(fetchStats, {
           total_materiales: 0,
@@ -232,10 +235,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           completados: 0,
         }),
         hasPermission(runtimePermissions, 'APROBAR_ADMIN')
-          ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRange), null)
+          ? loadOptionalData(() => fetchAdminDashboard(initialAdminDashboardRange), null)
           : Promise.resolve(null),
         loadOptionalData(fetchRequerimientos, []),
-        loadOptionalData(fetchMisRequerimientos, []),
         loadOptionalData(fetchCompras, []),
         loadOptionalData(fetchMisCompras, []),
         loadOptionalData(fetchServicios, []),
@@ -249,7 +251,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       ])
       setMaterials(materialsData)
       setRequerimientos(reqsData)
-      setMisRequerimientos(myReqsData)
       setCompras(comprasData)
       setMisCompras(misComprasData)
       setServicios(serviciosData)
@@ -277,12 +278,17 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     } finally {
       setLoading(false)
     }
-  }, [currentUserPermissions, isUnauthorizedError, loadOptionalData, onAuthExpired])
+  }, [initialAdminDashboardRange, isUnauthorizedError, loadOptionalData, onAuthExpired])
 
-  const handleRefreshAdminDashboard = async ({ fecha_inicio = null, fecha_fin = null, auto = true } = {}) => {
+  // Cargar datos iniciales al montar el dashboard.
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const handleRefreshAdminDashboard = useCallback(async ({ fecha_inicio = '', fecha_fin = '', auto = true } = {}) => {
     const nextRange = {
-      fecha_inicio: fecha_inicio == null ? adminDashboardDateRange.fecha_inicio : String(fecha_inicio || ''),
-      fecha_fin: fecha_fin == null ? adminDashboardDateRange.fecha_fin : String(fecha_fin || ''),
+      fecha_inicio: String(fecha_inicio || ''),
+      fecha_fin: String(fecha_fin || ''),
     }
     setAdminDashboardDateRange(nextRange)
 
@@ -302,12 +308,14 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     } finally {
       setAdminDashboardLoading(false)
     }
-  }
+  }, [isUnauthorizedError, onAuthExpired])
 
   const handleCreateRequirement = async (payload) => {
     try {
       await createRequerimiento(payload)
       await loadData()
+      // Refrescar la página para confirmar que se guardó
+      window.location.reload()
     } catch (err) {
       if (isUnauthorizedError(err)) {
         if (onAuthExpired) onAuthExpired()
@@ -323,6 +331,8 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       await createCompra(payload)
       await loadData()
       setActiveTab('manage-requests')
+      // Refrescar la página para confirmar que se guardó
+      window.location.reload()
     } catch (err) {
       if (isUnauthorizedError(err)) {
         if (onAuthExpired) onAuthExpired()
@@ -351,9 +361,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }
 
-  const handleServicioAprobacion = async (id, estadoAprobacion) => {
+  const handleServicioAprobacion = async (id, estadoAprobacion, options = {}) => {
     try {
-      await updateServicioAprobacion(id, estadoAprobacion)
+      await updateServicioAprobacion(id, estadoAprobacion, options)
       await loadData()
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -521,6 +531,33 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
   }
 
+  const downloadBlob = (blob, fileName) => {
+    if (!blob) return
+
+    if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+      window.navigator.msSaveOrOpenBlob(blob, fileName)
+      return
+    }
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    link.style.display = 'none'
+    document.body.appendChild(link)
+
+    try {
+      link.click()
+    } catch (clickError) {
+      window.open(url, '_blank')
+    }
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url)
+      link.remove()
+    }, 100)
+  }
+
   const handleGenerarOrdenServicio = async (id) => {
     try {
       const result = await generarOrdenServicio(id)
@@ -534,14 +571,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           bytes[i] = binary.charCodeAt(i)
         }
         const blob = new Blob([bytes], { type: 'application/pdf' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(url)
+        downloadBlob(blob, fileName)
       }
 
       await loadData()
@@ -559,24 +589,10 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const handleDescargarOrdenServicioPdf = async (id) => {
     try {
       const result = await descargarOrdenServicioPdf(id)
-
       const fileName = result?.archivo?.nombre || `OS-${id}.pdf`
-      const b64 = result?.archivo?.base64 || ''
-      if (b64) {
-        const binary = atob(b64)
-        const bytes = new Uint8Array(binary.length)
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i)
-        }
-        const blob = new Blob([bytes], { type: 'application/pdf' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(url)
+      const blob = result?.blob
+      if (blob) {
+        downloadBlob(blob, fileName)
       }
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -592,24 +608,10 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const handleDescargarOrdenCompraPdf = async (id) => {
     try {
       const result = await descargarOrdenCompraPdf(id)
-
       const fileName = result?.archivo?.nombre || `OC-${id}.pdf`
-      const b64 = result?.archivo?.base64 || ''
-      if (b64) {
-        const binary = atob(b64)
-        const bytes = new Uint8Array(binary.length)
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i)
-        }
-        const blob = new Blob([bytes], { type: 'application/pdf' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(url)
+      const blob = result?.blob
+      if (blob) {
+        downloadBlob(blob, fileName)
       }
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -756,13 +758,41 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     ),
   ]
 
+  const handleGoToHomeFromError = () => {
+    const homeTab = allowedTabs.includes('materials')
+      ? 'materials'
+      : (allowedTabs[0] || 'materials')
+    setActiveTab(homeTab)
+    setError(null)
+  }
+
+  const handleLogoutFromError = async () => {
+    try {
+      await onLogout?.()
+    } finally {
+      setError(null)
+    }
+  }
+
   return (
     <div className="dashboard">
       <Header currentUserName={currentUserName} currentUser={currentUserProfile} onLogout={onLogout} />
       {error && (
         <div className="error-banner">
-          ⚠️ {error}
-          <button onClick={() => setError(null)}>×</button>
+          <span>⚠️ {error}</span>
+          <div className="error-banner-actions">
+            {canReturnHomeFromError && (
+              <button type="button" className="error-banner-home-btn" onClick={handleGoToHomeFromError}>
+                Volver a inicio
+              </button>
+            )}
+            {canReturnHomeFromError && (
+              <button type="button" className="error-banner-logout-btn" onClick={handleLogoutFromError}>
+                Cerrar sesion
+              </button>
+            )}
+            <button type="button" onClick={() => setError(null)}>×</button>
+          </div>
         </div>
       )}
       {loading && <div className="loading-indicator">Cargando datos...</div>}
@@ -779,6 +809,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               data={{ ...(adminDashboardData || {}), filtro_fechas: adminDashboardDateRange }}
               loading={adminDashboardLoading}
               onRefresh={handleRefreshAdminDashboard}
+              stats={_stats}
             />
           )}
           {activeTab === 'materials' && allowedTabs.includes('materials') && (
@@ -871,14 +902,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <button type="button" className={activeOrdersView === 'servicios' ? 'active' : ''} onClick={() => setActiveOrdersView('servicios')}>
                   Mis ordenes de servicios
                 </button>
-                <button type="button" className={activeOrdersView === 'requerimientos' ? 'active' : ''} onClick={() => setActiveOrdersView('requerimientos')}>
-                  Mis requerimientos
-                </button>
               </div>
 
               {activeOrdersView === 'compras' && (
                 <MisOrdenesCompraView
-                  compras={misCompras}
+                  compras={compras}
                   currentUserRoleId={currentUserRoleId}
                   currentUserPermissions={currentUserPermissions}
                   onCompletarDatos={handleCompletarCompra}
@@ -892,7 +920,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
 
               {activeOrdersView === 'servicios' && (
                 <MisOrdenesServiciosView
-                  servicios={misServicios}
+                  servicios={servicios}
                   proveedores={proveedores}
                   monedas={monedas}
                   currentUserRoleId={currentUserRoleId}
@@ -905,12 +933,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 />
               )}
 
-              {activeOrdersView === 'requerimientos' && (
-                <MisRequerimientosView
-                  requerimientos={misRequerimientos}
-                  onAgregarComentario={handleAgregarComentarioRequerimiento}
-                />
-              )}
             </div>
           )}
           {activeTab === 'manage-delivery' && allowedTabs.includes('manage-delivery') && (
@@ -924,7 +946,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
             />
           )}
           {activeTab === 'services-history' && allowedTabs.includes('services-history') && (
-            <HistorialServiciosView servicios={servicios} currentUserRoleId={currentUserRoleId} />
+            <HistorialServiciosView
+              servicios={servicios}
+              currentUserRoleId={currentUserRoleId}
+              currentUserPermissions={currentUserPermissions}
+            />
           )}
           {activeTab === 'movements' && allowedTabs.includes('movements') && (
             <MovimientosView
@@ -942,8 +968,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           {activeTab === 'roles-permissions' && allowedTabs.includes('roles-permissions') && (
             <RolesPermissionsView />
           )}
+          {activeTab === 'manage-accounts' && allowedTabs.includes('manage-accounts') && (
+            <GestionarUsuariosView />
+          )}
           {activeTab === 'rate-products' && allowedTabs.includes('rate-products') && (
-            <CalificarProductosView
+            <CalificarMaterialesView
               movimientos={movimientos}
               currentUserPermissions={currentUserPermissions}
               currentUserRoleId={currentUserRoleId}

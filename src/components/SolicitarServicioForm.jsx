@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fetchAreas } from '../services/api'
 import '../styles/SolicitarServicioForm.css'
 
 export default function SolicitarServicioForm({
   currentUser,
-  currentArea,
   currentAreaId,
   onSubmitServicio,
 }) {
@@ -11,24 +11,53 @@ export default function SolicitarServicioForm({
     nombre_servicio: '',
     descripcion_servicio: '',
     prioridad: 'MEDIA',
-    dentro_plan: true,
+    area_id: currentAreaId ? String(currentAreaId) : '',
+    // dentro_plan eliminado, solo lo define el primer aprobador
   })
+  const [areas, setAreas] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const update = (patch) => setForm((prev) => ({ ...prev, ...patch }))
 
+  useEffect(() => {
+    let mounted = true
+
+    const loadAreas = async () => {
+      try {
+        const result = await fetchAreas()
+        if (!mounted) return
+        setAreas(Array.isArray(result) ? result : [])
+      } catch {
+        if (!mounted) return
+        setAreas([])
+      }
+    }
+
+    loadAreas()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      area_id: prev.area_id || (currentAreaId ? String(currentAreaId) : ''),
+    }))
+  }, [currentAreaId])
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
 
-    const areaId = Number(currentAreaId || 0)
+
+    const areaId = Number(form.area_id || 0)
     const nombreServicio = String(form.nombre_servicio || '').trim()
     const descripcionServicio = String(form.descripcion_servicio || '').trim()
     const prioridad = String(form.prioridad || '').trim().toUpperCase()
-
     if (!areaId) {
-      setError('No se pudo resolver area_id del usuario')
+      setError('Selecciona un area destino valida')
       return
     }
 
@@ -54,14 +83,13 @@ export default function SolicitarServicioForm({
         area_id: areaId,
         descripcion_servicio: descripcionServicio,
         prioridad,
-        dentro_plan: Boolean(form.dentro_plan),
       })
 
       setForm({
         nombre_servicio: '',
         descripcion_servicio: '',
         prioridad: 'MEDIA',
-        dentro_plan: true,
+        area_id: areaId ? String(areaId) : '',
       })
     } catch (err) {
       setError(err.message || 'Error al crear solicitud de servicio')
@@ -74,13 +102,11 @@ export default function SolicitarServicioForm({
     <section className="service-request-section">
       <div className="section-header">
         <h1>Solicitar Servicio</h1>
-        <p>Registra una solicitud inicial. Los datos de proveedor y costo se completan luego en Mis ordenes.</p>
       </div>
 
       <form className="service-request-form" onSubmit={handleSubmit}>
         <div className="service-user-info">
           <p><strong>Usuario:</strong> {currentUser || 'Usuario'}</p>
-          <p><strong>Area:</strong> {currentArea || 'Sin area'}</p>
         </div>
 
         <label>
@@ -107,8 +133,26 @@ export default function SolicitarServicioForm({
 
         <div className="service-request-grid single-column-grid">
           <label>
+            Area destino
+            <select
+            className='select-request'
+              value={form.area_id}
+              onChange={(event) => update({ area_id: event.target.value })}
+              disabled={saving}
+            >
+              <option value="">Selecciona area destino</option>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.nombre || `Area ${area.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
             Prioridad
             <select
+            className='select-request'
               value={form.prioridad}
               onChange={(event) => update({ prioridad: event.target.value })}
               disabled={saving}
@@ -119,18 +163,10 @@ export default function SolicitarServicioForm({
             </select>
           </label>
 
-          <label>
-            Dentro del plan
-            <select
-              value={form.dentro_plan ? 'SI' : 'NO'}
-              onChange={(event) => update({ dentro_plan: event.target.value === 'SI' })}
-              disabled={saving}
-            >
-              <option value="SI">SI</option>
-              <option value="NO">NO</option>
-            </select>
-          </label>
         </div>
+
+
+
 
         <div className="service-request-actions">
           <button type="submit" className="btn-primary" disabled={saving}>

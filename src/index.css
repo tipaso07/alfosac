@@ -5,27 +5,30 @@
 }
 
 :root {
-  --primary-color: #3b82f6;
-  --primary-dark: #1e40af;
-  --secondary-color: #8b5cf6;
+  --primary-color: #329ad6;
+  --primary-dark: #000059;
+  --secondary-color: #1d6ea3;
   --success-color: #10b981;
-  --warning-color: #f59e0b;
-  --danger-color: #ef4444;
-  --background: #f8fafc;
+  --warning-color: #256ca6;
+  --danger-color: #0d4a7a;
+  --background: #f2f9ff;
   --surface: #ffffff;
-  --border: #e2e8f0;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --surface-soft: #f7fcff;
+  --border: #b9deef;
+  --text-primary: #000059;
+  --text-secondary: #335683;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 89, 0.06);
+  --shadow-md: 0 10px 30px rgba(0, 0, 89, 0.1);
+  --shadow-lg: 0 18px 46px rgba(0, 0, 89, 0.14);
+  --code-bg: #e8f5fc;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  background-color: var(--background);
+  font-family: 'Aptos', 'Segoe UI Variable', 'Trebuchet MS', 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(50, 154, 214, 0.2), transparent 46%),
+    radial-gradient(circle at 100% 100%, rgba(0, 0, 89, 0.14), transparent 42%),
+    var(--background);
   color: var(--text-primary);
   line-height: 1.6;
   margin: 0;
@@ -55,14 +58,15 @@ button {
   border: none;
   cursor: pointer;
   font-size: 14px;
-  font-weight: 500;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  font-weight: 600;
+  border-radius: 10px;
+  transition: all 0.22s ease;
   padding: 8px 16px;
 }
 
 button:hover {
   transform: translateY(-1px);
+  filter: saturate(1.1);
 }
 
 input[type="text"],
@@ -73,10 +77,11 @@ select,
 textarea {
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 10px;
   font-size: 14px;
   font-family: inherit;
   transition: all 0.2s ease;
+  background: var(--surface);
 }
 
 input[type="text"]:focus,
@@ -87,7 +92,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 3px rgba(50, 154, 214, 0.2);
 }
 
 input.error {
@@ -99,6 +104,17 @@ input.error {
   font-size: 12px;
   margin-top: 4px;
   display: block;
+}
+
+@keyframes fadeRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 ::-webkit-scrollbar {

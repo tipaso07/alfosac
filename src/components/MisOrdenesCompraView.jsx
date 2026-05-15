@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import '../styles/MisOrdenesCompraView.css'
 import {
-  fetchMiCalificacionProveedor,
   fetchProveedores,
   fetchReceptoresByCompra,
   guardarCalificacionProveedor,
@@ -9,6 +8,25 @@ import {
 } from '../services/api'
 import { hasPermission } from '../services/permissions'
 import { evaluateProviderRatingState } from '../services/providerRatingRules'
+
+const normalize = (value) => String(value || '').trim().toUpperCase()
+
+const normalizeText = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toUpperCase()
+
+const isRetentionEnabled = (value) => {
+  if (typeof value === 'boolean') return value
+  return normalize(value) === 'SI'
+}
+
+const getStageStatus = (compra) => {
+  const userStage = normalize(compra?.gestion_estado_usuario)
+  if (userStage) return userStage
+  return normalize(compra?.estado_pedido || compra?.estado)
+}
 
 const emptyForm = {
   id_proveedor: '',
@@ -39,6 +57,7 @@ const emptyForm = {
   total: '',
   importe_final: '',
   comentarios: '',
+  detalle: '',
   recibido_por: '',
   id_area_final: '',
 }
@@ -58,12 +77,12 @@ const requiredProviderFields = [
 
 const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct }) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2))
-  const monedaNorm = String(moneda || '').trim().toUpperCase()
-  const isUsd = monedaNorm.includes('USD') || monedaNorm.includes('DOLAR')
-  const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL')
-  const totalSoles = isUsd ? Number((totalBase * 3.4).toFixed(2)) : totalBase
+  const monedaNorm = normalizeText(moneda)
+  const isUsd = /USD|DOLAR|DOLARES|US\$/.test(monedaNorm)
+  const isPen = /PEN|SOL|SOLES/.test(monedaNorm)
+  const totalSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase
   const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalSoles > 700)
-  const providerAllowsRetention = retencionFlag && Number.isFinite(retencionPct) && retencionPct > 0
+  const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
     ? Number((totalBase * (retencionPct / 100)).toFixed(2))
@@ -93,7 +112,12 @@ export default function MisOrdenesCompraView({
   onMarcarEntregado,
   onAgregarComentario,
 }) {
-  const [activeFilter, setActiveFilter] = useState('POR_RECIBIR')
+  const defaultFilter = hasPermission(currentUserPermissions, 'GESTIONAR_ENTREGAS')
+    ? 'PENDIENTE_ENTREGA'
+    : hasPermission(currentUserPermissions, 'GESTIONAR_SOLICITUDES')
+      ? 'APROBADAS'
+      : 'POR_RECIBIR'
+  const [activeFilter, setActiveFilter] = useState(defaultFilter)
   const [error, setError] = useState('')
   const [loadingByCompra, setLoadingByCompra] = useState({})
   const [formsByCompra, setFormsByCompra] = useState({})
@@ -115,38 +139,13 @@ export default function MisOrdenesCompraView({
   const currentUserId = useMemo(() => Number(localStorage.getItem('userId') || 0), [])
   const canRateProviders = hasPermission(currentUserPermissions, 'CALIFICAR_COMPRA')
     || hasPermission(currentUserPermissions, 'CALIFICAR_REQUERIMIENTO')
-  const canSeeCriticalAlert = Number(currentUserRoleId || 0) === 9
+  const canSeeCriticalAlert = hasPermission(currentUserPermissions, 'GESTIONAR_COMPRAS')
+
+  useEffect(() => {
+    setActiveFilter(defaultFilter)
+  }, [defaultFilter])
 
   const normalize = (value) => String(value || '').trim().toUpperCase()
-  const sortCommentsByDateAsc = (comments = []) => {
-    return [...(comments || [])].sort((a, b) => {
-      const left = new Date(a?.fecha || 0).getTime()
-      const right = new Date(b?.fecha || 0).getTime()
-      return left - right
-    })
-  }
-
-  const getVisibleComments = (compra) => {
-    const rows = Array.isArray(compra?.comentarios_historial) ? compra.comentarios_historial : []
-    const filtered = rows.filter((item) => {
-      const entityId = Number(item?.id_entidad || 0)
-      return !entityId || entityId === Number(compra?.id || 0)
-    })
-
-    const seen = new Set()
-    const deduped = filtered.filter((item) => {
-      const idKey = Number(item?.id || 0)
-      const fingerprint = idKey > 0
-        ? `id:${idKey}`
-        : `fp:${Number(item?.usuario_id || 0)}|${String(item?.fecha || '')}|${String(item?.contenido || '').trim()}`
-      if (seen.has(fingerprint)) return false
-      seen.add(fingerprint)
-      return true
-    })
-
-    return sortCommentsByDateAsc(deduped)
-  }
-
   const getReceptorPhotoSrc = (receptor) => {
     const raw = String(receptor?.foto || receptor?.imagen || '').trim()
     if (!raw) return ''
@@ -155,39 +154,42 @@ export default function MisOrdenesCompraView({
     return `data:image/png;base64,${raw}`
   }
 
-  const getCommentPhotoSrc = (comment) => {
-    const raw = String(comment?.foto || '').trim()
-    if (!raw) return ''
-    if (raw.startsWith('data:image/')) return raw
-    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
-    return `data:image/png;base64,${raw}`
-  }
-
-  const isOwnComment = (comment) => {
-    const authorId = Number(comment?.usuario_id || 0)
-    return authorId > 0 && authorId === currentUserId
-  }
-
   const filtered = useMemo(() => {
-    return (compras || []).filter((compra) => {
-      const estado = normalize(compra.estado)
-      if (activeFilter === 'APROBADAS') return estado === 'APROBADA' || estado === 'APROBADO'
-      if (activeFilter === 'POR_RECIBIR') return estado === 'POR_RECIBIR'
-      if (activeFilter === 'RECIBIDO_EN_ALMACEN') return estado === 'RECIBIDO_EN_ALMACEN'
-      if (activeFilter === 'ENTREGADO') return estado === 'ENTREGADO'
-      return true
-    })
-  }, [activeFilter, compras])
+  return (compras || []).filter((compra) => {
+    const estado = normalize(compra.estado_pedido || compra.estado)
+
+    if (activeFilter === 'APROBADAS') {
+      return ['APROBADA', 'APROBADO'].includes(estado)
+    }
+
+    if (activeFilter === 'POR_RECIBIR') {
+      return estado === 'POR_RECIBIR'
+    }
+
+    if (activeFilter === 'PENDIENTE_ENTREGA') {
+      return estado === 'PENDIENTE_ENTREGA'
+    }
+
+    // Removed 'RECIBIDO_EN_ALMACEN' because it duplicated 'PENDIENTE_ENTREGA'
+
+    if (activeFilter === 'ENTREGADO') {
+      return estado === 'ENTREGADO'
+    }
+
+    return true
+  })
+}, [activeFilter, compras])
 
   const getStatusLabel = (compra) => {
     if (String(compra?.estado_aprobacion_detalle || '').trim()) {
       return compra.estado_aprobacion_detalle
     }
 
-    const estado = compra?.estado
+    const estado = compra?.estado_pedido || compra?.estado
     const normalized = normalize(estado)
     if (normalized === 'POR_RECIBIR') return 'POR RECIBIR'
     if (normalized === 'RECIBIDO_EN_ALMACEN') return 'RECIBIDO EN ALMACEN'
+    if (normalized === 'PENDIENTE_ENTREGA') return 'PENDIENTE ENTREGA'
     if (normalized === 'RECIBIDA' || normalized === 'RECIBIDO') return 'RECIBIDA'
     if (normalized === 'ENTREGADO') return 'ENTREGADO'
     if (normalized === 'APROBADA' || normalized === 'APROBADO') return 'APROBADA'
@@ -195,10 +197,7 @@ export default function MisOrdenesCompraView({
   }
 
   const getFormValue = (compra) => {
-    const previous = formsByCompra[compra.id]
-    if (previous) return previous
-
-    return {
+    const baseForm = {
       ...emptyForm,
       id_proveedor: compra.id_proveedor || '',
       proveedor: compra.proveedor || compra.razon_social_proveedor || '',
@@ -231,12 +230,25 @@ export default function MisOrdenesCompraView({
       total: compra.total ?? '',
       importe_final: compra.importe_final ?? compra.total ?? '',
       comentarios: compra.comentarios || '',
+      detalle: compra.detalle || '',
       recibido_por: compra.recibido_por || '',
       id_area_final: compra.id_area_final || compra.id_area_solicitante || '',
       calificacion_promedio: Number(compra.calificacion_promedio || 0) || 0,
       calificacion_total: Number(compra.calificacion_total || 0) || 0,
       alerta_cambio_proveedor: Boolean(compra.alerta_cambio_proveedor),
       alerta_critica: Boolean(compra.alerta_critica),
+    }
+
+    const previous = formsByCompra[compra.id]
+    if (!previous) return baseForm
+
+    return {
+      ...baseForm,
+      ...previous,
+      moneda: previous.moneda || baseForm.moneda,
+      retencion: previous.retencion || baseForm.retencion,
+      descuento: previous.descuento || baseForm.descuento,
+      aplica_retencion: typeof previous.aplica_retencion === 'boolean' ? previous.aplica_retencion : baseForm.aplica_retencion,
     }
   }
 
@@ -463,7 +475,7 @@ export default function MisOrdenesCompraView({
 
   const canMarcarEntregado = (compra) => {
     const estado = normalize(compra.estado)
-    if (estado !== 'RECIBIDO_EN_ALMACEN') return false
+    if (estado !== 'RECIBIDO_EN_ALMACEN' && estado !== 'PENDIENTE_ENTREGA') return false
 
     const idAreaFinal = Number(compra.id_area_final || 0)
     const idAreaSolicitante = Number(compra.id_area_solicitante || 0)
@@ -647,9 +659,9 @@ export default function MisOrdenesCompraView({
           <p><strong>Moneda:</strong> {form.moneda || 'N/D'}</p>
           <p><strong>Estado proveedor:</strong> {ratingState.averageLabel}</p>
           <p className="my-po-provider-state-row"><span className={`my-po-provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span></p>
-          <p><strong>Retencion:</strong> {normalize(form.retencion) === 'SI' ? 'SI' : 'NO'}</p>
+          <p><strong>Retencion:</strong> {isRetentionEnabled(form.retencion) ? 'SI' : 'NO'}</p>
           <p><strong>Porcentaje:</strong> {Number(form.descuento || 0).toFixed(2)}%</p>
-          <p><strong>Tipo:</strong> {normalize(form.retencion) === 'SI' ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
+          <p><strong>Tipo:</strong> {isRetentionEnabled(form.retencion) ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
           {ratingState.showLowAlert && <p className="my-po-alert-warning"><strong>Alerta:</strong> Se recomienda evaluar cambio de proveedor</p>}
           {canSeeCriticalAlert && ratingState.showCriticalAlert && <p className="my-po-alert-critical"><strong>Alerta critica:</strong> Proveedor con calificacion critica, se recomienda contactar</p>}
         </div>
@@ -662,7 +674,7 @@ export default function MisOrdenesCompraView({
     const igv = Number(form.igv || 0)
     const costoEnvio = Number(form.costo_envio || 0)
     const otrosCostos = Number(form.otros_costos || 0)
-    const retencionFlag = normalize(form.retencion) === 'SI'
+    const retencionFlag = isRetentionEnabled(form.retencion)
     const retencionPct = Number(form.descuento || 0)
     const retentionData = computeRetentionData({
       subtotal,
@@ -674,6 +686,23 @@ export default function MisOrdenesCompraView({
       retencionPct,
     })
 
+    // Debug logs
+    console.log('[RETENTION DEBUG]', {
+      'form.retencion (VARCHAR SI/NO)': form.retencion,
+      'form.descuento (%)': form.descuento,
+      'form.moneda': form.moneda,
+      'form.subtotal': subtotal,
+      'form.igv': igv,
+      'form.costo_envio': costoEnvio,
+      'form.otros_costos': otrosCostos,
+      'retencionFlag (is SI?)': retencionFlag,
+      'retencionPct': retencionPct,
+      'totalBase': retentionData.totalBase,
+      'isUsd': /USD|US\$|\$|DOL|DÓLAR|DOLAR/.test(String(form.moneda || '').toUpperCase()),
+      'isPen': /PEN|SOL/.test(String(form.moneda || '').toUpperCase()),
+      'aplicaRetencion (RESULT)': retentionData.aplicaRetencion,
+    })
+
     return (
       <div className="provider-summary full-row">
         <h4>Resumen de costos</h4>
@@ -682,7 +711,7 @@ export default function MisOrdenesCompraView({
         <p><strong>Costo envío:</strong> {Number(costoEnvio).toFixed(2)}</p>
         <p><strong>Otros costos:</strong> {Number(otrosCostos).toFixed(2)}</p>
         <p><strong>Total base:</strong> {Number(retentionData.totalBase).toFixed(2)}</p>
-        <p><strong>Retención aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
+        <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
         {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
         {retentionData.aplicaRetencion && <p><strong>Monto retenido:</strong> {retentionData.montoRetencion.toFixed(2)}</p>}
         <p><strong>TOTAL FINAL:</strong> {retentionData.totalFinal.toFixed(2)}</p>
@@ -693,7 +722,7 @@ export default function MisOrdenesCompraView({
   return (
     <section className="my-po-section">
       <div className="section-header">
-        <h1>Mis Ordenes de Compra</h1>
+        <h1>Mis ordenes de compra</h1>
         <p>Total: {filtered.length}</p>
       </div>
 
@@ -704,8 +733,8 @@ export default function MisOrdenesCompraView({
         <button type="button" className={activeFilter === 'POR_RECIBIR' ? 'active' : ''} onClick={() => setActiveFilter('POR_RECIBIR')}>
           Por recibir
         </button>
-        <button type="button" className={activeFilter === 'RECIBIDO_EN_ALMACEN' ? 'active' : ''} onClick={() => setActiveFilter('RECIBIDO_EN_ALMACEN')}>
-          Recibido en almacén
+        <button type="button" className={activeFilter === 'PENDIENTE_ENTREGA' ? 'active' : ''} onClick={() => setActiveFilter('PENDIENTE_ENTREGA')}>
+          Pendiente entrega
         </button>
         <button type="button" className={activeFilter === 'ENTREGADO' ? 'active' : ''} onClick={() => setActiveFilter('ENTREGADO')}>
           Entregado
@@ -721,7 +750,10 @@ export default function MisOrdenesCompraView({
         <div className="my-po-list">
           {filtered.map((compra) => {
             const form = getFormValue(compra)
-            const isEditable = ['APROBADA', 'APROBADO'].includes(normalize(compra.estado))
+            const estadoNorm = normalize(compra.estado).toUpperCase()
+            const isPorRecibir = estadoNorm === 'POR_RECIBIR' || estadoNorm === 'POR RECIBIR' || compra.estado === 'POR_RECIBIR'
+            const stageStatus = getStageStatus(compra)
+            const isEditable = !isPorRecibir && ['APROBADA', 'APROBADO'].includes(stageStatus)
             const isExpanded = Boolean(expandedByCompra[compra.id])
             const supplierOptions = supplierOptionsByCompra[compra.id] || []
             const materials = Array.isArray(compra.items) ? compra.items : []
@@ -746,16 +778,6 @@ export default function MisOrdenesCompraView({
                 )}
 
                 <div className="my-po-card-actions">
-                  {canMarcarRecibidoAlmacen(compra) && (
-                    <button
-                      type="button"
-                      className="btn-receive"
-                      onClick={() => handleMarcarRecibidoAlmacen(compra)}
-                      disabled={loadingByCompra[compra.id]}
-                    >
-                      Marcar como recibido
-                    </button>
-                  )}
                   {canMarcarEntregado(compra) && (
                     !isEntregaFlowOpen ? (
                       <button
@@ -827,9 +849,7 @@ export default function MisOrdenesCompraView({
                           <div className="receptor-selected-photo receptor-selected-photo-placeholder">?</div>
                         )}
                         <div className="receptor-selected-meta">
-                          <strong>
-                            {`${selectedReceptor?.nombre || 'Sin nombre'} - DNI ${selectedReceptor?.dni || 'N/D'}`}
-                          </strong>
+                          <strong>{selectedReceptor?.nombre || 'Sin nombre'}</strong>
                         </div>
                       </div>
                     )}
@@ -843,7 +863,7 @@ export default function MisOrdenesCompraView({
                       <ul>
                         {materials.map((item) => (
                           <li key={`${compra.id}-${item.id_detalle || item.id || item.descripcion || item.material}`}>
-                            {item.material || item.descripcion || 'Material'} - {item.cantidad}
+                            {item.material_solicitado || item.material || item.descripcion || 'Material'} - {item.cantidad}
                           </li>
                         ))}
                       </ul>
@@ -890,6 +910,15 @@ export default function MisOrdenesCompraView({
                           Otros costos
                           <input type="number" step="0.01" value={form.otros_costos} onChange={(e) => updateForm(compra.id, { otros_costos: e.target.value })} />
                         </label>
+                        <label className="full-row">
+                          Detalles (opcional)
+                          <textarea
+                            value={form.detalle}
+                            onChange={(e) => updateForm(compra.id, { detalle: e.target.value })}
+                            placeholder="Agregar observaciones o detalles sobre la orden"
+                            rows={3}
+                          />
+                        </label>
                         <label>
                           Total
                           <input type="number" step="0.01" value={form.total} readOnly />
@@ -908,15 +937,15 @@ export default function MisOrdenesCompraView({
                         {renderCostSummary(form)}
                         {renderReadOnlyField('Recibido por', form.recibido_por || compra.recibido_por || 'N/D')}
                         <div className="full-row">
-                          <strong>Comentarios:</strong>
-                          <p className="my-po-comments">{form.comentarios || 'Sin comentarios'}</p>
+                          <strong>Detalles:</strong>
+                          <p className="my-po-comments">{form.detalle || 'Sin detalles'}</p>
                         </div>
                       </>
                     )}
                   </div>
                 )}
 
-                {isExpanded && isEditable && (
+                {isExpanded && isEditable && normalize(compra.estado) !== 'POR_RECIBIR' && (
                   <div className="my-po-actions">
                     <button type="button" onClick={() => saveDatos(compra)} disabled={loadingByCompra[compra.id]}>
                       Guardar datos
@@ -927,7 +956,7 @@ export default function MisOrdenesCompraView({
                   </div>
                 )}
 
-                {['POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'RECIBIDO_EN_ALMACEN', 'ENTREGADO'].includes(normalize(compra.estado)) && (
+                {['POR_RECIBIR', 'PENDIENTE_ENTREGA', 'RECIBIDA', 'RECIBIDO', 'RECIBIDO_EN_ALMACEN', 'ENTREGADO'].includes(normalize(compra.estado)) && (
                   <div className="my-po-actions">
                     <button type="button" className="btn-download" onClick={() => downloadPdf(compra)} disabled={loadingByCompra[compra.id]}>
                       Descargar PDF
@@ -935,57 +964,6 @@ export default function MisOrdenesCompraView({
                   </div>
                 )}
 
-                <div className="my-po-comment-box">
-                  <strong>Comentarios</strong>
-                  {getVisibleComments(compra).length === 0 ? (
-                    <p className="my-po-comments">Sin comentarios registrados.</p>
-                  ) : (
-                    <ul className="my-po-comment-list">
-                      {getVisibleComments(compra).map((item, idx) => (
-                        <li key={`${compra.id}-comment-${idx}`} className={`my-po-chat-item ${isOwnComment(item) ? 'is-own' : 'is-other'}`}>
-                          <div className="my-po-chat-meta">
-                            <div className="my-po-chat-user">
-                              {getCommentPhotoSrc(item) ? (
-                                <img className="my-po-chat-avatar" src={getCommentPhotoSrc(item)} alt={item.usuario || 'Usuario'} />
-                              ) : (
-                                <span className="my-po-chat-avatar my-po-chat-avatar-placeholder">{String(item.usuario || 'U').trim().charAt(0).toUpperCase() || 'U'}</span>
-                              )}
-                              <strong>{item.usuario || 'Usuario'}</strong>
-                            </div>
-                            <span>{item.fecha ? new Date(item.fecha).toLocaleString() : 'Sin fecha'}</span>
-                          </div>
-                          <p className="my-po-chat-message">{item.contenido}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  <div className="my-po-comment-form">
-                    <textarea
-                      value={commentDraftByCompra[compra.id] || ''}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        setCommentDraftByCompra((prev) => ({ ...prev, [compra.id]: value }))
-                        if (String(value || '').trim()) {
-                          setCommentStatusByCompra((prev) => ({ ...prev, [compra.id]: null }))
-                        }
-                      }}
-                      placeholder="Escribe un comentario"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleAgregarComentario(compra)}
-                      disabled={loadingByCompra[compra.id] || !String(commentDraftByCompra[compra.id] || '').trim()}
-                    >
-                      Enviar
-                    </button>
-                    {commentStatusByCompra[compra.id]?.message ? (
-                      <p className={`my-po-comment-feedback ${commentStatusByCompra[compra.id]?.type || 'info'}`}>
-                        {commentStatusByCompra[compra.id].message}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
               </article>
             )
           })}

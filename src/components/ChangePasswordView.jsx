@@ -5,16 +5,30 @@ import '../styles/ChangePasswordView.css'
 
 export default function ChangePasswordView() {
   const navigate = useNavigate()
+  const [passwordActual, setPasswordActual] = useState('')
   const [passwordNueva, setPasswordNueva] = useState('')
   const [passwordConfirmacion, setPasswordConfirmacion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  const isStrongPassword = (value) => {
+    const text = String(value || '')
+    const hasLength = text.length > 8
+    const hasUppercase = /[A-Z]/.test(text)
+    const hasSpecial = /[^A-Za-z0-9]/.test(text)
+    return hasLength && hasUppercase && hasSpecial
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
     setSuccess('')
+
+    if (!String(passwordActual).trim()) {
+      setError('Contraseña actual es requerida')
+      return
+    }
 
     if (!String(passwordNueva).trim()) {
       setError('Nueva contraseña es requerida')
@@ -26,8 +40,8 @@ export default function ChangePasswordView() {
       return
     }
 
-    if (String(passwordNueva).trim().length < 8) {
-      setError('La contraseña debe tener al menos 8 caracteres')
+    if (!isStrongPassword(String(passwordNueva))) {
+      setError('La nueva contraseña debe tener mas de 8 caracteres, una mayuscula y un caracter especial')
       return
     }
 
@@ -39,6 +53,7 @@ export default function ChangePasswordView() {
     try {
       setLoading(true)
       await changePassword({
+        password_actual: passwordActual.trim(),
         password_nueva: passwordNueva.trim(),
         password_confirmacion: passwordConfirmacion.trim(),
       })
@@ -69,14 +84,25 @@ export default function ChangePasswordView() {
 
         <form onSubmit={handleSubmit} className="change-password-form">
           <label>
+            Contraseña Actual
+            <input
+              type="password"
+              value={passwordActual}
+              onChange={(e) => setPasswordActual(e.target.value)}
+              placeholder="Ingresa tu contraseña actual"
+              disabled={loading}
+              autoFocus
+            />
+          </label>
+
+          <label>
             Nueva Contraseña
             <input
               type="password"
               value={passwordNueva}
               onChange={(e) => setPasswordNueva(e.target.value)}
-              placeholder="Mínimo 8 caracteres"
+              placeholder="Mas de 8, una mayuscula y un caracter especial"
               disabled={loading}
-              autoFocus
             />
           </label>
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchProveedorNotifications } from '../services/api'
+import { fetchProveedorNotifications, clearProveedorNotifications } from '../services/api'
 import '../styles/NotificationsView.css'
 
 const buildReadKey = (userId) => `provider-notifications-read-${userId || 'guest'}`
+const buildCleanupKey = (userId) => `provider-notifications-cleanup-${userId || 'guest'}`
 
 const loadReadIds = (userId) => {
   try {
@@ -14,12 +15,30 @@ const loadReadIds = (userId) => {
   }
 }
 
+const loadCleanupTimestamp = (userId) => {
+  try {
+    const stored = localStorage.getItem(buildCleanupKey(userId))
+    return stored ? Number(stored) : 0
+  } catch {
+    return 0
+  }
+}
+
+const saveCleanupTimestamp = (userId, timestamp) => {
+  try {
+    localStorage.setItem(buildCleanupKey(userId), String(timestamp))
+  } catch {
+    // ignore
+  }
+}
+
 export default function NotificationsView({ currentUser, onAuthExpired }) {
   const userId = Number(currentUser?.id || 0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notifications, setNotifications] = useState([])
   const [readIds, setReadIds] = useState(() => loadReadIds(userId))
+  const [cleanupTimestamp, setCleanupTimestamp] = useState(() => loadCleanupTimestamp(userId))
   const [activeView, setActiveView] = useState('unread')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -51,11 +70,17 @@ export default function NotificationsView({ currentUser, onAuthExpired }) {
   }, [onAuthExpired])
 
   const notificationsWithState = useMemo(() => {
-    return notifications.map((item) => ({
-      ...item,
-      isRead: readIds.includes(item.id),
-    }))
-  }, [notifications, readIds])
+    return notifications
+      .filter((item) => {
+        if (cleanupTimestamp <= 0) return true
+        const itemTimestamp = item.fecha_creacion_timestamp || 0
+        return itemTimestamp > cleanupTimestamp
+      })
+      .map((item) => ({
+        ...item,
+        isRead: readIds.includes(item.id),
+      }))
+  }, [notifications, readIds, cleanupTimestamp])
 
   const unreadCount = useMemo(
     () => notificationsWithState.filter((item) => !item.isRead).length,
@@ -94,8 +119,9 @@ export default function NotificationsView({ currentUser, onAuthExpired }) {
 
     notificationsWithState.forEach((item) => {
       const id = String(item.proveedor_id || 0)
-      if (!id || id === '0' || uniqueProviders.has(id)) return
-      uniqueProviders.set(id, String(item.proveedor_nombre || 'Sin proveedor').trim() || 'Sin proveedor')
+      const name = String(item.proveedor_nombre || '').trim()
+      if (!id || id === '0' || name.toLowerCase() === 'sin proveedor' || uniqueProviders.has(id)) return
+      uniqueProviders.set(id, name)
     })
 
     return [...uniqueProviders.entries()]
@@ -117,6 +143,18 @@ export default function NotificationsView({ currentUser, onAuthExpired }) {
     persistReadIds(notifications.map((item) => item.id))
   }
 
+  const clearNotifications = async () => {
+    try {
+      const result = await clearProveedorNotifications()
+      const timestamp = Number(result?.cleanupTimestamp || Date.now())
+      saveCleanupTimestamp(userId, timestamp)
+      setCleanupTimestamp(timestamp)
+      persistReadIds([])
+    } catch (err) {
+      setError(err?.message || 'Error al limpiar notificaciones')
+    }
+  }
+
   const clearDateFilters = () => {
     setDateFrom('')
     setDateTo('')
@@ -131,13 +169,19 @@ export default function NotificationsView({ currentUser, onAuthExpired }) {
       <div className="notifications-header">
         <div>
           <h2>Notificaciones</h2>
-          <p>Alertas de proveedores con calificación baja para revisión del área de compras.</p>
         </div>
         <div className="notifications-actions">
-          <span className="notifications-badge">{unreadCount} sin leer</span>
+            <span className="notifications-badge">{unreadCount} sin leer</span>
+          
+          <div className='notifications-buttons'>
           <button type="button" onClick={markAllAsRead} disabled={notifications.length === 0}>
             Marcar todas como leídas
           </button>
+          <button type="button" className="clear-notifications" onClick={clearNotifications} disabled={notifications.length === 0}>
+            Limpiar notificaciones
+          </button>
+          </div>
+
         </div>
       </div>
 
@@ -234,8 +278,13 @@ export default function NotificationsView({ currentUser, onAuthExpired }) {
 
               <div className="notification-detail">
                 <div className="notification-origin">
-                  <strong>Origen:</strong> {notification.origen_tipo || 'Producto'} {notification.origen_nombre ? `- ${notification.origen_nombre}` : ''}
+                  <strong>Origen:</strong> {notification.origen_tipo || 'Producto'}{notification.origen_nombre ? ` - ${notification.origen_nombre}` : ''}
                 </div>
+                {notification.origen_detalle ? (
+                  <div className="notification-origin-detail">
+                    <strong>Detalle:</strong> {notification.origen_detalle}
+                  </div>
+                ) : null}
                 <div className="notification-rating-line">
                   <strong>Promedio:</strong> {Number(notification.promedio_puntuacion || 0).toFixed(2)}
                 </div>

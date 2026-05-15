@@ -23,12 +23,15 @@ function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [],
   return children
 }
 
-function NoAutorizadoView() {
+function NoAutorizadoView({ onLogout }) {
   return (
     <main className="login-page">
       <section className="login-card">
         <h1>No autorizado</h1>
         <p>No tienes permisos para acceder a este modulo.</p>
+        <button type="button" className="login-btn" onClick={onLogout}>
+          Cerrar sesion
+        </button>
       </section>
     </main>
   )
@@ -151,9 +154,17 @@ function App() {
           <Route path="/ajustes" element={renderDashboard('settings', 11)} />
           <Route path="/notificaciones" element={renderDashboard('notifications', 14)} />
           <Route path="/roles-permisos" element={renderDashboard('roles-permissions', 15)} />
+          <Route path="/gestionar-cuentas" element={renderDashboard('manage-accounts', 17)} />
           <Route path="/calificar-productos" element={renderDashboard('rate-products', 16)} />
 
-          <Route path="/no-autorizado" element={<NoAutorizadoView />} />
+          <Route
+            path="/no-autorizado"
+            element={
+              isAuthenticated
+                ? <NoAutorizadoView onLogout={handleLogout} />
+                : <Navigate to="/login" replace />
+            }
+          />
           <Route path="*" element={<Navigate to={isAuthenticated ? defaultPath : '/login'} replace />} />
         </Routes>
       </div>

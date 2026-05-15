@@ -53,7 +53,19 @@ export const fetchMateriales = async () => {
   const response = await fetch(API_ENDPOINTS.MATERIALES, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener materiales');
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener materiales';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 };
 
@@ -194,6 +206,28 @@ export const fetchProveedorNotifications = async () => {
   if (!response.ok) {
     handleAuthError(response.status);
     let msg = 'Error al obtener notificaciones';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const clearProveedorNotifications = async () => {
+  const response = await fetch(`${API_BASE_URL}/notificaciones/proveedores/limpiar`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al limpiar notificaciones';
     try {
       const data = await response.json();
       if (data?.error) msg = data.error;
@@ -381,6 +415,34 @@ export const fetchAreas = async (query = '') => {
   return response.json();
 };
 
+export const createArea = async (payload) => {
+  console.log('createArea - Enviando payload:', payload);
+
+  const response = await fetch(`${API_BASE_URL}/areas`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+
+  console.log('createArea - Respuesta status:', response.status);
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al crear área';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore parse error
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.json();
+};
+
 export const fetchProveedores = async (query = '') => {
   const params = new URLSearchParams();
   const term = String(query || '').trim();
@@ -559,6 +621,27 @@ export const actualizarCalificacionProveedor = async (idProveedor, idCalificacio
   return response.json();
 };
 
+export const marcarServicioRealizado = async (idServicio) => {
+  const response = await fetch(`${API_BASE_URL}/servicios/${idServicio}/estado`, {
+    method: 'PUT',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ estado_flujo: 'REALIZADO' }),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al marcar servicio como realizado';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const fetchUnidades = async () => {
   const response = await fetch(`${API_BASE_URL}/unidades`, {
     headers: buildHeaders(),
@@ -685,6 +768,69 @@ export const createRol = async ({ nombre }) => {
   return response.json();
 };
 
+export const deleteRol = async (idRol) => {
+  const response = await fetch(`${API_BASE_URL}/roles/${idRol}`, {
+    method: 'DELETE',
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al eliminar rol';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const fetchApprovalConfig = async () => {
+  const response = await fetch(`${API_BASE_URL}/aprobaciones/config`, {
+    headers: buildHeaders(),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener configuracion de aprobaciones';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
+export const updateApprovalFlowConfig = async (flujo, roleIds = []) => {
+  const response = await fetch(`${API_BASE_URL}/aprobaciones/config/${encodeURIComponent(String(flujo || '').trim().toUpperCase())}`, {
+    method: 'PUT',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ roleIds }),
+  });
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al actualizar flujo de aprobaciones';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const createUsuario = async (payload) => {
   const response = await fetch(`${API_BASE_URL}/usuarios`, {
     method: 'POST',
@@ -728,10 +874,11 @@ export const updateUsuario = async (id, payload) => {
 };
 
 export const updateUsuarioPassword = async (id, payload) => {
+  const password = typeof payload === 'string' ? payload : String(payload?.password || '')
   const response = await fetch(`${API_BASE_URL}/usuarios/${id}/password`, {
     method: 'PUT',
     headers: buildHeaders({ includeJson: true }),
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ password }),
   });
 
   if (!response.ok) {
@@ -850,11 +997,16 @@ export const fetchAprobacionesPendientes = async () => {
   return response.json();
 };
 
-export const updateServicioAprobacion = async (id, estado_aprobacion) => {
+export const updateServicioAprobacion = async (id, estado_aprobacion, options = {}) => {
+  const payload = { estado_aprobacion };
+  if (Object.prototype.hasOwnProperty.call(options || {}, 'dentro_plan')) {
+    payload.dentro_plan = options.dentro_plan;
+  }
+
   const response = await fetch(`${API_BASE_URL}/servicios/${id}/aprobar`, {
     method: 'PUT',
     headers: buildHeaders({ includeJson: true }),
-    body: JSON.stringify({ estado_aprobacion }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -892,11 +1044,11 @@ export const agregarComentarioServicio = async (id, contenido) => {
   return response.json();
 };
 
-export const updateServicioEstado = async (id, estado_servicio) => {
+export const updateServicioEstado = async (id, estado_flujo) => {
   const response = await fetch(`${API_BASE_URL}/servicios/${id}/estado`, {
     method: 'PUT',
     headers: buildHeaders({ includeJson: true }),
-    body: JSON.stringify({ estado_servicio }),
+    body: JSON.stringify({ estado_flujo }),
   });
 
   if (!response.ok) {
@@ -957,10 +1109,31 @@ export const generarOrdenServicio = async (id) => {
 
 export const descargarOrdenServicioPdf = async (id) => {
   const response = await fetch(`${API_BASE_URL}/servicios/${id}/pdf`, {
-    headers: buildHeaders(),
+    headers: buildHeaders({ extra: { Accept: 'application/pdf' } }),
   });
-  if (!response.ok) throw new Error('Error al descargar PDF de servicio');
-  return response.json();
+  if (!response.ok) {
+    let msg = 'Error al descargar PDF de servicio';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json();
+    throw new Error(data?.error || 'Respuesta inesperada al descargar PDF de servicio');
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const fileNameMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+  const fileName = fileNameMatch ? fileNameMatch[1].replace(/['"]/g, '') : `OS-${id}.pdf`;
+
+  return { blob, archivo: { nombre: fileName } };
 };
 
 export const updateCompraEstado = async (id, estado) => {
@@ -1049,10 +1222,31 @@ export const generarOrdenCompra = async (id) => {
 
 export const descargarOrdenCompraPdf = async (id) => {
   const response = await fetch(`${API_BASE_URL}/compras/${id}/pdf`, {
-    headers: buildHeaders(),
+    headers: buildHeaders({ extra: { Accept: 'application/pdf' } }),
   });
-  if (!response.ok) throw new Error('Error al descargar PDF');
-  return response.json();
+  if (!response.ok) {
+    let msg = 'Error al descargar PDF';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json();
+    throw new Error(data?.error || 'Respuesta inesperada al descargar PDF');
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const fileNameMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+  const fileName = fileNameMatch ? fileNameMatch[1].replace(/['"]/g, '') : `OC-${id}.pdf`;
+
+  return { blob, archivo: { nombre: fileName } };
 };
 
 export const confirmarRecepcionCompra = async (id, payload) => {
@@ -1118,13 +1312,37 @@ export const marcarRecibidoEnAlmacen = async (id) => {
   return response.json();
 };
 
-export const uploadMaterialImage = async (formData) => {
+export const uploadMaterialImage = async (fileOrFormData) => {
+  const formData = fileOrFormData instanceof FormData
+    ? fileOrFormData
+    : (() => {
+        const data = new FormData();
+        if (fileOrFormData) {
+          data.append('image', fileOrFormData, fileOrFormData.name || 'material-image');
+        }
+        return data;
+      })();
+
   const response = await fetch(`${API_BASE_URL}/upload/material`, {
     method: 'POST',
     headers: buildHeaders(),
     body: formData,
   });
-  if (!response.ok) throw new Error('Error al subir imagen');
+
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al subir imagen';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
+
   return response.json();
 };
 

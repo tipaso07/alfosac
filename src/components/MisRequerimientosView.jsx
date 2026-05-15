@@ -120,7 +120,7 @@ export default function MisRequerimientosView({ requerimientos = [], onAgregarCo
   return (
     <section className="my-req-section">
       <div className="section-header">
-        <h1>Mis Requerimientos</h1>
+        <h1>Mis requerimientos</h1>
         <p>Total: {filtered.length}</p>
       </div>
 

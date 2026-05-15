@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import '../styles/GestionarUsuariosView.css'
 import {
+  API_BASE_URL,
   fetchUsuarios,
   fetchRoles,
   fetchAreas,
@@ -8,15 +9,22 @@ import {
   updateUsuario,
   updateUsuarioPassword,
   deleteUsuario,
+  createArea,
 } from '../services/api'
 
 const initialForm = {
   nombre: '',
   email: '',
+  dni: '',
+  foto: '',
   id_role: '',
   id_area: '',
   password: '',
-  estado: 'ACTIVO',
+}
+
+const initialAreaForm = {
+  nombre: '',
+  descripcion: '',
 }
 
 const initialPasswordForm = {
@@ -26,6 +34,7 @@ const initialPasswordForm = {
 
 export default function GestionarUsuariosView() {
   const [form, setForm] = useState(initialForm)
+  const [areaForm, setAreaForm] = useState(initialAreaForm)
   const [passwordForm, setPasswordForm] = useState(initialPasswordForm)
   const [usuarios, setUsuarios] = useState([])
   const [roles, setRoles] = useState([])
@@ -35,11 +44,87 @@ export default function GestionarUsuariosView() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const [areaFieldErrors, setAreaFieldErrors] = useState({})
   const [showFormModal, setShowFormModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [showAreasModal, setShowAreasModal] = useState(false)
   const [editingUserId, setEditingUserId] = useState(null)
   const [changingPasswordUserId, setChangingPasswordUserId] = useState(null)
   const [query, setQuery] = useState('')
+  const [selectedFileName, setSelectedFileName] = useState('')
+  const fileInputRef = useRef(null)
+
+  const API_PUBLIC_BASE = API_BASE_URL.replace(/\/api\/?$/, '')
+  const isProbablyBase64 = (value) => /^[A-Za-z0-9+/=\s]+$/.test(value) && value.replace(/\s+/g, '').length > 80
+
+  const resolveUserPhoto = (usuario) => {
+    const foto = String(usuario?.foto || usuario?.imagen || '').trim()
+    if (/^https?:\/\//i.test(foto)) return foto
+    if (/^data:image\//i.test(foto)) return foto
+    if (/^\/uploads\//i.test(foto)) return `${API_PUBLIC_BASE}${foto}`
+    if (foto && isProbablyBase64(foto)) return `data:image/png;base64,${foto.replace(/\s+/g, '')}`
+    const encoded = encodeURIComponent(String(usuario?.nombre || 'Usuario').trim() || 'Usuario')
+    return `https://ui-avatars.com/api/?name=${encoded}&background=e5e7eb&color=111827`
+  }
+
+  const resolveFormPhoto = () => {
+    const foto = String(form.foto || '').trim()
+    if (!foto) return ''
+    if (/^https?:\/\//i.test(foto)) return foto
+    if (/^data:image\//i.test(foto)) return foto
+    if (/^\/uploads\//i.test(foto)) return `${API_PUBLIC_BASE}${foto}`
+    if (isProbablyBase64(foto)) return `data:image/png;base64,${foto.replace(/\s+/g, '')}`
+    return foto
+  }
+
+  const handleSelectPhoto = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click()
+    }
+  }
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0]
+    setError('')
+    setSuccess('')
+
+    if (!file) {
+      return
+    }
+
+    const mime = String(file.type || '').toLowerCase()
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg']
+
+    if (!allowed.includes(mime)) {
+      setError('Solo se permiten imagenes PNG, JPG o JPEG')
+      event.target.value = ''
+      return
+    }
+
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo de imagen'))
+        reader.readAsDataURL(file)
+      })
+
+      const parts = dataUrl.split(',')
+      const onlyBase64 = parts.length > 1 ? parts[1].trim() : ''
+
+      if (!isProbablyBase64(onlyBase64)) {
+        throw new Error('No se pudo convertir la imagen a base64 valida')
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        foto: onlyBase64,
+      }))
+      setSelectedFileName(file.name)
+    } catch (err) {
+      setError(err.message || 'No se pudo procesar la imagen')
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -108,7 +193,27 @@ export default function GestionarUsuariosView() {
     setFieldErrors({})
     setError('')
     setSuccess('')
+    setSelectedFileName('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
     setShowFormModal(true)
+  }
+
+  const openAreasModal = () => {
+    setAreaForm(initialAreaForm)
+    setAreaFieldErrors({})
+    setError('')
+    setSuccess('')
+    setShowAreasModal(true)
+  }
+
+  const closeAreasModal = () => {
+    if (saving) return
+    setShowAreasModal(false)
+    setAreaForm(initialAreaForm)
+    setAreaFieldErrors({})
+    setError('')
   }
 
   const openEditModal = (usuario) => {
@@ -116,14 +221,19 @@ export default function GestionarUsuariosView() {
     setForm({
       nombre: usuario.nombre || '',
       email: usuario.email || '',
+      dni: usuario.dni || '',
+      foto: usuario.foto || usuario.imagen || '',
       id_role: usuario.id_role || '',
       id_area: usuario.id_area || '',
       password: '',
-      estado: usuario.estado || 'ACTIVO',
     })
     setFieldErrors({})
     setError('')
     setSuccess('')
+    setSelectedFileName('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
     setShowFormModal(true)
   }
 
@@ -141,6 +251,10 @@ export default function GestionarUsuariosView() {
     setEditingUserId(null)
     setForm(initialForm)
     setFieldErrors({})
+    setSelectedFileName('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const closePasswordModal = () => {
@@ -167,8 +281,8 @@ export default function GestionarUsuariosView() {
       errors.id_role = 'Rol es obligatorio'
     }
 
-    if (!editingUserId && !String(currentForm.password || '').trim()) {
-      errors.password = 'Contraseña es obligatoria (para nuevo usuario)'
+    if (!String(currentForm.dni || '').trim()) {
+      errors.dni = 'DNI es obligatorio'
     }
 
     return errors
@@ -194,9 +308,10 @@ export default function GestionarUsuariosView() {
       const payload = {
         nombre: String(form.nombre).trim(),
         email: String(form.email).trim().toLowerCase(),
+        dni: String(form.dni || '').trim(),
+        foto: String(form.foto || '').trim(),
         id_role: Number(form.id_role),
         id_area: form.id_area ? Number(form.id_area) : null,
-        estado: String(form.estado || 'ACTIVO').toUpperCase(),
       }
 
       if (!editingUserId && form.password) {
@@ -290,12 +405,63 @@ export default function GestionarUsuariosView() {
     }
   }
 
+  const validateAreaForm = (formData = areaForm) => {
+    const errors = {}
+    const nombreTrimmed = String(formData.nombre || '').trim()
+    if (!nombreTrimmed) {
+      errors.nombre = 'Nombre es obligatorio'
+    }
+    return errors
+  }
+
+  const submitArea = async (event) => {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+    
+    // Leer directamente del estado actual
+    const nombre = areaForm.nombre ? String(areaForm.nombre).trim() : ''
+    const descripcion = areaForm.descripcion ? String(areaForm.descripcion).trim() : ''
+    
+    console.log('Intentando crear área:', { nombre, descripcion, areaForm })
+    
+    if (!nombre) {
+      setAreaFieldErrors({ nombre: 'Nombre es obligatorio' })
+      setError('Por favor ingresa un nombre para el área')
+      return
+    }
+
+    try {
+      setSaving(true)
+      await createArea({
+        nombre: nombre,
+        descripcion: descripcion || null,
+      })
+      setSuccess('Área creada correctamente')
+      setAreaForm(initialAreaForm)
+      setAreaFieldErrors({})
+      
+      // Recargar áreas
+      const areasData = await fetchAreas('')
+      setAreas(Array.isArray(areasData) ? areasData : [])
+      
+      setTimeout(() => {
+        setShowAreasModal(false)
+      }, 500)
+    } catch (err) {
+      setError(err.message || 'Error al crear área')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const rows = usuarios.filter((usuario) => {
     const q = String(query || '').toLowerCase().trim()
     if (!q) return true
     return (
       String(usuario.nombre || '').toLowerCase().includes(q)
       || String(usuario.email || '').toLowerCase().includes(q)
+      || String(usuario.dni || '').toLowerCase().includes(q)
     )
   })
 
@@ -303,16 +469,20 @@ export default function GestionarUsuariosView() {
     <section className="manage-users-section">
       <div className="section-header">
         <h1>Gestionar Usuarios</h1>
-        <p>Panel de administración de usuarios del sistema</p>
-        <button type="button" className="primary-btn" onClick={openCreateModal}>
-          + Agregar usuario
-        </button>
+        <div className="header-buttons">
+          <button type="button" className="primary-btn" onClick={openCreateModal}>
+            + Agregar usuario
+          </button>
+          <button type="button" className="primary-btn" onClick={openAreasModal}>
+            + Agregar área
+          </button>
+        </div>
       </div>
 
       <div className="users-toolbar">
         <input
           type="text"
-          placeholder="Buscar por nombre o email"
+          placeholder="Buscar por nombre, email o DNI"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -327,7 +497,9 @@ export default function GestionarUsuariosView() {
           <thead>
             <tr>
               <th>ID</th>
+              <th>Foto</th>
               <th>Nombre</th>
+              <th>DNI</th>
               <th>Email</th>
               <th>Rol</th>
               <th>Area</th>
@@ -338,13 +510,17 @@ export default function GestionarUsuariosView() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7}>No hay usuarios para mostrar.</td>
+                <td colSpan={9}>No hay usuarios para mostrar.</td>
               </tr>
             )}
             {rows.map((usuario) => (
               <tr key={usuario.id}>
                 <td>{usuario.id}</td>
+                <td>
+                  <img className="user-avatar" src={resolveUserPhoto(usuario)} alt={`Foto de ${usuario.nombre || 'usuario'}`} />
+                </td>
                 <td>{usuario.nombre}</td>
+                <td>{usuario.dni || 'N/D'}</td>
                 <td>{usuario.email}</td>
                 <td>{usuario.rol || 'N/D'}</td>
                 <td>{usuario.area || 'N/D'}</td>
@@ -418,6 +594,36 @@ export default function GestionarUsuariosView() {
               </label>
 
               <label>
+                DNI *
+                <input
+                  value={form.dni}
+                  onChange={(e) => update({ dni: e.target.value })}
+                  disabled={saving}
+                  placeholder="Ingresa el DNI"
+                />
+                {fieldErrors.dni && <small className="field-error">{fieldErrors.dni}</small>}
+              </label>
+
+              <label>
+                Foto
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                  onChange={handleFileChange}
+                  disabled={saving}
+                />
+              </label>
+
+              {resolveFormPhoto() && (
+                <div className="user-photo-preview">
+                  <span>Vista previa</span>
+                  <img src={resolveFormPhoto()} alt="Vista previa de foto" />
+                  <small>{selectedFileName || 'Foto actual configurada'}</small>
+                </div>
+              )}
+
+              <label>
                 Rol *
                 <select
                   value={form.id_role}
@@ -446,37 +652,12 @@ export default function GestionarUsuariosView() {
                 </select>
               </label>
 
-              {!editingUserId && (
-                <label>
-                  Contraseña *
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => update({ password: e.target.value })}
-                    disabled={saving}
-                  />
-                  {fieldErrors.password && <small className="field-error">{fieldErrors.password}</small>}
-                </label>
-              )}
-
-              <label>
-                Estado
-                <select
-                  value={form.estado}
-                  onChange={(e) => update({ estado: e.target.value })}
-                  disabled={saving}
-                >
-                  <option value="ACTIVO">ACTIVO</option>
-                  <option value="INACTIVO">INACTIVO</option>
-                  <option value="SUSPENDIDO">SUSPENDIDO</option>
-                </select>
-              </label>
 
               <div className="user-form-actions">
                 <button type="button" className="secondary-btn" onClick={closeFormModal} disabled={saving}>
                   Cancelar
                 </button>
-                <button type="submit" className="primary-btn" disabled={isSubmitDisabled}>
+                <button type="submit" className="secondary-btn" disabled={isSubmitDisabled}>
                   {saving
                     ? 'Guardando...'
                     : editingUserId
@@ -524,8 +705,71 @@ export default function GestionarUsuariosView() {
                 <button type="button" className="secondary-btn" onClick={closePasswordModal} disabled={saving}>
                   Cancelar
                 </button>
-                <button type="submit" className="primary-btn" disabled={saving}>
+                <button type="submit" className="secondary-btn" disabled={saving}>
                   {saving ? 'Actualizando...' : 'Actualizar contraseña'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAreasModal && (
+        <div className="user-modal-backdrop" onClick={closeAreasModal}>
+          <div className="user-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="user-modal-header">
+              <h2>Agregar área</h2>
+              <button type="button" onClick={closeAreasModal} disabled={saving}>×</button>
+            </div>
+
+            {error && <p className="user-error">{error}</p>}
+            {success && <p className="user-success">{success}</p>}
+
+            <form className="manage-users-form" onSubmit={submitArea}>
+              <label>
+                Nombre del área *
+                <input
+                  type="text"
+                  value={areaForm?.nombre || ''}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    console.log('Input cambió a:', newValue)
+                    setAreaForm(prev => {
+                      const updated = { ...prev, nombre: newValue }
+                      console.log('Nuevo areaForm:', updated)
+                      return updated
+                    })
+                    setAreaFieldErrors({})
+                    setError('')
+                  }}
+                  disabled={saving}
+                  placeholder="Ej: Almacén, Compras, etc."
+                />
+                {areaFieldErrors.nombre && <small className="field-error">{areaFieldErrors.nombre}</small>}
+              </label>
+
+              <label>
+                Descripción (opcional)
+                <textarea
+                  value={areaForm?.descripcion || ''}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    setAreaForm(prev => ({ ...prev, descripcion: newValue }))
+                    setAreaFieldErrors({})
+                    setError('')
+                  }}
+                  disabled={saving}
+                  placeholder="Descripción del área"
+                  rows={3}
+                />
+              </label>
+
+              <div className="user-form-actions">
+                <button type="button" className="secondary-btn" onClick={closeAreasModal} disabled={saving}>
+                  Cancelar
+                </button>
+                <button type="submit" className="primary-btn" disabled={saving}>
+                  {saving ? 'Guardando...' : 'Crear área'}
                 </button>
               </div>
             </form>

@@ -1,8 +1,10 @@
 /* Header Styles */
 .header {
-  background: #ffffff;
-  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(90deg, #ffffff 0%, #f3fbff 56%, #ebf7fd 100%);
+  border-bottom: 1px solid rgba(50, 154, 214, 0.35);
   padding: 16px 28px;
+  box-shadow: 0 8px 20px rgba(0, 0, 89, 0.06);
 }
 
 .header-content {
@@ -32,17 +34,18 @@
   align-items: center;
   gap: 10px;
   justify-content: center;
-  background: #f8fafc;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: var(--primary-dark);
+  border: 1px solid rgba(50, 154, 214, 0.38);
   border-radius: 999px;
   padding: 7px 12px;
   min-width: 190px;
+  box-shadow: 0 8px 18px rgba(50, 154, 214, 0.14);
 }
 
 .profile-chip span {
   font-weight: 700;
-  color: #334155;
+  color: var(--primary-dark);
 }
 
 .profile-avatar {
@@ -50,7 +53,7 @@
   height: 34px;
   border-radius: 999px;
   object-fit: cover;
-  border: 1px solid #d1d5db;
+  border: 1px solid rgba(50, 154, 214, 0.48);
   flex: 0 0 auto;
 }
 
@@ -58,24 +61,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #0f172a;
-  color: #fff;
+  background: var(--primary-dark);
+  color: #ffffff;
   font-size: 13px;
   font-weight: 700;
 }
 
 .logout-btn {
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(0, 0, 89, 0.28);
   border-radius: 999px;
-  background: white;
-  color: #334155;
+  background: var(--primary-dark);
+  color: #ffffff;
   font-weight: 700;
   padding: 8px 14px;
   cursor: pointer;
 }
 
 .logout-btn:hover {
-  border-color: #94a3b8;
+  border-color: var(--primary-color);
+  background: #03127d;
 }
 
 @media (max-width: 768px) {

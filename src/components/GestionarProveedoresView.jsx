@@ -64,8 +64,7 @@ const normalizeFormFromProvider = (provider = {}) => ({
   descripcion: String(provider.descripcion || '').trim(),
   retencion: (() => {
     const value = String(provider.retencion || 'NO').toUpperCase()
-    if (['TRUE', 'SI', '1'].includes(value)) return 'SI'
-    return 'NO'
+    return value === 'SI' ? 'SI' : 'NO'
   })(),
   categoria: String(provider.categoria || '').trim(),
   descuento: Number(provider.descuento || 0),
@@ -73,7 +72,7 @@ const normalizeFormFromProvider = (provider = {}) => ({
   tipo_retencion: String(provider.tipo_retencion || 'RETENCION').toUpperCase() || 'RETENCION',
 })
 
-export default function GestionarProveedoresView({ canEdit = false, currentUserRoleId = null, onCreated }) {
+export default function GestionarProveedoresView({ canEdit = false, onCreated }) {
   const [form, setForm] = useState(initialForm)
   const [providers, setProviders] = useState([])
   const [monedas, setMonedas] = useState([])
@@ -490,7 +489,6 @@ export default function GestionarProveedoresView({ canEdit = false, currentUserR
     <section className="manage-providers-section">
       <div className="section-header">
         <h1>Gestionar Proveedores</h1>
-        <p>Tabla tipo inventario con creacion y edicion completa</p>
         {canEdit && (
           <button type="button" className="primary-btn" onClick={openCreateModal}>
             + Agregar proveedor

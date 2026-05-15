@@ -19,8 +19,51 @@
   margin-bottom: 1.5rem;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.header-buttons button {
+  margin: 0;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  font-size: 0.95rem;
+  height: fit-content;
+}
+
+.header-buttons .primary-btn {
+  background-color: #247caf;
+  color: white;
+}
+
+.header-buttons .primary-btn:hover:not(:disabled) {
+  background-color: #1f6e9b;
+}
+
+.header-buttons .secondary-btn {
+  background-color: #1d6ea3;
+  color: white;
+  border: none;
+}
+
+.header-buttons .secondary-btn:hover:not(:disabled) {
+  background-color: #175399;
+}
+
+.header-buttons button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+  color: #6b7280;
+}
+
 .primary-btn {
-  background-color: #3b82f6;
+  background-color: #247caf;
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -31,7 +74,7 @@
 }
 
 .primary-btn:hover {
-  background-color: #2563eb;
+  background-color: #1f6e9b;
 }
 
 .primary-btn:disabled {
@@ -65,8 +108,8 @@
 }
 
 .user-hint {
-  background-color: #dbeafe;
-  color: #1e40af;
+  background-color: #e8f5fc;
+  color: var(--primary-dark);
 }
 
 .user-error {
@@ -109,6 +152,41 @@
   border-bottom: 1px solid #e5e7eb;
   color: #374151;
   font-size: 0.875rem;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  object-fit: cover;
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+}
+
+.user-photo-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.user-photo-preview span {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.user-photo-preview small {
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+
+.user-photo-preview img {
+  width: 84px;
+  height: 84px;
+  border-radius: 9999px;
+  object-fit: cover;
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
 }
 
 .users-table tbody tr:hover {
@@ -157,30 +235,33 @@
 }
 
 .secondary-btn {
-  background-color: #e5e7eb;
-  color: #111827;
+  background-color: #e8f5fc;
+  color: var(--primary-dark);
+  border: 1px solid #b9deef;
 }
 
 .secondary-btn:hover {
-  background-color: #d1d5db;
+  background-color: #d8eef9;
 }
 
 .warning-btn {
-  background-color: #fbbf24;
-  color: #78350f;
+  background-color: #329ad6;
+  color: #ffffff;
+  border: 1px solid #2b85b8;
 }
 
 .warning-btn:hover {
-  background-color: #f59e0b;
+  background-color: #2b85b8;
 }
 
 .danger-btn {
-  background-color: #ef4444;
-  color: white;
+  background-color: #000059;
+  color: #ffffff;
+  border: 1px solid #07117f;
 }
 
 .danger-btn:hover {
-  background-color: #dc2626;
+  background-color: #07117f;
 }
 
 .secondary-btn:disabled,
@@ -219,12 +300,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
+  padding: 0.1rem;
   border-bottom: 1px solid #e5e7eb;
 }
 
 .user-modal-header h2 {
-  font-size: 1.25rem;
+  font-weight: bold;
+  padding:1.5rem;
+  padding-bottom: 0.2rem;
+  font-size: 1.4rem;
   color: #111827;
   margin: 0;
 }
@@ -260,23 +344,29 @@
   gap: 0.5rem;
   color: #111827;
   font-weight: 500;
-  font-size: 0.875rem;
+  font-size: 0.8rem;
 }
 
 .manage-users-form input,
-.manage-users-form select {
+.manage-users-form select,
+.manage-users-form textarea {
   padding: 0.75rem;
   border: 1px solid #d1d5db;
   border-radius: 0.375rem;
   font-size: 0.875rem;
   font-family: inherit;
 }
+.form-note {
+  color: #4b5563;
+  font-size: 0.85rem;
+  margin-top: -0.5rem;
+  margin-bottom: 0.5rem;
+}
 
-.manage-users-form input:focus,
 .manage-users-form select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(50, 154, 214, 0.2);
 }
 
 .manage-users-form input:disabled,
@@ -295,10 +385,9 @@
 .user-form-actions {
   display: flex;
   gap: 1rem;
-  justify-content: flex-end;
+  justify-content: flex-start;
   padding-top: 1rem;
   border-top: 1px solid #e5e7eb;
-  margin-top: 1rem;
 }
 
 .user-form-actions button {
@@ -311,19 +400,19 @@
 }
 
 .user-form-actions .primary-btn {
-  background-color: #3b82f6;
+  background-color: var(--primary-color);
   color: white;
 }
 
 .user-form-actions .primary-btn:hover {
-  background-color: #2563eb;
+  background-color: #288cc5;
 }
 
 .user-form-actions .secondary-btn {
-  background-color: #e5e7eb;
-  color: #111827;
+  background-color: #07117f;
+  color: #ffffff;
 }
 
 .user-form-actions .secondary-btn:hover {
-  background-color: #d1d5db;
+  background-color: #42499b;
 }

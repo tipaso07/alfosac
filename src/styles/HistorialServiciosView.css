@@ -13,7 +13,8 @@
 
 .hs-header h1 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
+  font-weight: 700;
 }
 
 .hs-header p {
@@ -32,7 +33,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: #334155;
 }
 
@@ -41,10 +42,11 @@
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   padding: 9px 10px;
+  height: 50%;
+  font-size: 0.85rem;
   background: #fff;
   font: inherit;
 }
-
 .hs-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
@@ -56,6 +58,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   padding: 14px;
+  font-size: 0.85rem;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
 
@@ -80,9 +83,9 @@
 .hs-status {
   background: #14532d;
   color: #dcfce7;
-  border-radius: 999px;
+  border-radius: 20px;
   padding: 3px 10px;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
 }
 
@@ -105,8 +108,7 @@
   background: linear-gradient(120deg, #0f766e, #14b8a6);
   color: #fff;
   border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 700;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
@@ -151,7 +153,8 @@
 
 .hs-modal-head h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-weight: bold;
+  font-size: 1.2rem;
 }
 
 .hs-modal-head button {
@@ -166,6 +169,7 @@
 
 .hs-modal-description {
   margin: 0;
+  font-size: 0.9rem;
   color: #475569;
 }
 

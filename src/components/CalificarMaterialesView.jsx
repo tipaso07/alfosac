@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { guardarCalificacionProveedor } from '../services/api'
 import { hasPermission } from '../services/permissions'
-import '../styles/CalificarProductosView.css'
+import '../styles/CalificarMaterialesView.css'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
 
-export default function CalificarProductosView({ movimientos = [], currentUserPermissions = [], currentUserRoleId = null, currentUserArea = '' }) {
+export default function CalificarMaterialesView({ movimientos = [], currentUserPermissions = [], currentUserArea = '' }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [fechaInicio, setFechaInicio] = useState('')
   const [fechaFin, setFechaFin] = useState('')
@@ -18,6 +18,7 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
 
   const canRate = hasPermission(currentUserPermissions, 'CALIFICAR_COMPRA')
     || hasPermission(currentUserPermissions, 'CALIFICAR_REQUERIMIENTO')
+    || hasPermission(currentUserPermissions, 'CALIFICAR_SERVICIO')
   const normalizedCurrentArea = normalize(currentUserArea)
 
   const salidaRows = useMemo(() => {
@@ -180,22 +181,21 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
   }
 
   return (
-    <section className="rate-products-section">
-      <header className="rate-products-header">
+    <section className="rate-materials-section">
+      <header className="rate-materials-header">
         <h1>Calificar materiales</h1>
-        <p>Evalua cada material de forma individual en base a las salidas de almacen entregadas a areas.</p>
       </header>
 
-      {ratingNotice ? <p className="rate-products-notice">{ratingNotice}</p> : null}
+      {ratingNotice ? <p className="rate-materials-notice">{ratingNotice}</p> : null}
 
-      <div className="rate-products-filters">
+      <div className="rate-materials-filters">
         <label>
           Buscar
           <input
             type="text"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Movimiento, material, proveedor o area"
+            placeholder="Material o proveedor"
           />
         </label>
         <label>
@@ -209,9 +209,9 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rate-products-empty">No hay materiales de salida para calificar con los filtros actuales.</div>
+        <div className="rate-materials-empty">No hay materiales de salida para calificar con los filtros actuales.</div>
       ) : (
-        <div className="rate-products-list">
+        <div className="rate-materials-grid">
           {filtered.map((row, index) => {
             const rating = getEffectiveRating(row)
             const hasProvider = Number(row.id_proveedor || 0) > 0
@@ -219,8 +219,8 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
             const canCreate = hasProvider && hasArea && !rating && canRate
 
             return (
-              <article className="rate-products-card" key={`${row.id_movimiento}-${row.id_movimiento_detalle}-${index}`}>
-                <div className="rate-products-card-head">
+              <article className="rate-materials-card" key={`${row.id_movimiento}-${row.id_movimiento_detalle}-${index}`}>
+                <div className="rate-materials-card-head">
                   <h3>Material #{row.id_material}</h3>
                   <span>{row.fecha ? new Date(row.fecha).toLocaleString() : 'Sin fecha'}</span>
                 </div>
@@ -236,7 +236,7 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
                 )}
 
                 {canCreate ? (
-                  <button type="button" className="rate-products-btn" onClick={() => openRatingModal(row)}>
+                  <button type="button" className="rate-materials-btn" onClick={() => openRatingModal(row)}>
                     Calificar
                   </button>
                 ) : null}
@@ -247,9 +247,9 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
       )}
 
       {ratingTarget && (
-        <div className="rate-products-backdrop" onClick={closeRatingModal}>
-          <div className="rate-products-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="rate-products-modal-head">
+        <div className="rate-materials-backdrop" onClick={closeRatingModal}>
+          <div className="rate-materials-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="rate-materials-modal-head">
               <h3>{ratingTarget.existing?.id ? 'Editar calificacion' : 'Calificar material'}</h3>
               <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
             </div>
@@ -264,9 +264,9 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
               Area destino: {ratingTarget.area_destino || 'Sin area'}
             </p>
 
-            {ratingError ? <p className="rate-products-error">{ratingError}</p> : null}
+            {ratingError ? <p className="rate-materials-error">{ratingError}</p> : null}
 
-            <form className="rate-products-form" onSubmit={submitRating}>
+            <form className="rate-materials-form" onSubmit={submitRating}>
               <label>
                 Puntuacion
                 <select
@@ -293,7 +293,7 @@ export default function CalificarProductosView({ movimientos = [], currentUserPe
                 />
               </label>
 
-              <div className="rate-products-actions">
+              <div className="rate-materials-actions">
                 <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Cancelar</button>
                 <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar'}</button>
               </div>

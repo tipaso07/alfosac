@@ -6,12 +6,12 @@ const normalize = (value) => String(value || '').trim().toUpperCase()
 const toStatusLabel = (value) => (normalize(value) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (value || 'N/A'))
 const toWorkflowStatus = (servicio) => {
   const aprobacion = normalize(servicio.estado_aprobacion)
-  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio)
+  const estadoFlujo = normalize(servicio.estado_flujo)
 
   if (aprobacion === 'PENDIENTE') return 'PENDIENTE'
-  if (aprobacion === 'APROBADO' && estadoServicio === 'PENDIENTE') return 'PENDIENTE DE REALIZACION'
-  if (aprobacion === 'APROBADO' && estadoServicio === 'REALIZADO') return 'REALIZADO'
-  if (aprobacion === 'APROBADO' && estadoServicio === 'DATOS_COMPLETADOS') return 'DATOS_COMPLETADOS'
+  if (aprobacion === 'APROBADO' && estadoFlujo === 'PENDIENTE') return 'PENDIENTE DE REALIZACION'
+  if (aprobacion === 'APROBADO' && estadoFlujo === 'REALIZADO') return 'REALIZADO'
+  if (aprobacion === 'APROBADO' && estadoFlujo === 'DATOS_COMPLETADOS') return 'DATOS_COMPLETADOS'
   if (aprobacion === 'APROBADO') return 'APROBADO'
   return aprobacion || 'N/A'
 }
@@ -100,7 +100,7 @@ export default function MisServiciosView({ servicios = [] }) {
                 <p><strong>Servicio:</strong> {servicio.descripcion_servicio || 'Sin descripcion'}</p>
                 <p><strong>Costo:</strong> {Number(servicio.costo || 0).toFixed(2)} {servicio.moneda || ''}</p>
                 <p><strong>Estado aprobacion:</strong> {servicio.estado_aprobacion || 'N/A'}</p>
-                <p><strong>Estado flujo:</strong> {toStatusLabel(servicio.estado_flujo || servicio.estado_servicio)}</p>
+                <p><strong>Estado flujo:</strong> {toStatusLabel(servicio.estado_flujo)}</p>
                 <p><strong>Estado flujo:</strong> {toWorkflowStatus(servicio)}</p>
                 <p><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleString() : 'Sin fecha'}</p>
               </article>
