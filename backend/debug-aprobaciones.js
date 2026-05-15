@@ -1,11 +1,18 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env'), override: true });
 const { Pool } = require('pg');
 
+const configuredDbHost = process.env.DB_HOST || 'localhost';
+const effectiveDbHost = configuredDbHost === 'postgres' && process.platform === 'win32'
+  ? 'localhost'
+  : configuredDbHost;
+
 const pool = new Pool({
-  user: 'postgres',
-  password: 'postgres',
-  host: 'localhost',
-  port: 5432,
-  database: 'alfosac',
+  host: effectiveDbHost,
+  port: Number(process.env.DB_PORT || 5432),
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'postgres',
 });
 
 async function debugService23() {
