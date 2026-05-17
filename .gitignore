@@ -20,6 +20,8 @@ dist-ssr
 # Backend
 backend/uploads/
 backend/node_modules/
+backups/
+Alfosac-*.zip
 
 # Editor directories and files
 .vscode/*
