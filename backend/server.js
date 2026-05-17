@@ -6047,12 +6047,20 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
         ),
         movimiento_resumen AS (
           SELECT
-            COALESCE(dm.id_material, NULLIF(to_jsonb(m)->>'id_material', '')::int) AS id_material,
+            COALESCE(
+              NULLIF(to_jsonb(dm)->>'id_material', '')::int,
+              NULLIF(to_jsonb(m)->>'id_material', '')::int
+            ) AS id_material,
             COALESCE(
               SUM(
                 CASE
                   WHEN upper(trim(COALESCE(to_jsonb(m)->>'tipo_movimiento', to_jsonb(m)->>'tipo', ''))) = 'ENTRADA'
-                    THEN COALESCE(dm.cantidad, NULLIF(to_jsonb(m)->>'cantidad', '')::numeric, 0)
+                    THEN COALESCE(
+                      NULLIF(to_jsonb(dm)->>'cantidad_entrada', '')::numeric,
+                      NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric,
+                      NULLIF(to_jsonb(m)->>'cantidad', '')::numeric,
+                      0
+                    )
                   ELSE 0
                 END
               ),
@@ -6062,7 +6070,12 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
               SUM(
                 CASE
                   WHEN upper(trim(COALESCE(to_jsonb(m)->>'tipo_movimiento', to_jsonb(m)->>'tipo', ''))) = 'SALIDA'
-                    THEN COALESCE(dm.cantidad, NULLIF(to_jsonb(m)->>'cantidad', '')::numeric, 0)
+                    THEN COALESCE(
+                      NULLIF(to_jsonb(dm)->>'cantidad_salida', '')::numeric,
+                      NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric,
+                      NULLIF(to_jsonb(m)->>'cantidad', '')::numeric,
+                      0
+                    )
                   ELSE 0
                 END
               ),
@@ -6071,7 +6084,10 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
             COUNT(DISTINCT m.id) AS total_movimientos
           FROM movimientos m
           LEFT JOIN movimiento_detalles dm ON dm.id_movimiento = m.id
-          GROUP BY COALESCE(dm.id_material, NULLIF(to_jsonb(m)->>'id_material', '')::int)
+          GROUP BY COALESCE(
+            NULLIF(to_jsonb(dm)->>'id_material', '')::int,
+            NULLIF(to_jsonb(m)->>'id_material', '')::int
+          )
         ),
         movimiento_detalle_resumen AS (
           SELECT
@@ -6092,8 +6108,8 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
         detalle_movimiento_resumen AS (
           SELECT
             COUNT(*) AS total_detalle_movimientos,
-            COALESCE(SUM(COALESCE(dm.cantidad, 0)), 0) AS cantidad_detalle_movimientos
-          FROM movimiento_detalles dm
+            COALESCE(SUM(COALESCE(NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric, 0)), 0) AS cantidad_detalle_movimientos
+          FROM detalle_movimientos dm
         )
         SELECT
           m.id,
