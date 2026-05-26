@@ -442,18 +442,48 @@ const getRequiredApprovalPermissionByRoleId = (roleId) => {
   if (hardcodedPermission) {
     return String(hardcodedPermission).trim().toUpperCase();
   }
-
-  // Si no está en el mapa hardcodeado, intenta buscar dinámicamente en ROLE_NAME_BY_ID
+  // Si no está en el mapa hardcodeado, intentar derivar el permiso a partir
+  // del nombre del rol cargado dinámicamente en `ROLE_NAME_BY_ID`.
   const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
   if (roleName) {
     const normalizedName = normalizeRoleName(roleName);
-    // Mapear nombres de rol a permisos de aprobación
-    if (normalizedName === 'ADMIN') return 'APROBAR_ADMIN';
-    if (normalizedName.includes('FINANZAS')) return 'APROBAR_FINANZAS';
-    if (normalizedName.includes('GERENCIA') && normalizedName.includes('AREA')) return 'APROBAR_GERENCIA_AREA';
-    if (normalizedName.includes('JEFE') || normalizedName.includes('SUBGERENTE')) return 'APROBAR_JEFE_AREA';
+
+    // Primero intenta encontrarlo en el mapeo canónico por nombre de rol
+    if (APPROVAL_ROLE_ID_BY_NAME.has(normalizedName)) {
+      const mappedRoleId = APPROVAL_ROLE_ID_BY_NAME.get(normalizedName);
+      const mappedPerm = APPROVAL_PERMISSION_BY_ROLE_ID.get(mappedRoleId);
+      if (mappedPerm) return String(mappedPerm).trim().toUpperCase();
+    }
+
+    // Generar variantes limpias del nombre para intentar coincidir con permisos existentes
+    const stopwords = [' DEL ', ' DE ', ' LA ', ' EL ', ' LOS ', ' LAS ', "'", '/'];
+    const variants = new Set();
+    variants.add(normalizedName);
+    // variante sin stopwords
+    let cleaned = ` ${normalizedName} `;
+    for (const sw of stopwords) cleaned = cleaned.replace(new RegExp(sw, 'g'), ' ');
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    variants.add(cleaned);
+    // variante removiendo SUBGERENTE (muchos roles contienen 'SUBGERENTE' en paralelo)
+    variants.add(cleaned.replace(/SUBGERENTE/g, '').replace(/\s+/g, ' ').trim());
+
+    // Construir candidatos de permiso y ver si coinciden con permisos conocidos
+    const knownPerms = new Set([
+      ...Array.from(APPROVAL_PERMISSION_BY_ROLE_ID.values()),
+      ...Array.from(APPROVAL_PERMISSION_BY_STATE.values()),
+    ].map((p) => String(p || '').trim().toUpperCase()));
+
+    for (const v of variants) {
+      const candidate = `APROBAR_${normalizePermissionName(v)}`;
+      if (knownPerms.has(candidate)) return candidate;
+    }
+
+    // Fallback: generar permiso basado en el nombre normalizado (menos agresivo)
+    const permission = `APROBAR_${normalizePermissionName(normalizedName)}`;
+    return String(permission).trim().toUpperCase();
   }
 
+  // Fallback vacío si no se puede resolver dinámicamente
   return '';
 };
 
@@ -468,38 +498,44 @@ const getApprovalPermissionByState = (state) => {
   }
 
   const pendingRoleKey = normalizedState.replace(/^PENDIENTE_/, '');
+  // Preferir coincidencia exacta con roles cargados dinámicamente
   for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
-    if (normalizeRoleName(roleName) === pendingRoleKey) {
+    if (normalizePermissionName(roleName) === pendingRoleKey) {
       return getRequiredApprovalPermissionByRoleId(roleId);
     }
   }
 
-  if (pendingRoleKey.includes('FINANZAS')) return 'APROBAR_FINANZAS';
-  if (pendingRoleKey.includes('GERENCIA') && pendingRoleKey.includes('AREA')) return 'APROBAR_GERENCIA_AREA';
-  if (pendingRoleKey.includes('JEFE') || pendingRoleKey.includes('SUBGERENTE')) return 'APROBAR_JEFE_AREA';
-  if (pendingRoleKey === 'ADMIN') return 'APROBAR_ADMIN';
-
-  return '';
+  // Si no hay coincidencia exacta, derivar el permiso directamente del
+  // sufijo de estado (ej: PENDIENTE_MI_ROL -> APROBAR_MI_ROL).
+  return `APROBAR_${pendingRoleKey}`;
 };
 
 const getApprovalStateByPermission = (permission) => {
-  const normalizedPermission = normalize(permission);
+  const normalizedPermission = normalizePermissionName(permission);
   if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
     const roleId = getApprovalRoleIdByPermission(normalizedPermission);
     return getPendingStateByRoleId(roleId) || APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
   }
 
   const roleId = getApprovalRoleIdByPermission(normalizedPermission);
-  return getPendingStateByRoleId(roleId);
-};
-
-const getPendingStateByPermission = (permission) => {
-  const roleId = getApprovalRoleIdByPermission(permission);
   if (roleId > 0) {
     return getPendingStateByRoleId(roleId);
   }
 
-  const normalizedPermission = normalize(permission);
+  return getPendingStateByPermission(normalizedPermission);
+};
+
+const getPendingStateByPermission = (permission) => {
+  const normalizedPermission = normalizePermissionName(permission);
+  const roleId = getApprovalRoleIdByPermission(normalizedPermission);
+  if (roleId > 0) {
+    return getPendingStateByRoleId(roleId);
+  }
+
+  if (normalizedPermission.startsWith('APROBAR_')) {
+    return `PENDIENTE_${normalizedPermission.replace(/^APROBAR_/, '')}`;
+  }
+
   if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
     const legacyState = APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
     return normalizeApprovalState(legacyState);
@@ -509,17 +545,15 @@ const getPendingStateByPermission = (permission) => {
 };
 
 const getApprovalRoleIdByPermission = (permission) => {
-  const normalizedPermission = normalize(permission);
+  const normalizedPermission = normalizePermissionName(permission);
   
-  // Mapeo de permiso a nombre de rol esperado
+  // Mapeo de permiso a nombre de rol esperado para compatibilidad con estados antiguos
   let expectedRoleName = '';
   if (normalizedPermission === 'APROBAR_ADMIN') expectedRoleName = 'ADMIN';
   else if (normalizedPermission === 'APROBAR_FINANZAS') expectedRoleName = 'GERENCIA DE FINANZAS';
   else if (normalizedPermission === 'APROBAR_GERENCIA_AREA') expectedRoleName = 'GERENCIA DEL AREA';
   else if (normalizedPermission === 'APROBAR_JEFE_AREA') expectedRoleName = 'JEFE DE AREA';
-  else return 0;
-  
-  // Buscar el rol en ROLE_NAME_BY_ID que coincida con este nombre
+
   if (expectedRoleName) {
     const normalizedExpected = normalizeRoleName(expectedRoleName);
     for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
@@ -529,7 +563,17 @@ const getApprovalRoleIdByPermission = (permission) => {
       }
     }
   }
-  
+
+  // Intentar resolver dinámicamente cualquier permiso APROBAR_<ROL>
+  if (normalizedPermission.startsWith('APROBAR_')) {
+    const roleKey = normalizedPermission.replace(/^APROBAR_/, '');
+    for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
+      if (normalizePermissionName(roleName) === roleKey) {
+        return roleId;
+      }
+    }
+  }
+
   // Fallback: retornar los IDs hardcodeados
   if (normalizedPermission === 'APROBAR_JEFE_AREA') return 5;
   if (normalizedPermission === 'APROBAR_GERENCIA_AREA') return 6;
@@ -6059,12 +6103,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
               SUM(
                 CASE
                   WHEN upper(trim(COALESCE(to_jsonb(m)->>'tipo_movimiento', to_jsonb(m)->>'tipo', ''))) = 'ENTRADA'
-                    THEN COALESCE(
-                      NULLIF(to_jsonb(dm)->>'cantidad_entrada', '')::numeric,
-                      NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric,
-                      NULLIF(to_jsonb(m)->>'cantidad', '')::numeric,
-                      0
-                    )
+                    THEN COALESCE(NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric, NULLIF(to_jsonb(m)->>'cantidad', '')::numeric, 0)
                   ELSE 0
                 END
               ),
@@ -6074,12 +6113,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
               SUM(
                 CASE
                   WHEN upper(trim(COALESCE(to_jsonb(m)->>'tipo_movimiento', to_jsonb(m)->>'tipo', ''))) = 'SALIDA'
-                    THEN COALESCE(
-                      NULLIF(to_jsonb(dm)->>'cantidad_salida', '')::numeric,
-                      NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric,
-                      NULLIF(to_jsonb(m)->>'cantidad', '')::numeric,
-                      0
-                    )
+                    THEN COALESCE(NULLIF(to_jsonb(dm)->>'cantidad', '')::numeric, NULLIF(to_jsonb(m)->>'cantidad', '')::numeric, 0)
                   ELSE 0
                 END
               ),
@@ -6096,17 +6130,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
         movimiento_detalle_resumen AS (
           SELECT
             COUNT(*) AS total_movimiento_detalles,
-            COALESCE(
-              SUM(
-                COALESCE(
-                  NULLIF(to_jsonb(md)->>'cantidad_entrada', '')::numeric,
-                  NULLIF(to_jsonb(md)->>'cantidad_salida', '')::numeric,
-                  NULLIF(to_jsonb(md)->>'cantidad', '')::numeric,
-                  0
-                )
-              ),
-              0
-            ) AS cantidad_movimiento_detalles
+            COALESCE(SUM(COALESCE(NULLIF(to_jsonb(md)->>'cantidad', '')::numeric, 0)), 0) AS cantidad_movimiento_detalles
           FROM movimiento_detalles md
         ),
         detalle_movimiento_resumen AS (

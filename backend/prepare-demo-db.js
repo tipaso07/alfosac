@@ -20,8 +20,7 @@ const runStep = (scriptName, extraEnv = {}) => {
 
 try {
   runStep('reset-db.js');
-  runStep('init-db.js');
-  runStep('run-migrations.js');
+  runStep('restore-backup.js');
   runStep('server.js', {
     RUN_DEMO_SEED: 'true',
     RUN_DEMO_SEED_ONLY: 'true',

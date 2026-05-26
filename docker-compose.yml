@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: alfosac-db
     restart: unless-stopped
     environment:
@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - alfosac_pgdata:/var/lib/postgresql/data
+      - alfosac_pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-alfosac}"]
       interval: 10s
@@ -34,7 +34,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       SQL_DEBUG: ${SQL_DEBUG:-false}
-    command: ["sh", "-c", "node init-db.js && node run-migrations.js"]
+    volumes:
+      - ./backups:/backups
+    command: ["sh", "-c", "node restore-backup.js"]
     restart: "no"
 
   backend:

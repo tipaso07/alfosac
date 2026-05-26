@@ -17,14 +17,15 @@ const normalizeRoleName = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '')
+const normalizeStage = (value) => normalizeRoleName(value)
 // Only matches PENDIENTE_* format (with underscore and role name), not bare 'PENDIENTE'
-const isPendingFlowStage = (value) => normalize(value).startsWith('PENDIENTE_')
+const isPendingFlowStage = (value) => normalizeStage(value).startsWith('PENDIENTE_')
 const getStageStatus = (compra) => {
-  const userStage = normalize(compra?.gestion_estado_usuario)
+  const userStage = normalizeStage(compra?.gestion_estado_usuario)
   if (userStage) return userStage
-  const detailStage = normalize(compra?.estado_aprobacion_detalle)
+  const detailStage = normalizeStage(compra?.estado_aprobacion_detalle)
   if (detailStage) return detailStage
-  return normalize(compra?.estado_pedido || compra?.estado)
+  return normalizeStage(compra?.estado_pedido || compra?.estado)
 }
 
 export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserRoleName = '', currentUserPermissions = [], currentUserArea = '', onChangeEstado }) {
@@ -94,7 +95,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }, [currentUserApprovalStage, currentUserRoleId, currentUserRoleName, purchaseFlowConfig])
 
   const isCurrentUserPendingStage = (stage) => {
-    const normalizedStage = normalize(stage)
+    const normalizedStage = normalizeStage(stage)
     if (!normalizedStage) return false
     if (!isPendingFlowStage(normalizedStage) && normalizedStage !== 'PENDIENTE') return false
     if (currentUserPendingStages.size === 0) {

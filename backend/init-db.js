@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS aprobaciones (
   referencia_id INTEGER NOT NULL,
   orden INTEGER NOT NULL,
   rol_aprobador INTEGER NOT NULL REFERENCES roles(id),
-  estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE',
+    estado VARCHAR(60) NOT NULL DEFAULT 'PENDIENTE',
   usuario_id INTEGER REFERENCES usuarios(id),
   fecha TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -355,9 +355,8 @@ CREATE TABLE IF NOT EXISTS movimientos (
 CREATE TABLE IF NOT EXISTS movimiento_detalles (
   id SERIAL PRIMARY KEY,
   id_movimiento INTEGER REFERENCES movimientos(id),
-  cantidad_entrada NUMERIC(12,2),
-  cantidad_salida NUMERIC(12,2),
-  saldo NUMERIC(12,2)
+  id_material INTEGER REFERENCES materiales(id),
+  cantidad INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS detalle_movimientos (

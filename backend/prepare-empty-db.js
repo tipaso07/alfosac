@@ -20,10 +20,7 @@ const runStep = (scriptName, extraEnv = {}) => {
 
 try {
   runStep('reset-db.js');
-  runStep('init-db.js', {
-    SKIP_SEED_DATA: 'true',
-  });
-  runStep('run-migrations.js');
+  runStep('restore-backup.js');
 
   console.log('\nBase vacia restaurada correctamente.');
 } catch (error) {
