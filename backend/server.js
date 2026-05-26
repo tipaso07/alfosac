@@ -366,14 +366,7 @@ const APPROVAL_STATE_BY_PERMISSION = new Map([
   ['APROBAR_ADMIN', 'PENDIENTE_ADMIN'],
 ]);
 
-const APPROVAL_PENDING_STATES = new Set(['PENDIENTE', 'PENDIENTE_JEFE_AREA', 'PENDIENTE_GERENCIA', 'PENDIENTE_FINANZAS', 'PENDIENTE_ADMIN']);
-
-const INTERMEDIATE_APPROVAL_STATE_BY_ROLE_ID = new Map([
-  [5, 'PENDIENTE_JEFE_AREA'],
-  [6, 'PENDIENTE_GERENCIA'],
-  [7, 'PENDIENTE_FINANZAS'],
-  [8, 'PENDIENTE_ADMIN'],
-]);
+const APPROVAL_PENDING_STATES = new Set(['PENDIENTE']);
 
 const getApprovalRoleLabel = (roleId, roleName = '') => {
   const numericRoleId = Number(roleId || 0);
@@ -394,6 +387,16 @@ const getApprovalRoleLabel = (roleId, roleName = '') => {
   if (numericRoleId === 7) return 'Gerencia de Finanzas';
   if (numericRoleId === 8) return 'Admin';
   return numericRoleId > 0 ? `Rol ${numericRoleId}` : '';
+};
+
+const getPendingStateByRoleId = (roleId) => {
+  const roleName = getApprovalRoleLabel(roleId);
+  const normalizedRole = normalizeRoleName(roleName);
+  if (!normalizedRole) {
+    return '';
+  }
+
+  return `PENDIENTE_${normalizedRole}`;
 };
 
 const parseBooleanFlag = (value, defaultValue = false) => {
@@ -455,10 +458,26 @@ const getRequiredApprovalPermissionByRoleId = (roleId) => {
 };
 
 const getApprovalPermissionByState = (state) => {
-  const normalizedState = normalize(state);
+  const normalizedState = normalizeApprovalState(state);
   if (APPROVAL_PERMISSION_BY_STATE.has(normalizedState)) {
     return APPROVAL_PERMISSION_BY_STATE.get(normalizedState);
   }
+
+  if (!normalizedState.startsWith('PENDIENTE_')) {
+    return '';
+  }
+
+  const pendingRoleKey = normalizedState.replace(/^PENDIENTE_/, '');
+  for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
+    if (normalizeRoleName(roleName) === pendingRoleKey) {
+      return getRequiredApprovalPermissionByRoleId(roleId);
+    }
+  }
+
+  if (pendingRoleKey.includes('FINANZAS')) return 'APROBAR_FINANZAS';
+  if (pendingRoleKey.includes('GERENCIA') && pendingRoleKey.includes('AREA')) return 'APROBAR_GERENCIA_AREA';
+  if (pendingRoleKey.includes('JEFE') || pendingRoleKey.includes('SUBGERENTE')) return 'APROBAR_JEFE_AREA';
+  if (pendingRoleKey === 'ADMIN') return 'APROBAR_ADMIN';
 
   return '';
 };
@@ -466,7 +485,24 @@ const getApprovalPermissionByState = (state) => {
 const getApprovalStateByPermission = (permission) => {
   const normalizedPermission = normalize(permission);
   if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
-    return APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
+    const roleId = getApprovalRoleIdByPermission(normalizedPermission);
+    return getPendingStateByRoleId(roleId) || APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
+  }
+
+  const roleId = getApprovalRoleIdByPermission(normalizedPermission);
+  return getPendingStateByRoleId(roleId);
+};
+
+const getPendingStateByPermission = (permission) => {
+  const roleId = getApprovalRoleIdByPermission(permission);
+  if (roleId > 0) {
+    return getPendingStateByRoleId(roleId);
+  }
+
+  const normalizedPermission = normalize(permission);
+  if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
+    const legacyState = APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
+    return normalizeApprovalState(legacyState);
   }
 
   return '';
@@ -503,14 +539,16 @@ const getApprovalRoleIdByPermission = (permission) => {
 };
 
 const normalizeApprovalState = (state) => {
-  const normalizedState = normalize(state);
-  if (normalizedState === 'PENDIENTE') return 'PENDIENTE_JEFE_AREA';
+  const normalizedState = normalize(state).replace(/[\s-]+/g, '_');
   if (normalizedState === 'APROBADA') return 'APROBADO';
   if (normalizedState === 'RECHAZADA') return 'RECHAZADO';
   return normalizedState;
 };
 
-const isPendingApprovalState = (state) => APPROVAL_PENDING_STATES.has(normalizeApprovalState(state));
+const isPendingApprovalState = (state) => {
+  const normalizedState = normalizeApprovalState(state);
+  return normalizedState === 'PENDIENTE' || normalizedState.startsWith('PENDIENTE_');
+};
 
 const getApprovalStagePermissionForUser = (usuario) => {
   if (tienePermiso(usuario, 'APROBAR_ADMIN')) return 'APROBAR_ADMIN';
@@ -524,36 +562,28 @@ const getApprovalStageStateForUser = (usuario) => getApprovalStateByPermission(g
 
 const getNextApprovalState = ({ tipo, currentState, dentroPlan }) => {
   const normalizedState = normalizeApprovalState(currentState);
-  if (normalizedState === 'PENDIENTE_JEFE_AREA') {
-    return {
-      permission: 'APROBAR_JEFE_AREA',
-      state: 'PENDIENTE_GERENCIA',
-    };
-  }
-
-  if (normalizedState === 'PENDIENTE_GERENCIA') {
-    return {
-      permission: 'APROBAR_GERENCIA_AREA',
-      state: 'PENDIENTE_FINANZAS',
-    };
-  }
-
-  if (normalizedState === 'PENDIENTE_FINANZAS') {
-    return {
-      permission: 'APROBAR_FINANZAS',
-      state: normalize(tipo) === 'SERVICIO' && Boolean(dentroPlan) ? 'APROBADO' : 'PENDIENTE_ADMIN',
-    };
-  }
-
-  if (normalizedState === 'PENDIENTE_ADMIN') {
-    return {
-      permission: 'APROBAR_ADMIN',
-      state: 'APROBADO',
-    };
-  }
+  const currentPermission = getApprovalPermissionByState(normalizedState);
+  const approvalFlowPermissions = ['APROBAR_JEFE_AREA', 'APROBAR_GERENCIA_AREA', 'APROBAR_FINANZAS', 'APROBAR_ADMIN'];
 
   if (normalizedState === 'PENDIENTE') {
-    return getNextApprovalState({ tipo, currentState: 'PENDIENTE_JEFE_AREA', dentroPlan });
+    return getNextApprovalState({ tipo, currentState: getPendingStateByPermission('APROBAR_JEFE_AREA'), dentroPlan });
+  }
+
+  const currentIndex = approvalFlowPermissions.indexOf(currentPermission);
+  if (currentIndex >= 0) {
+    const nextPermission = approvalFlowPermissions[currentIndex + 1] || '';
+    if (!nextPermission) {
+      return {
+        permission: currentPermission,
+        state: 'APROBADO',
+      };
+    }
+
+    const nextState = getPendingStateByPermission(nextPermission);
+    return {
+      permission: currentPermission,
+      state: nextState || 'PENDIENTE',
+    };
   }
 
   return {
@@ -637,7 +667,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       throw new Error('Ya esta aprobado');
     }
 
-    if (!APPROVAL_PENDING_STATES.has(estadoAnterior)) {
+    if (!isPendingApprovalState(estadoAnterior)) {
       throw new Error('La entidad no se encuentra en una etapa aprobable');
     }
 
@@ -898,37 +928,11 @@ const resolveApprovalRoleIdByPermissions = (user) => {
 };
 
 const getIntermediateApprovalStateByRoleId = (roleId) => {
-  const numericRoleId = Number(roleId || 0);
-  return String(INTERMEDIATE_APPROVAL_STATE_BY_ROLE_ID.get(numericRoleId) || '').trim().toUpperCase();
+  return getPendingStateByRoleId(roleId);
 };
 
 const generatePendingStateByRoleId = (roleId) => {
-  const numericRoleId = Number(roleId || 0);
-  if (numericRoleId <= 0) {
-    return 'PENDIENTE';
-  }
-
-  // First try the hardcoded map (for backward compatibility)
-  const hardcodedState = INTERMEDIATE_APPROVAL_STATE_BY_ROLE_ID.get(numericRoleId);
-  if (hardcodedState) {
-    return String(hardcodedState).trim().toUpperCase();
-  }
-
-  // Then try the dynamic role name cache
-  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
-  if (roleName) {
-    // Normalize the role name: uppercase, remove accents, replace spaces with underscores
-    const normalized = normalizeRoleName(roleName)
-      .replace(/[\s]+/g, '_')
-      .replace(/[^A-Z0-9_]/g, '')
-      .replace(/^_+|_+$/g, '');
-    if (normalized) {
-      return `PENDIENTE_${normalized}`;
-    }
-  }
-
-  // Fallback
-  return 'PENDIENTE';
+  return getPendingStateByRoleId(roleId) || 'PENDIENTE';
 };
 
 const getInitialApprovalStateForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
@@ -1369,7 +1373,7 @@ const buildApprovalStatusLabel = ({
   nextPendingRole,
 }) => {
   const normalizedCurrentStatus = normalizeApprovalState(currentStatus);
-  if (APPROVAL_PENDING_STATES.has(normalizedCurrentStatus)) {
+  if (isPendingApprovalState(normalizedCurrentStatus)) {
     return normalizedCurrentStatus;
   }
 

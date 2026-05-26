@@ -880,7 +880,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <GestionarComprasView
                   compras={compras}
                   currentUserRoleId={currentUserRoleId}
+                  currentUserRoleName={currentUserProfile?.rol || ''}
                   currentUserPermissions={currentUserPermissions}
+                  currentUserArea={currentUserArea}
                   onChangeEstado={handleCompraStatus}
                 />
               )}

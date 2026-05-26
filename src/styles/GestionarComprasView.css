@@ -27,6 +27,65 @@
   font-size: 14px;
 }
 
+.purchase-filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.purchase-filters-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.purchase-filter-field {
+  display: grid;
+  gap: 4px;
+}
+
+.purchase-filter-field span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.purchase-filter-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  font-size: 13px;
+}
+
+.purchase-filter-field input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.22);
+  border-color: var(--primary-color);
+}
+
+.purchase-filter-field input::placeholder {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+@media (max-width: 960px) {
+  .purchase-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .purchase-filters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .purchase-status-tabs {
   display: flex;
   flex-wrap: wrap;

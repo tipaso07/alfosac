@@ -4,6 +4,13 @@ import { hasPermission } from '../services/permissions'
 import { fetchApprovalConfig } from '../services/api'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
+const normalizeRoleName = (value) => String(value || '')
+  .trim()
+  .toUpperCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
 const getGestionEstado = (servicio) => normalize(servicio?.estado_aprobacion)
 const isPendingApprovalStage = (value) => normalize(value).startsWith('PENDIENTE')
 const statusLabel = (value) => (normalize(value) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (value || 'N/A'))
@@ -20,19 +27,10 @@ const priorityRank = (value) => {
   }
 }
 
-const canApproveServicio = (servicio, currentUserPermissions = [], approvalMap = {}) => {
+const canApproveServicio = (servicio, showActions = false) => {
   const stage = getGestionEstado(servicio)
-  if (!isPendingApprovalStage(stage)) return false
-  return Boolean(servicio?.puede_aprobar)
+  return Boolean(showActions && isPendingApprovalStage(stage))
 }
-
-const normalizeRoleName = (value) => String(value || '')
-  .trim()
-  .toUpperCase()
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^A-Z0-9]+/g, '_')
-  .replace(/^_+|_+$/g, '')
 
 const getPendingStageForRoleName = (roleName) => {
   const key = normalizeRoleName(roleName)
@@ -118,9 +116,28 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     Object.values(flows).forEach((arr) => {
       if (!Array.isArray(arr)) return
       arr.forEach((row) => {
-        const id = Number(row?.rol_id || 0)
-        if (id > 0) {
-          map[`PENDIENTE_${id}`] = `APROBAR_${id}`
+        const roleName = normalizeRoleName(row?.rol_nombre)
+        const stageKey = roleName.includes('FINANZAS')
+          ? 'PENDIENTE_FINANZAS'
+          : roleName.includes('GERENCIA') && roleName.includes('AREA')
+            ? 'PENDIENTE_GERENCIA'
+            : roleName.includes('JEFE') || roleName.includes('SUBGERENTE')
+              ? 'PENDIENTE_JEFE_AREA'
+              : roleName === 'ADMIN'
+                ? 'PENDIENTE_ADMIN'
+                : ''
+        const permissionKey = roleName.includes('FINANZAS')
+          ? 'APROBAR_FINANZAS'
+          : roleName.includes('GERENCIA') && roleName.includes('AREA')
+            ? 'APROBAR_GERENCIA_AREA'
+            : roleName.includes('JEFE') || roleName.includes('SUBGERENTE')
+              ? 'APROBAR_JEFE_AREA'
+              : roleName === 'ADMIN'
+                ? 'APROBAR_ADMIN'
+                : ''
+
+        if (stageKey && permissionKey) {
+          map[stageKey] = permissionKey
         }
       })
     })
@@ -282,7 +299,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
                 </label>
               )}
 
-              {view.actions && canApproveServicio(servicio, currentUserPermissions, approvalPermissionByStage) && (
+              {view.actions && canApproveServicio(servicio, view.actions) && (
                 <div className="service-manage-actions">
                   <button
                     className="btn-approve"

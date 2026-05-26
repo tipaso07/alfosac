@@ -1,5 +1,5 @@
 // Configuración de la API
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 export const CURRENT_USER_ID = 1;
 
 const getStoredUserId = () => String(localStorage.getItem('userId') || CURRENT_USER_ID);
