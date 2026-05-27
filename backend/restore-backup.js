@@ -24,6 +24,20 @@ const env = {
   PGPORT: dbPort,
 };
 
+const maintenanceDb = dbName === 'postgres' ? 'template1' : 'postgres';
+
+const resetDatabase = () => {
+  console.log(`Resetting database ${dbName} using maintenance DB ${maintenanceDb}`);
+  execFileSync('psql', [
+    '-U', dbUser,
+    '-d', maintenanceDb,
+    '-c', `DROP DATABASE IF EXISTS \"${dbName}\"; CREATE DATABASE \"${dbName}\";`,
+  ], {
+    stdio: 'inherit',
+    env,
+  });
+};
+
 const args = [
   '-U', dbUser,
   '--no-owner',
@@ -36,6 +50,7 @@ const args = [
 ];
 
 try {
+  resetDatabase();
   execFileSync('pg_restore', args, {
     stdio: 'inherit',
     env,

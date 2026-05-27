@@ -1,7 +1,8 @@
 import '../styles/Header.css'
 
 const resolveProfilePhotoSrc = (user) => {
-  const raw = String(user?.foto || user?.imagen || '').trim()
+  // Prefer `imagen` column value over `foto` when available
+  const raw = String(user?.imagen || user?.foto || '').trim()
   if (!raw) return ''
 
   if (/^https?:\/\//i.test(raw)) return raw

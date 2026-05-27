@@ -244,6 +244,7 @@ export const updateCurrentUserPhoto = async (foto) => {
   const response = await fetch(`${API_BASE_URL}/me/foto`, {
     method: 'PATCH',
     headers: buildHeaders({ includeJson: true }),
+    // Send `foto` in the API payload; backend will persist to `imagen` column.
     body: JSON.stringify({ foto }),
   });
 

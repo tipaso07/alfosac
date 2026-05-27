@@ -717,6 +717,12 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     try {
       await updateCurrentUserPhoto(foto)
       await loadData()
+      // Notificar a vistas que listan usuarios para que refresquen sus datos
+      try {
+        window.dispatchEvent(new CustomEvent('usuarios:refresh'))
+      } catch (e) {
+        // no-op
+      }
     } catch (err) {
       if (isUnauthorizedError(err)) {
         if (onAuthExpired) onAuthExpired()

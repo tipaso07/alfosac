@@ -66,7 +66,7 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
 
   const previewSrc = useMemo(() => {
     if (photoPreview) return photoPreview
-    const current = String(currentUser?.foto || currentUser?.imagen || '').trim()
+    const current = String(currentUser?.imagen || currentUser?.foto || '').trim()
     if (!current) return ''
     return resolvePhotoSrc(current)
   }, [photoPreview, currentUser])

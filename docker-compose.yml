@@ -22,9 +22,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: alfosac-migrate
+    profiles:
+      - init
     depends_on:
       db:
         condition: service_healthy
+    working_dir: /app
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -36,7 +39,7 @@ services:
       SQL_DEBUG: ${SQL_DEBUG:-false}
     volumes:
       - ./backups:/backups
-    command: ["sh", "-c", "node restore-backup.js"]
+    command: ["node", "/app/restore-backup.js"]
     restart: "no"
 
   backend:
@@ -48,8 +51,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     environment:
       PORT: 5000
       DB_HOST: db

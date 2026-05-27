@@ -3882,7 +3882,7 @@ const getUserRoleIdExpr = (tableAlias) =>
 const getUserRoleIdColumn = () => schemaMeta.usuariosRoleIdColumn || 'id_role';
 const getUserEmailExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'email', to_jsonb(${tableAlias})->>'correo', ''), '')`;
-const getUserPhotoColumn = () => pickExistingColumn(schemaMeta.usuariosColumns, ['foto', 'imagen']);
+const getUserPhotoColumn = () => pickExistingColumn(schemaMeta.usuariosColumns, ['imagen', 'foto']);
 const getUserPasswordExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'password_hash', to_jsonb(${tableAlias})->>'contraseña', to_jsonb(${tableAlias})->>'contrasena', ''), '')`;
 const getUserEstadoExpr = (tableAlias) =>
@@ -5585,7 +5585,8 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
           usuarios.id_area,
           COALESCE(${userEstadoExpr}, 'ACTIVO') AS estado,
           roles.nombre AS rol,
-          COALESCE(areas.nombre, '') AS area
+          COALESCE(areas.nombre, '') AS area,
+          usuarios.imagen
         FROM usuarios
         JOIN roles ON roles.id = ${userRoleExpr}
         LEFT JOIN areas ON areas.id = usuarios.id_area
@@ -5600,7 +5601,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
 app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { nombre, email, dni, id_role, id_area, estado, password } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, password, foto } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     if (!nombre || !String(nombre).trim()) {
@@ -5650,12 +5651,13 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
     }
 
     const hashedPassword = await hashPassword(cleanPassword);
+    const fotoBase64 = foto && String(foto).trim() ? String(foto).trim() : null;
 
     const result = await pool.query(
       `
-        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado
+        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado, imagen)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
       `,
       [
         String(nombre).trim(),
@@ -5664,7 +5666,8 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
         String(dni).trim(),
         Number(id_role),
         id_area ? Number(id_area) : null,
-        estado || 'ACTIVO'
+        estado || 'ACTIVO',
+        fotoBase64
       ]
     );
 
@@ -5677,7 +5680,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, email, dni, id_role, id_area, estado } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, foto } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     const userId = Number(id);
@@ -5766,6 +5769,13 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
       paramCount += 1;
     }
 
+    if (foto !== undefined) {
+      const fotoBase64 = foto && String(foto).trim() ? String(foto).trim() : null;
+      updates.push(`imagen = $${paramCount}`);
+      values.push(fotoBase64);
+      paramCount += 1;
+    }
+
     if (updates.length === 0) {
       return res.status(400).json({ error: 'No hay campos para actualizar' });
     }
@@ -5777,7 +5787,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
         UPDATE usuarios
         SET ${updates.join(', ')}
         WHERE id = $${paramCount}
-        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
       `,
       values
     );
@@ -5955,7 +5965,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
       id_role: profile.id_role,
       rol: profile.rol || req.user.rol || '',
       dni: profile.dni,
-      foto: profile.foto,
+      // Expose only `imagen` for the current user to avoid stale `foto` shadowing.
       imagen: profile.imagen,
       permisos: dbPermissions,
     });
@@ -5966,33 +5976,30 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 
 app.patch('/api/me/foto', authMiddleware, async (req, res) => {
   try {
-    const foto = String(req.body?.foto || '').trim();
-    if (!foto) {
-      return res.status(400).json({ error: 'La foto es obligatoria' });
+    // Prefer `imagen` column. Accept `imagen` or `foto` in body for compatibility.
+    const imagen = String(req.body?.imagen || req.body?.foto || '').trim();
+    if (!imagen) {
+      return res.status(400).json({ error: 'La foto (imagen) es obligatoria' });
     }
 
-    if (!isValidPhotoValue(foto)) {
+    if (!isValidPhotoValue(imagen)) {
       return res.status(400).json({ error: 'La foto debe ser URL valida (http/https) o base64 valida' });
-    }
-
-    const photoColumn = getUserPhotoColumn();
-    if (!photoColumn) {
-      return res.status(400).json({ error: 'No existe una columna de foto configurable (foto/imagen) en usuarios' });
     }
 
     const updated = await pool.query(
       `
         UPDATE usuarios
-        SET ${quoteIdentifier(photoColumn)} = $1
+        SET imagen = $1
         WHERE id = $2
         RETURNING
           id,
           nombre,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'email', to_jsonb(usuarios)->>'correo', '')), ''), '') AS correo,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'dni', '')), ''), '') AS dni,
-          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'foto', to_jsonb(usuarios)->>'imagen', '')), ''), '') AS foto
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'foto', '')), ''), '') AS foto,
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'imagen', '')), ''), '') AS imagen
       `,
-      [foto, req.user.id]
+      [imagen, req.user.id]
     );
 
     if (updated.rows.length === 0) {

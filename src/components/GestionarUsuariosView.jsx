@@ -58,7 +58,7 @@ export default function GestionarUsuariosView() {
   const isProbablyBase64 = (value) => /^[A-Za-z0-9+/=\s]+$/.test(value) && value.replace(/\s+/g, '').length > 80
 
   const resolveUserPhoto = (usuario) => {
-    const foto = String(usuario?.foto || usuario?.imagen || '').trim()
+    const foto = String(usuario?.imagen || usuario?.foto || '').trim()
     if (/^https?:\/\//i.test(foto)) return foto
     if (/^data:image\//i.test(foto)) return foto
     if (/^\/uploads\//i.test(foto)) return `${API_PUBLIC_BASE}${foto}`
@@ -187,6 +187,14 @@ export default function GestionarUsuariosView() {
     setUsuarios(Array.isArray(data) ? data : [])
   }
 
+  useEffect(() => {
+    const handler = () => {
+      refreshUsuarios().catch(() => {})
+    }
+    window.addEventListener('usuarios:refresh', handler)
+    return () => window.removeEventListener('usuarios:refresh', handler)
+  }, [])
+
   const openCreateModal = () => {
     setEditingUserId(null)
     setForm(initialForm)
@@ -222,7 +230,7 @@ export default function GestionarUsuariosView() {
       nombre: usuario.nombre || '',
       email: usuario.email || '',
       dni: usuario.dni || '',
-      foto: usuario.foto || usuario.imagen || '',
+      foto: usuario.imagen || usuario.foto || '',
       id_role: usuario.id_role || '',
       id_area: usuario.id_area || '',
       password: '',

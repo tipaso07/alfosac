@@ -147,7 +147,7 @@ export default function MisOrdenesCompraView({
 
   const normalize = (value) => String(value || '').trim().toUpperCase()
   const getReceptorPhotoSrc = (receptor) => {
-    const raw = String(receptor?.foto || receptor?.imagen || '').trim()
+    const raw = String(receptor?.imagen || receptor?.foto || '').trim()
     if (!raw) return ''
     if (raw.startsWith('data:image/')) return raw
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
