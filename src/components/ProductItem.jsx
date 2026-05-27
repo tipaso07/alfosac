@@ -215,7 +215,7 @@ export default function ProductItem({
             ))}
           </select>
         ) : (
-          <span className="product-currency">{monedaLabel}</span>
+          <span className="product-currency">{currencySymbol}</span>
         )}
       </td>
       <td className="product-image-cell">
