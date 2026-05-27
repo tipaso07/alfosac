@@ -35,7 +35,8 @@ export default function ProductItem({
   const normalizeCurrencySymbol = (value) => {
     const symbol = String(value || '').trim()
     if (!symbol) return ''
-    if (symbol === 'S' || symbol === 'S/') return 'S/'
+    // Normalize common representations of Soles to `S/.` per UI requirement
+    if (symbol === 'S' || symbol === 'S/' || symbol === 'S/.' || symbol === 'S/.') return 'S/.'
     return symbol
   }
 
@@ -48,7 +49,8 @@ export default function ProductItem({
     if (lookupSymbol) return lookupSymbol
 
     const monedaName = String(material.moneda || material.moneda_nombre || material.moneda_codigo || '').trim().toUpperCase()
-    if (monedaName.includes('SOLES') || monedaName === 'PEN' || monedaName === 'S/' || monedaName === 'SOL') return 'S/'
+
+    if (monedaName.includes('SOLES') || monedaName === 'PEN' || monedaName === 'S/' || monedaName === 'SOL') return 'S/.'
     if (monedaName.includes('DOLAR') || monedaName.includes('DÓL') || monedaName === 'USD' || monedaName === 'US$') return '$'
     if (monedaName.includes('EURO') || monedaName === 'EUR') return '€'
 
@@ -56,7 +58,7 @@ export default function ProductItem({
   }
 
   const currencySymbol = resolveMonedaSymbol()
-  const currencyPrefix = currencySymbol === 'S/' ? 'S/ ' : currencySymbol
+  const currencyPrefix = currencySymbol ? `${currencySymbol} ` : ''
   const formatCurrency = (value) => `${currencyPrefix}${Number(value || 0).toFixed(2)}`
 
   const categoryLabel = material.categoria || 'Sin categoria'
