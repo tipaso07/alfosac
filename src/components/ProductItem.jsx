@@ -30,6 +30,34 @@ export default function ProductItem({
   const monedaId = isEditing ? String(draft?.id_moneda || '') : String(material.moneda_id || '')
   const almacenId = isEditing ? String(draft?.id_almacen || '') : String(material.id_almacen || '')
   const imagePreview = isEditing ? String(draft?.imagen || '').trim() : String(material.imagen || '').trim()
+  const monedaIdValue = String(material.moneda_id || material.id_moneda || monedaId || '').trim()
+
+  const normalizeCurrencySymbol = (value) => {
+    const symbol = String(value || '').trim()
+    if (!symbol) return ''
+    if (symbol === 'S' || symbol === 'S/') return 'S/'
+    return symbol
+  }
+
+  const resolveMonedaSymbol = () => {
+    const directSymbol = normalizeCurrencySymbol(material.moneda_simbolo || material.simbolo || material.moneda_symbol)
+    if (directSymbol) return directSymbol
+
+    const byId = monedas.find((moneda) => String(moneda?.id || '') === monedaIdValue)
+    const lookupSymbol = normalizeCurrencySymbol(byId?.simbolo)
+    if (lookupSymbol) return lookupSymbol
+
+    const monedaName = String(material.moneda || material.moneda_nombre || material.moneda_codigo || '').trim().toUpperCase()
+    if (monedaName.includes('SOLES') || monedaName === 'PEN' || monedaName === 'S/' || monedaName === 'SOL') return 'S/'
+    if (monedaName.includes('DOLAR') || monedaName.includes('DÓL') || monedaName === 'USD' || monedaName === 'US$') return '$'
+    if (monedaName.includes('EURO') || monedaName === 'EUR') return '€'
+
+    return '$'
+  }
+
+  const currencySymbol = resolveMonedaSymbol()
+  const currencyPrefix = currencySymbol === 'S/' ? 'S/ ' : currencySymbol
+  const formatCurrency = (value) => `${currencyPrefix}${Number(value || 0).toFixed(2)}`
 
   const categoryLabel = material.categoria || 'Sin categoria'
   const providerLabel = material.proveedor || material.nombre_proveedor || '-'
@@ -168,10 +196,10 @@ export default function ProductItem({
             onChange={(event) => onDraftChange?.('costo_unitario', event.target.value)}
           />
         ) : (
-          `$${costoUnitarioValue.toFixed(2)}`
+          formatCurrency(costoUnitarioValue)
         )}
       </td>
-      <td>${costoConIgvValue.toFixed(2)}</td>
+      <td>{formatCurrency(costoConIgvValue)}</td>
       <td className="product-currency-cell">
         {isEditing ? (
           <select

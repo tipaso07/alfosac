@@ -6175,6 +6175,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
             ) * 1.18
           ), 2) AS costo_con_igv,
           COALESCE(mo.nombre, 'N/D') AS moneda,
+          COALESCE(mo.simbolo, '') AS moneda_simbolo,
           NULLIF(trim(COALESCE(to_jsonb(m)->>'imagen', '')), '') AS imagen,
           COALESCE(sr.id_almacen, NULL) AS id_almacen,
           COALESCE(sr.ubicacion, 'Sin almacen') AS almacen,
@@ -7446,7 +7447,7 @@ app.get('/api/monedas', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
       `
-        SELECT id, nombre
+        SELECT id, nombre, simbolo
         FROM monedas
         ORDER BY nombre ASC, id ASC
       `
