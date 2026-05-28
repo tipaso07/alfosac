@@ -88,6 +88,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
 
       if (stageKey && (matchesRoleName || matchesRoleId)) {
         addStage(stageKey)
+        // Also add numeric variant (PENDIENTE_<roleId>) to match backend numeric states
+        if (roleId > 0) stages.add(`PENDIENTE_${roleId}`)
       }
     })
 
