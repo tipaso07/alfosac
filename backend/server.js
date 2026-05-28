@@ -359,14 +359,6 @@ const isApprovalHierarchyRoleId = (roleId) => {
   return false;
 };
 
-const APPROVAL_ROLE_ID_BY_NAME = new Map([
-  [normalizeRoleName('JEFE DE AREA/SUBGERENTE'), 5],
-  [normalizeRoleName('JEFE DE AREA SUBGERENTE'), 5],
-  [normalizeRoleName('GERENCIA DEL AREA'), 6],
-  [normalizeRoleName('GERENCIA DE FINANZAS'), 7],
-  [normalizeRoleName('ADMIN'), 8],
-]);
-
 const APPROVAL_PERMISSION_BY_ROLE_ID = new Map([
   [5, 'APROBAR_JEFE_AREA'],
   [6, 'APROBAR_GERENCIA_AREA'],
@@ -415,13 +407,59 @@ const getApprovalRoleLabel = (roleId, roleName = '') => {
 };
 
 const getPendingStateByRoleId = (roleId) => {
-  const roleName = getApprovalRoleLabel(roleId);
-  const normalizedRole = normalizeRoleName(roleName);
-  if (!normalizedRole) {
-    return '';
+  const numericRoleId = Number(roleId || 0);
+  return numericRoleId > 0 ? `PENDIENTE_${numericRoleId}` : '';
+};
+
+const getApprovalRoleIdFromState = (state) => {
+  const normalizedState = normalizeApprovalState(state);
+  const pendingMatch = normalizedState.match(/^PENDIENTE_(\d+)$/);
+  if (pendingMatch) {
+    return Number(pendingMatch[1] || 0);
   }
 
-  return `PENDIENTE_${normalizedRole}`;
+  for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
+    const normalizedRole = normalizePermissionName(roleName);
+    if (normalizedState === `PENDIENTE_${normalizedRole}`) {
+      return roleId;
+    }
+  }
+
+  const legacyStateToRoleId = new Map([
+    ['PENDIENTE_JEFE_AREA', 5],
+    ['PENDIENTE_GERENCIA', 6],
+    ['PENDIENTE_FINANZAS', 7],
+    ['PENDIENTE_ADMIN', 8],
+  ]);
+
+  return Number(legacyStateToRoleId.get(normalizedState) || 0);
+};
+
+const getApprovalPendingStatesForRoleId = (roleId) => {
+  const numericRoleId = Number(roleId || 0);
+  if (numericRoleId <= 0) {
+    return [];
+  }
+
+  const states = new Set([`PENDIENTE_${numericRoleId}`]);
+  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
+  if (roleName) {
+    const normalizedRole = normalizePermissionName(roleName);
+    if (normalizedRole) {
+      states.add(`PENDIENTE_${normalizedRole}`);
+    }
+  }
+
+  const legacyStatesByRoleId = new Map([
+    [5, ['PENDIENTE_JEFE_AREA']],
+    [6, ['PENDIENTE_GERENCIA']],
+    [7, ['PENDIENTE_FINANZAS']],
+    [8, ['PENDIENTE_ADMIN']],
+  ]);
+
+  (legacyStatesByRoleId.get(numericRoleId) || []).forEach((value) => states.add(value));
+
+  return [...states];
 };
 
 const parseBooleanFlag = (value, defaultValue = false) => {
@@ -461,51 +499,16 @@ const tienePermiso = (usuario, permiso) => {
 
 const getRequiredApprovalPermissionByRoleId = (roleId) => {
   const numericRoleId = Number(roleId || 0);
-  
-  // Primero intenta el mapa hardcodeado (para compatibilidad hacia atrás)
-  const hardcodedPermission = APPROVAL_PERMISSION_BY_ROLE_ID.get(numericRoleId);
-  if (hardcodedPermission) {
-    return String(hardcodedPermission).trim().toUpperCase();
-  }
-  // Si no está en el mapa hardcodeado, intentar derivar el permiso a partir
-  // del nombre del rol cargado dinámicamente en `ROLE_NAME_BY_ID`.
   const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
   if (roleName) {
     const normalizedName = normalizeRoleName(roleName);
+    return `APROBAR_${normalizedName}`;
+  }
 
-    // Primero intenta encontrarlo en el mapeo canónico por nombre de rol
-    if (APPROVAL_ROLE_ID_BY_NAME.has(normalizedName)) {
-      const mappedRoleId = APPROVAL_ROLE_ID_BY_NAME.get(normalizedName);
-      const mappedPerm = APPROVAL_PERMISSION_BY_ROLE_ID.get(mappedRoleId);
-      if (mappedPerm) return String(mappedPerm).trim().toUpperCase();
-    }
-
-    // Generar variantes limpias del nombre para intentar coincidir con permisos existentes
-    const stopwords = [' DEL ', ' DE ', ' LA ', ' EL ', ' LOS ', ' LAS ', "'", '/'];
-    const variants = new Set();
-    variants.add(normalizedName);
-    // variante sin stopwords
-    let cleaned = ` ${normalizedName} `;
-    for (const sw of stopwords) cleaned = cleaned.replace(new RegExp(sw, 'g'), ' ');
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    variants.add(cleaned);
-    // variante removiendo SUBGERENTE (muchos roles contienen 'SUBGERENTE' en paralelo)
-    variants.add(cleaned.replace(/SUBGERENTE/g, '').replace(/\s+/g, ' ').trim());
-
-    // Construir candidatos de permiso y ver si coinciden con permisos conocidos
-    const knownPerms = new Set([
-      ...Array.from(APPROVAL_PERMISSION_BY_ROLE_ID.values()),
-      ...Array.from(APPROVAL_PERMISSION_BY_STATE.values()),
-    ].map((p) => String(p || '').trim().toUpperCase()));
-
-    for (const v of variants) {
-      const candidate = `APROBAR_${normalizePermissionName(v)}`;
-      if (knownPerms.has(candidate)) return candidate;
-    }
-
-    // Fallback: generar permiso basado en el nombre normalizado (menos agresivo)
-    const permission = `APROBAR_${normalizePermissionName(normalizedName)}`;
-    return String(permission).trim().toUpperCase();
+  // Fallback legacy para configuraciones antiguas.
+  const hardcodedPermission = APPROVAL_PERMISSION_BY_ROLE_ID.get(numericRoleId);
+  if (hardcodedPermission) {
+    return String(hardcodedPermission).trim().toUpperCase();
   }
 
   // Fallback vacío si no se puede resolver dinámicamente
@@ -514,6 +517,11 @@ const getRequiredApprovalPermissionByRoleId = (roleId) => {
 
 const getApprovalPermissionByState = (state) => {
   const normalizedState = normalizeApprovalState(state);
+  const roleId = getApprovalRoleIdFromState(normalizedState);
+  if (roleId > 0) {
+    return getRequiredApprovalPermissionByRoleId(roleId);
+  }
+
   if (APPROVAL_PERMISSION_BY_STATE.has(normalizedState)) {
     return APPROVAL_PERMISSION_BY_STATE.get(normalizedState);
   }
@@ -627,36 +635,55 @@ const getApprovalStagePermissionForUser = (usuario) => {
   return '';
 };
 
-const getApprovalStageStateForUser = (usuario) => getApprovalStateByPermission(getApprovalStagePermissionForUser(usuario));
+const getApprovalStageRoleIdForUser = (usuario) => {
+  const roleId = resolveApprovalRoleId(usuario);
+  return isApprovalHierarchyRoleId(roleId) ? roleId : 0;
+};
+
+const getApprovalStageStateForUser = (usuario) => {
+  const roleId = getApprovalStageRoleIdForUser(usuario);
+  return roleId > 0 ? getPendingStateByRoleId(roleId) : '';
+};
 
 const getNextApprovalState = ({ tipo, currentState, dentroPlan }) => {
   const normalizedState = normalizeApprovalState(currentState);
-  const currentPermission = getApprovalPermissionByState(normalizedState);
-  const approvalFlowPermissions = ['APROBAR_JEFE_AREA', 'APROBAR_GERENCIA_AREA', 'APROBAR_FINANZAS', 'APROBAR_ADMIN'];
+  const approvalChain = getApprovalChainForEntity({ tipo, dentroPlan });
+  const currentRoleId = getApprovalRoleIdFromState(normalizedState);
 
   if (normalizedState === 'PENDIENTE') {
-    return getNextApprovalState({ tipo, currentState: getPendingStateByPermission('APROBAR_JEFE_AREA'), dentroPlan });
+    const firstRoleId = Number(approvalChain[0] || 0);
+    if (!firstRoleId) {
+      return {
+        roleId: 0,
+        state: normalizedState,
+      };
+    }
+
+    return {
+      roleId: firstRoleId,
+      state: getPendingStateByRoleId(firstRoleId),
+    };
   }
 
-  const currentIndex = approvalFlowPermissions.indexOf(currentPermission);
+  const currentIndex = approvalChain.indexOf(currentRoleId);
   if (currentIndex >= 0) {
-    const nextPermission = approvalFlowPermissions[currentIndex + 1] || '';
-    if (!nextPermission) {
+    const nextRoleId = Number(approvalChain[currentIndex + 1] || 0);
+    if (!nextRoleId) {
       return {
-        permission: currentPermission,
+        roleId: currentRoleId,
         state: 'APROBADO',
       };
     }
 
-    const nextState = getPendingStateByPermission(nextPermission);
+    const nextState = getPendingStateByRoleId(nextRoleId);
     return {
-      permission: currentPermission,
+      roleId: currentRoleId,
       state: nextState || 'PENDIENTE',
     };
   }
 
   return {
-    permission: '',
+    roleId: currentRoleId,
     state: normalizedState,
   };
 };
@@ -691,7 +718,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       ? {
         tableName: 'compras',
         stateColumn: 'estado',
-        selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
+        selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_5'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
         updateQuery: `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
       }
       : {
@@ -700,7 +727,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         selectQuery: `
           SELECT
             id,
-            upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) AS estado,
+            upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', 'PENDIENTE_5'))) AS estado,
             CASE
               WHEN lower(trim(COALESCE(to_jsonb(s)->>'dentro_plan', to_jsonb(s)->>'en_plan', 'true'))) IN ('true', 't', '1', 'si', 'yes', 'y') THEN TRUE
               ELSE FALSE
@@ -741,20 +768,15 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
     }
 
     const flow = getNextApprovalState({ tipo: normalizedTipo, currentState: estadoAnterior, dentroPlan });
-    const requiredPermission = flow.permission;
+    const stageRoleId = Number(flow.roleId || getApprovalRoleIdFromState(estadoAnterior) || 0);
     const estadoNuevo = normalizedDecision === 'RECHAZADO' ? 'RECHAZADO' : flow.state;
 
-    if (!requiredPermission || !estadoNuevo) {
+    if (!stageRoleId || !estadoNuevo) {
       throw new Error('No fue posible determinar el siguiente estado del flujo');
     }
 
-    if (!tienePermiso(usuario, requiredPermission)) {
+    if (resolveApprovalRoleId(usuario) !== stageRoleId) {
       throw new Error(`No tienes permiso para aprobar en la etapa ${estadoAnterior}`);
-    }
-
-    const stageRoleId = getApprovalRoleIdByPermission(requiredPermission);
-    if (!stageRoleId) {
-      throw new Error('No existe configuracion de aprobacion para la etapa actual');
     }
 
     const approvalRow = await client.query(
@@ -1027,12 +1049,7 @@ const getInitialApprovalStateForEntity = ({ tipo, dentroPlan = false, creatorRol
 };
 
 const getApprovalStageKeyByRoleId = (roleId) => {
-  const intermediateState = getIntermediateApprovalStateByRoleId(roleId);
-  if (intermediateState.startsWith('PENDIENTE_')) {
-    return intermediateState.replace(/^PENDIENTE_/, '');
-  }
-
-  const fallback = normalize(getApprovalRoleLabel(roleId));
+  const fallback = normalizePermissionName(getApprovalRoleLabel(roleId));
   if (!fallback) return '';
 
   return fallback
@@ -1114,9 +1131,10 @@ const resolveApprovalRoleId = (user) => {
 
   const normalizedRoles = getNormalizedRoles(user?.rol);
   for (const roleName of normalizedRoles) {
-    const mapped = Number(APPROVAL_ROLE_ID_BY_NAME.get(roleName) || 0);
-    if (isApprovalHierarchyRoleId(mapped)) {
-      return mapped;
+    for (const [roleIdFromCache, cachedRoleName] of ROLE_NAME_BY_ID.entries()) {
+      if (normalizeRoleName(cachedRoleName) === roleName && isApprovalHierarchyRoleId(roleIdFromCache)) {
+        return roleIdFromCache;
+      }
     }
   }
 
@@ -1443,17 +1461,17 @@ const buildApprovalStatusLabel = ({
 }) => {
   const normalizedCurrentStatus = normalizeApprovalState(currentStatus);
   if (isPendingApprovalState(normalizedCurrentStatus)) {
+    const currentRoleId = getApprovalRoleIdFromState(normalizedCurrentStatus);
+    if (currentRoleId > 0) {
+      return `PENDIENTE_${normalizePermissionName(getApprovalRoleLabel(currentRoleId))}`;
+    }
+
     return normalizedCurrentStatus;
   }
 
   const pendingRole = Number(nextPendingRole || 0);
   if (pendingRole > 0) {
-    const mappedPendingState = getIntermediateApprovalStateByRoleId(pendingRole);
-    if (mappedPendingState) {
-      return mappedPendingState;
-    }
-
-    return 'PENDIENTE';
+    return `PENDIENTE_${normalizePermissionName(getApprovalRoleLabel(pendingRole))}`;
   }
 
   const statusNorm = normalizedCurrentStatus;
@@ -1617,6 +1635,11 @@ const canAccessPurchaseOrdersModule = (user) => (
 const canAccessManageRequestsModule = (user) => {
   const roleId = resolveApprovalRoleId(user);
   return isApprovalHierarchyRoleId(roleId);
+};
+
+const canApproveApprovalRole = (user, roleId) => {
+  const approvalRoleId = resolveApprovalRoleId(user);
+  return Number(roleId || 0) > 0 && approvalRoleId === Number(roleId || 0);
 };
 
 const createApprovalRowsForEntity = async (client, {
@@ -1915,7 +1938,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
   if (approvalComments.length > 0) {
     return approvalComments.map((row, index) => ({
       orden: Number(row.orden || index + 1),
-      rol_aprobador: getApprovalRoleIdByPermission(getApprovalPermissionByState(`PENDIENTE_${String(row.etapa || '').toUpperCase()}`)) || 0,
+      rol_aprobador: getApprovalRoleIdFromState(`PENDIENTE_${String(row.etapa || '').toUpperCase()}`) || 0,
       etapa: String(row.etapa || '').trim().toUpperCase(),
       aprobador: String(row.usuario || '').trim() || 'Usuario',
       usuario_id: Number(row.usuario_id || 0) || null,
@@ -2287,10 +2310,10 @@ const insertCommentForEntity = async (db, { user, tipoEntidad, idEntidad, conten
 
 const getApprovalStageLabelFromState = (state) => {
   const normalizedState = normalizeApprovalState(state);
-  if (normalizedState === 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE' || normalizedState === 'PENDIENTE_JEFE_AREA') return 'JEFE_AREA';
-  if (normalizedState === 'PENDIENTE_GERENCIA_DEL_AREA' || normalizedState === 'PENDIENTE_GERENCIA') return 'GERENCIA';
-  if (normalizedState === 'PENDIENTE_GERENCIA_DE_FINANZAS' || normalizedState === 'PENDIENTE_FINANZAS') return 'FINANZAS';
-  if (normalizedState === 'PENDIENTE_ADMIN') return 'ADMIN';
+  const roleId = getApprovalRoleIdFromState(normalizedState);
+  if (roleId > 0) {
+    return normalizePermissionName(getApprovalRoleLabel(roleId));
+  }
   return '';
 };
 
@@ -8960,8 +8983,7 @@ app.get('/api/compras', authMiddleware, async (req, res) => {
   try {
     const userRole = String(req.user?.rol || '');
     const roleId = resolveApprovalRoleId(req.user);
-    const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
-    const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
     const canSeeAllPurchases = canAccessManageRequestsModule(req.user)
       || canAccessPurchaseOrdersModule(req.user)
       || canManagePurchasesRole(userRole)
@@ -8994,13 +9016,12 @@ app.get('/api/compras', authMiddleware, async (req, res) => {
 
 app.get('/api/mis-compras', authMiddleware, async (req, res) => {
   try {
-    const approvalStagePermission = getApprovalStagePermissionForUser(req.user);
-    const approvalStageState = getApprovalStateByPermission(approvalStagePermission);
+    const approvalStageRoleId = getApprovalStageRoleIdForUser(req.user);
+    const approvalStageStates = getApprovalPendingStatesForRoleId(approvalStageRoleId);
 
     if (canAccessPurchaseOrdersModule(req.user)) {
-      const roleId = resolveApprovalRoleId(req.user);
-      const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
-      const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+      const roleId = approvalStageRoleId;
+      const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
       const compras = await fetchComprasRows(
         [],
         "WHERE upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) IN ('APROBADA', 'APROBADO', 'POR_RECIBIR', 'RECIBIDA', 'RECIBIDO', 'ENTREGADO')",
@@ -9025,26 +9046,24 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
       return res.json(compras);
     }
 
-    if (approvalStageState) {
-      const approvalRoleId = resolveApprovalRoleId(req.user);
-      const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(approvalRoleId);
-      const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    if (approvalStageStates.length > 0) {
+      const approvalRoleId = approvalStageRoleId;
+      const canApproveInCurrentStage = canApproveApprovalRole(req.user, approvalRoleId);
       const comprasAprobacion = await fetchComprasRows(
-        [req.user.id, approvalStageState],
-        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) = $2",
+        [req.user.id, approvalStageStates],
+        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE'))) = ANY($2::text[])",
         { approvalRoleId, approvalPermissionGranted: canApproveInCurrentStage }
       );
 
       comprasAprobacion.forEach((row) => {
-        row.gestion_estado_usuario = approvalStageState;
+        row.gestion_estado_usuario = approvalStageStates[0] || '';
       });
 
       return res.json(comprasAprobacion);
     }
 
     const roleId = resolveApprovalRoleId(req.user);
-    const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
-    const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
     // Mis ordenes para roles jerarquicos: solo solicitudes que deben gestionar o ya gestionaron.
     if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
@@ -9218,7 +9237,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
     const compraInsert = await client.query(
       `
         INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, fecha_creacion, fecha_actualizacion)
-        VALUES ('PENDIENTE_JEFE_DE_AREA_SUBGERENTE', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
+        VALUES ('PENDIENTE_5', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
         RETURNING id
       `,
       [
@@ -10733,8 +10752,7 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
 
     const userRole = String(req.user?.rol || '');
     const roleId = resolveApprovalRoleId(req.user);
-    const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
-    const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
 
     // Devolver todos los servicios para "Mis órdenes de servicios" independientemente del rol
@@ -10752,8 +10770,7 @@ app.get('/api/mis-servicios', authMiddleware, async (req, res) => {
     }
 
     const roleId = resolveApprovalRoleId(req.user);
-    const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
-    const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
     if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
       const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
@@ -10872,9 +10889,9 @@ app.post('/api/servicios/:id/comentarios', authMiddleware, async (req, res) => {
 
 app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
   try {
-    const approvalStagePermission = getApprovalStagePermissionForUser(req.user);
-    const approvalStageState = getApprovalStateByPermission(approvalStagePermission);
-    if (!approvalStagePermission || !approvalStageState) {
+    const approvalRoleId = getApprovalStageRoleIdForUser(req.user);
+    const approvalStageStates = getApprovalPendingStatesForRoleId(approvalRoleId);
+    if (!approvalRoleId || approvalStageStates.length === 0) {
       return res.json([]);
     }
 
@@ -10908,7 +10925,7 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
           )
         ORDER BY upper(trim(a.tipo)), a.referencia_id, a.orden
       `,
-      [getApprovalRoleIdByPermission(approvalStagePermission)]
+      [approvalRoleId]
     );
 
     res.json(result.rows);
