@@ -1926,7 +1926,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
           ${getUserRoleIdExpr('u')} AS rol_aprobador,
           COALESCE(u.nombre, '') AS aprobador,
           COALESCE(r.nombre, 'ROL 7') AS rol,
-          COALESCE(c.fecha_actualizacion, c.fecha_creacion, NOW()) AS fecha
+          COALESCE(c.fecha_actualizacion, c.fecha_creacion, timezone('America/Lima', now())) AS fecha
         FROM compras c
         JOIN usuarios u ON u.id = c.id_usuario
         LEFT JOIN roles r ON r.id = ${getUserRoleIdExpr('u')}
@@ -1965,7 +1965,7 @@ const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) =>
           ${getUserRoleIdExpr('u')} AS rol_aprobador,
           COALESCE(u.nombre, '') AS aprobador,
           COALESCE(r.nombre, 'ROL 7') AS rol,
-          COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::timestamp, NULLIF(to_jsonb(s)->>'created_at', '')::timestamp, NOW()) AS fecha
+          COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::timestamp, NULLIF(to_jsonb(s)->>'created_at', '')::timestamp, timezone('America/Lima', now())) AS fecha
         FROM servicios s
         JOIN usuarios u ON u.id = NULLIF(COALESCE(to_jsonb(s)->>'id_usuario', to_jsonb(s)->>'usuario_id', ''), '')::int
         LEFT JOIN roles r ON r.id = ${getUserRoleIdExpr('u')}
@@ -2237,7 +2237,7 @@ const insertCommentForEntity = async (db, { user, tipoEntidad, idEntidad, conten
   const inserted = await db.query(
     `
       INSERT INTO comentarios (id_usuario, tipo_entidad, id_entidad, contenido, fecha)
-      VALUES ($1, $2, $3, $4, NOW())
+      VALUES ($1, $2, $3, $4, timezone('America/Lima', now()))
       RETURNING id, id_usuario, tipo_entidad, id_entidad, contenido, fecha
     `,
     [userId, normalizedType, entityId, text]
@@ -2250,7 +2250,7 @@ const insertCommentForEntity = async (db, { user, tipoEntidad, idEntidad, conten
     usuario_id: Number(row.id_usuario || 0) || userId,
     usuario: String(user?.nombre || user?.username || user?.email || 'Usuario').trim() || 'Usuario',
     foto: String(user?.foto || user?.imagen || '').trim(),
-    fecha: row.fecha || new Date().toISOString(),
+    fecha: row.fecha || new Date().toLocaleString('sv-SE', { timeZone: 'America/Lima', hour12: false }),
     contenido: String(row.contenido || text).trim(),
   };
 };
@@ -2955,7 +2955,7 @@ const upsertProveedorRating = async (db, { user, proveedorId, puntuacion, coment
         comentario,
         fecha
       )
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, timezone('America/Lima', now()))
     `,
     [idProveedor, userId, ratingType, referenceId, score, note || null]
   );
@@ -3996,7 +3996,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
           NULLIF(to_jsonb(s)->>'fecha_creacion', '')::timestamp,
           NULLIF(to_jsonb(s)->>'created_at', '')::timestamp,
           NULLIF(to_jsonb(s)->>'fecha', '')::timestamp,
-          NOW()
+          timezone('America/Lima', now())
         ) AS fecha,
         COALESCE(p.razon_social, p.nombre, 'Sin proveedor') AS proveedor,
         COALESCE(to_jsonb(p)->>'ruc', '') AS proveedor_ruc,
@@ -4265,7 +4265,7 @@ const ensureRequerimientosColumns = async () => {
 
   await pool.query(`
     ALTER TABLE requerimientos
-    ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP DEFAULT (timezone('America/Lima', now()));
   `);
 
   await pool.query(`
@@ -4332,8 +4332,8 @@ const ensureComprasColumns = async () => {
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS igv NUMERIC(12,2);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS total NUMERIC(12,2);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS numero_orden VARCHAR(50);`,
-    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`,
-    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`,
+    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP DEFAULT (timezone('America/Lima', now()));`,
+    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS fecha_actualizacion TIMESTAMP DEFAULT (timezone('America/Lima', now()));`,
   ];
 
   for (const statement of compraColumnStatements) {
@@ -4603,8 +4603,8 @@ const seedInventoryDemoData = async () => {
 
     const requerimientoResult = await client.query(
       `
-        INSERT INTO requerimientos (estado, prioridad, ${quoteIdentifier(seedReqDescripcionColumn)}, id_usuario, id_area, fecha_creacion, nombre_receptor, dni_receptor, estado_entrega)
-        VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8)
+          INSERT INTO requerimientos (estado, prioridad, ${quoteIdentifier(seedReqDescripcionColumn)}, id_usuario, id_area, fecha_creacion, nombre_receptor, dni_receptor, estado_entrega)
+        VALUES ($1, $2, $3, $4, $5, timezone('America/Lima', now()), $6, $7, $8)
         RETURNING id
       `,
       ['APROBADO', 'MEDIA', 'Requerimiento semilla', adminUser.id, idArea, 'Usuario Demo', '00000000', 'ENTREGADO']
@@ -8098,7 +8098,7 @@ app.post('/api/requerimientos', authMiddleware, requirePermissions('CREAR_REQUER
       const reqInsert = await client.query(
         `
           INSERT INTO requerimientos (estado, prioridad, ${quoteIdentifier(reqDescripcionColumn)}, id_usuario, fecha_creacion)
-          VALUES ('PENDIENTE', $1, $2, $3, NOW())
+          VALUES ('PENDIENTE', $1, $2, $3, timezone('America/Lima', now()))
           RETURNING id
         `,
         [prioridadNorm, descripcion || null, req.user.id]
