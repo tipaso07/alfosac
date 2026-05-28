@@ -4159,14 +4159,6 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
     referenceIds: servicios.map((row) => Number(row.id || 0)),
   });
 
-  servicios.forEach((row) => {
-    const refId = Number(row.id || 0);
-    row.estado_aprobacion_detalle = buildApprovalStatusLabel({
-      currentStatus: row.estado_aprobacion,
-      nextPendingRole: nextPendingByRef.get(refId),
-    });
-  });
-
   return servicios;
 };
 
