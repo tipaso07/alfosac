@@ -379,22 +379,22 @@ function SolicitudesEstadoDonut({ title, subtitle, pendiente = 0, aprobada = 0, 
       <div className="erp-donut-layout">
         <div className="erp-donut" style={{ background: gradient }} />
         <div className="erp-donut-legend">
-          {segments.length === 0 ? (
-            <div className="erp-donut-row">
-              <span>Sin datos</span>
-            </div>
-          ) : (
-            segments.map((seg) => {
-              const pct = total > 0 ? (Number(seg.value || 0) / total) * 100 : 0
-              return (
-                <div className="erp-donut-row" key={seg.label}>
-                  <span className="dot" style={{ background: seg.color }} />
-                  <span>{seg.label}</span>
-                  <strong>{pct.toFixed(1)}%</strong>
-                </div>
-              )
-            })
-          )}
+            {segments.length === 0 ? (
+              <div className="erp-donut-row">
+                <span>Sin datos</span>
+              </div>
+            ) : (
+              segments.map((seg) => {
+                const pct = total > 0 ? (Number(seg.value || 0) / total) * 100 : 0
+                return (
+                  <div className="erp-donut-row" key={seg.label}>
+                    <span className="dot" style={{ background: seg.color }} />
+                    <span>{seg.label}</span>
+                    <strong>{formatNumber(seg.value)} · {pct.toFixed(1)}%</strong>
+                  </div>
+                )
+              })
+            )}
         </div>
       </div>
     </article>
