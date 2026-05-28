@@ -258,7 +258,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
               <div className="purchase-manage-head">
                 <h3>Compra #{compra.id}</h3>
                 <span className={`purchase-status ${normalize(normalizePurchasePendingLabel(compra.estado_pedido || compra.estado)).toLowerCase()}`}>
-                  {normalizePurchasePendingLabel(compra.estado_pedido || compra.estado)}
+                  <span>Estado: {normalizePurchasePendingLabel(compra.estado || 'Sin estado')}</span>
+                  <span>Pedido: {normalizePurchasePendingLabel(compra.estado_pedido || compra.estado || 'Sin estado pedido')}</span>
                 </span>
               </div>
 
