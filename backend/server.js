@@ -11736,6 +11736,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 
 app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) => {
   try {
+    const USD_TO_PEN_RATE = 3.4;
     const fechaInicioRaw = String(req.query?.fecha_inicio || '').trim();
     const fechaFinRaw = String(req.query?.fecha_fin || '').trim();
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -11896,6 +11897,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       movimientos_enriquecidos AS (
         SELECT
           ms.id_movimiento,
+          ms.fecha_mov,
           COALESCE(a_req.nombre, a_mov.nombre, 'Sin area') AS area_destino
         FROM movimientos_salida ms
         LEFT JOIN requerimientos r ON r.id = ms.id_requerimiento
@@ -11941,7 +11943,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               SELECT COALESCE(SUM(
                 CASE 
                   WHEN NULLIF(to_jsonb(c)->>'id_moneda', '')::int = 2 
-                    THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * 3.5
+                    THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * ${USD_TO_PEN_RATE}
                   ELSE NULLIF(to_jsonb(c)->>'total_importe', '')::numeric
                 END
               ), 0)
@@ -11952,7 +11954,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               SELECT SUM(
                 CASE 
                   WHEN NULLIF(to_jsonb(s)->>'moneda_id', '')::int = 2 
-                    THEN ${servicioMontoExpr} * 3.5
+                    THEN ${servicioMontoExpr} * ${USD_TO_PEN_RATE}
                   ELSE ${servicioMontoExpr}
                 END
               )
@@ -11964,7 +11966,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               SELECT SUM(COALESCE(md.cantidad, 0)::numeric * 
                 CASE 
                   WHEN NULLIF(to_jsonb(mat)->>'id_moneda', '')::int = 2 
-                    THEN COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0) * 3.5
+                    THEN COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0) * ${USD_TO_PEN_RATE}
                   ELSE COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)
                 END
               )
@@ -12006,7 +12008,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             COALESCE(SUM(
               CASE 
                 WHEN NULLIF(to_jsonb(c)->>'id_moneda', '')::int = 2 
-                  THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * 3.5
+                  THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * ${USD_TO_PEN_RATE}
                 ELSE NULLIF(to_jsonb(c)->>'total_importe', '')::numeric
               END
             ), 0) AS monto_total
@@ -12059,7 +12061,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             COALESCE(SUM(
               CASE 
                 WHEN NULLIF(to_jsonb(s)->>'moneda_id', '')::int = 2 
-                  THEN ${servicioMontoExpr} * 3.5
+                  THEN ${servicioMontoExpr} * ${USD_TO_PEN_RATE}
                 ELSE ${servicioMontoExpr}
               END
             ), 0) AS monto_total
@@ -12078,10 +12080,15 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           , detalle_salida AS (
             SELECT
               me.area_destino AS area,
+              me.fecha_mov,
               md.id_material,
               COALESCE(mat.nombre, CONCAT('Material #', md.id_material::text), 'Sin material') AS material,
               COALESCE(md.cantidad, 0)::numeric AS cantidad,
-              ${materialPrecioExpr} AS precio
+              CASE
+                WHEN NULLIF(to_jsonb(mat)->>'id_moneda', '')::int = 2
+                  THEN ${materialPrecioExpr} * ${USD_TO_PEN_RATE}
+                ELSE ${materialPrecioExpr}
+              END AS precio
             FROM movimientos_enriquecidos me
             JOIN movimiento_detalles md ON md.id_movimiento = me.id_movimiento
             LEFT JOIN materiales mat ON mat.id = md.id_material
