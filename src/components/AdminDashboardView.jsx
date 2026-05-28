@@ -90,10 +90,10 @@ function StackedConsumptionChart({ rows = [] }) {
                     <rect x={servX} y={baseY - servHeight} width={itemWidth} height={servHeight} fill="var(--success-color)" opacity="0.92" />
 
                     <text x={comprasX + itemWidth / 2} y={baseY - comprasHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
-                      {combinedValue > 0 ? `${formatMoney(combinedValue)} (${formatNumber(combinedCount)})` : ''}
+                      {combinedValue > 0 ? formatMoney(combinedValue) : ''}
                     </text>
                     <text x={servX + itemWidth / 2} y={baseY - servHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
-                      {serv > 0 ? `${formatMoney(serv)} (${formatNumber(servCount)})` : ''}
+                      {serv > 0 ? formatMoney(serv) : ''}
                     </text>
 
                     <text x={groupX + groupWidth / 2} y={height - padding + 18} textAnchor="middle" fontSize="11" fill="#475569">
