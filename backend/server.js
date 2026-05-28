@@ -11737,6 +11737,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const USD_TO_PEN_RATE = 3.4;
+    const debugSalida = ['1', 'true', 'yes'].includes(String(req.query?.debug || req.query?.debug_consumo || '').trim().toLowerCase());
     const fechaInicioRaw = String(req.query?.fecha_inicio || '').trim();
     const fechaFinRaw = String(req.query?.fecha_fin || '').trim();
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -12083,6 +12084,8 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               me.fecha_mov,
               md.id_material,
               COALESCE(mat.nombre, CONCAT('Material #', md.id_material::text), 'Sin material') AS material,
+              NULLIF(COALESCE(to_jsonb(mat)->>'moneda_id', to_jsonb(mat)->>'id_moneda', ''), '')::int AS moneda_id,
+              COALESCE(mo.nombre, 'N/D') AS moneda,
               COALESCE(md.cantidad, 0)::numeric AS cantidad,
               CASE
                 WHEN NULLIF(COALESCE(to_jsonb(mat)->>'moneda_id', to_jsonb(mat)->>'id_moneda', ''), '')::int = 2
@@ -12092,6 +12095,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             FROM movimientos_enriquecidos me
             JOIN movimiento_detalles md ON md.id_movimiento = me.id_movimiento
             LEFT JOIN materiales mat ON mat.id = md.id_material
+            LEFT JOIN monedas mo ON mo.id = NULLIF(COALESCE(to_jsonb(mat)->>'moneda_id', to_jsonb(mat)->>'id_moneda', ''), '')::int
           ),
           materiales_rank AS (
             SELECT
@@ -12169,6 +12173,21 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               ) ORDER BY total_materiales_recibidos DESC)
               FROM cantidad
             ), '[]'::json) AS cantidad_materiales_recibidos_por_area
+            ${debugSalida ? `,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'area', area,
+                'fecha_mov', fecha_mov,
+                'id_material', id_material,
+                'material', material,
+                'moneda_id', moneda_id,
+                'moneda', moneda,
+                'cantidad', cantidad,
+                'precio', precio,
+                'subtotal', ROUND(cantidad * precio, 2)
+              ) ORDER BY area, fecha_mov, material)
+              FROM detalle_salida
+            ), '[]'::json) AS debug_salida_detalle` : ''}
         `,
         [fechaInicio, fechaFin]
       ),
@@ -12262,6 +12281,21 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         area: row.area,
         total_materiales_recibidos: Number(row.total_materiales_recibidos || 0),
       })),
+      ...(debugSalida ? {
+        debug_salida_detalle: (Array.isArray(dashboardMovimientos.debug_salida_detalle)
+          ? dashboardMovimientos.debug_salida_detalle
+          : []).map((row) => ({
+          area: row.area,
+          fecha_mov: row.fecha_mov,
+          id_material: Number(row.id_material || 0),
+          material: row.material,
+          moneda_id: row.moneda_id === null || row.moneda_id === undefined ? null : Number(row.moneda_id),
+          moneda: row.moneda,
+          cantidad: Number(row.cantidad || 0),
+          precio: Number(row.precio || 0),
+          subtotal: Number(row.subtotal || 0),
+        })),
+      } : {}),
       proveedores_top_rated: topProvidersRows.rows.map((row) => ({
         proveedor: String(row.proveedor || 'Proveedor desconocido').trim(),
         id_proveedor: Number(row.id_proveedor || 0),
