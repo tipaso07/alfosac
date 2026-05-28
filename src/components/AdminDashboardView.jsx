@@ -459,6 +459,9 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
     [data?.proveedores_worst_rated]
   )
 
+  const reqPendientes = Number(stats?.pendientes || 0)
+  const reqCompletados = Number(stats?.completados || 0)
+
   
 
   useEffect(() => {
@@ -641,7 +644,7 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
         <StackedConsumptionChart rows={consumptionRows} />
       </div>
 
-      <div className="erp-grid two-col">
+      <div className="erp-grid one-col">
         <DonutBlock
           title="Flujo del almacen"
           subtitle="Entradas vs Salidas (movimientos)"
@@ -659,10 +662,10 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
       <div className="erp-grid three-col">
         <SolicitudesEstadoDonut
           title="Requerimientos"
-          subtitle="Distribucion por estado (Pendiente incluye etapas de aprobacion)"
-          pendiente={Number(resumen.total_requerimientos || 0) * 0.35}
-          aprobada={Number(resumen.total_requerimientos || 0) * 0.35}
-          entregada={Number(resumen.total_requerimientos || 0) * 0.30}
+          subtitle="Distribucion por estado (Pendiente / Entregada)"
+          pendiente={reqPendientes}
+          aprobada={0}
+          entregada={reqCompletados}
         />
         <SolicitudesEstadoDonut
           title="Compras"
