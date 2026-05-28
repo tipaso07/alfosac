@@ -9236,10 +9236,16 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
 
     await client.query('BEGIN');
 
+    const creatorRoleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+    const initialApprovalState = getInitialApprovalStateForEntity({
+      tipo: 'COMPRA',
+      creatorRoleId,
+    });
+
     const compraInsert = await client.query(
       `
         INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, fecha_creacion, fecha_actualizacion)
-        VALUES ('PENDIENTE_5', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
+        VALUES ($6, $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
         RETURNING id
       `,
       [
@@ -9248,6 +9254,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
         providerId || null,
         providerData.proveedor_nombre || null,
         providerData.proveedor_ruc || null,
+        initialApprovalState,
       ]
     );
 
