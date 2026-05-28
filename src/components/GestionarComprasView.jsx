@@ -96,6 +96,20 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     return stages
   }, [currentUserApprovalStage, currentUserRoleId, currentUserRoleName, purchaseFlowConfig])
 
+  const normalizePurchasePendingLabel = (value) => {
+    const normalizedValue = normalizeStage(value)
+    if (!normalizedValue.startsWith('PENDIENTE_')) return normalizedValue
+    if (/^PENDIENTE_\d+$/.test(normalizedValue)) return normalizedValue
+
+    const pendingKey = normalizedValue.replace(/^PENDIENTE_/, '')
+    const matchedRole = purchaseFlowConfig.find((role) => normalizeRoleName(role?.rol_nombre) === pendingKey)
+    if (matchedRole?.rol_id) {
+      return `PENDIENTE_${Number(matchedRole.rol_id || 0)}`
+    }
+
+    return normalizedValue
+  }
+
   const isCurrentUserPendingStage = (stage) => {
     const normalizedStage = normalizeStage(stage)
     if (!normalizedStage) return false
@@ -243,13 +257,11 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
             <article className="purchase-manage-card" key={compra.id}>
               <div className="purchase-manage-head">
                 <h3>Compra #{compra.id}</h3>
-                <span className={`purchase-status ${normalize(compra.estado_pedido || compra.estado).toLowerCase()}`}>
-                  {compra.estado_aprobacion_detalle || (compra.estado_pedido || compra.estado)}
+                <span className={`purchase-status ${normalize(normalizePurchasePendingLabel(compra.estado_pedido || compra.estado)).toLowerCase()}`}>
+                  {normalizePurchasePendingLabel(compra.estado_pedido || compra.estado)}
                 </span>
               </div>
 
-              <p><strong>Estado:</strong> {compra.estado || 'Sin estado'}</p>
-              <p><strong>Estado pedido:</strong> {compra.estado_pedido || compra.estado || 'Sin estado pedido'}</p>
               <p><strong>Usuario:</strong> {compra.usuario || `ID ${compra.id_usuario}`}</p>
               <p><strong>Area solicitante:</strong> {compra.area_solicitante || 'Sin area'}</p>
               <p><strong>Fecha:</strong> {compra.fecha_creacion ? new Date(compra.fecha_creacion).toLocaleString() : 'Sin fecha'}</p>
