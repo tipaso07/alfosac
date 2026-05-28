@@ -8912,6 +8912,20 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
 
   const compras = mapCompraRows(result.rows);
 
+  // Normalize any legacy or named PENDIENTE states to the canonical numeric form
+  // (e.g. PENDIENTE_JEFE_DE_AREA -> PENDIENTE_<roleId>) so the API always
+  // exposes a consistent `estado` value that frontends can rely on.
+  compras.forEach((row) => {
+    try {
+      const roleIdFromState = getApprovalRoleIdFromState(String(row.estado || '')) || 0;
+      if (roleIdFromState > 0) {
+        row.estado = getPendingStateByRoleId(roleIdFromState);
+      }
+    } catch (err) {
+      // In case of unexpected values, leave original estado intact.
+    }
+  });
+
   const commentsByCompra = await fetchCommentsForEntities(pool, {
     tipoEntidad: 'compra',
     entityIds: compras.map((row) => Number(row.id || 0)),
