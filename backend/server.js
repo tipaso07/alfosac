@@ -8840,7 +8840,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
     `
       SELECT
         c.id,
-        COALESCE(upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))), 'PENDIENTE') AS estado,
+        COALESCE(upper(trim(COALESCE(to_jsonb(c)->>'estado', to_jsonb(c)->>'estado_pedido', ''))), 'PENDIENTE') AS estado,
         NULLIF(to_jsonb(c)->>'id_usuario', '')::int AS id_usuario,
         NULLIF(to_jsonb(c)->>'id_proveedor', '')::int AS id_proveedor,
         u.nombre AS usuario,
