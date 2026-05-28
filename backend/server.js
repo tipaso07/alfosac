@@ -11958,7 +11958,9 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               SELECT COUNT(*)
               FROM requerimientos r
               LEFT JOIN usuarios u ON u.id = NULLIF(to_jsonb(r)->>'id_usuario', '')::int
-              ${reqWhere}
+              WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(r)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(r)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
+                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(r)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(r)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
+                ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])` : ''}
             ) AS total_requerimientos,
             (
               SELECT COUNT(*)
