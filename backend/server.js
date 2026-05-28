@@ -1605,11 +1605,16 @@ const isComprasOperatorUser = (user) => {
 };
 
 const canAccessPurchaseOrdersModule = (user) => (
-  tienePermiso(user, 'GESTIONAR_SOLICITUDES')
+  tienePermiso(user, 'GESTIONAR_COMPRAS')
   || hasPurchaseOrdersAccess(user)
   || isAdminRole(user?.rol)
   || isComprasRole(user?.rol)
 );
+
+const canAccessManageRequestsModule = (user) => {
+  const roleId = resolveApprovalRoleId(user);
+  return isApprovalHierarchyRoleId(roleId);
+};
 
 const createApprovalRowsForEntity = async (client, {
   tipo,
@@ -5186,6 +5191,7 @@ app.post('/api/logout', authMiddleware, async (req, res) => {
 });
 
 const canManageRoles = (user) => tienePermiso(user, 'GESTIONAR_ROLES');
+const HIDDEN_MANAGED_PERMISSIONS = new Set(['GESTIONAR_SOLICITUDES']);
 
 const resolvePermissionIds = async (client, permissionItems = []) => {
   const items = Array.isArray(permissionItems) ? permissionItems : [];
@@ -5312,7 +5318,7 @@ app.get('/api/roles', authMiddleware, async (req, res) => {
 
   try {
     const result = await pool.query('SELECT id, nombre FROM roles ORDER BY id');
-    res.json(result.rows);
+    res.json(result.rows.filter((row) => !HIDDEN_MANAGED_PERMISSIONS.has(String(row.nombre || '').trim().toUpperCase())));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5367,7 +5373,7 @@ app.get('/api/roles/:id/permisos', authMiddleware, async (req, res) => {
 
     res.json({
       rol: roleResult.rows[0],
-      permisos: permissionsResult.rows,
+      permisos: permissionsResult.rows.filter((row) => !HIDDEN_MANAGED_PERMISSIONS.has(String(row.nombre || '').trim().toUpperCase())),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5404,6 +5410,12 @@ app.put('/api/roles/:id/permisos', authMiddleware, async (req, res) => {
         error: 'Se enviaron permisos inexistentes',
         permisos_invalidos: resolved.missing,
       });
+    }
+
+    const hiddenPermissionRequested = permissionItems.some((item) => HIDDEN_MANAGED_PERMISSIONS.has(String(item || '').trim().toUpperCase()));
+    if (hiddenPermissionRequested) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'El permiso GESTIONAR_SOLICITUDES ya no se asigna manualmente' });
     }
 
     // Regla de consistencia: editar inventario siempre requiere ver inventario.
@@ -8944,12 +8956,13 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
 app.get('/api/compras', authMiddleware, async (req, res) => {
   try {
     const userRole = String(req.user?.rol || '');
-    const canSeeAllPurchases = canAccessPurchaseOrdersModule(req.user)
-      || canManagePurchasesRole(userRole)
-      || canManageDeliveryRole(userRole);
     const roleId = resolveApprovalRoleId(req.user);
     const requiredApprovalPermission = getRequiredApprovalPermissionByRoleId(roleId);
     const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
+    const canSeeAllPurchases = canAccessManageRequestsModule(req.user)
+      || canAccessPurchaseOrdersModule(req.user)
+      || canManagePurchasesRole(userRole)
+      || canManageDeliveryRole(userRole);
 
     const compras = canSeeAllPurchases
       ? await fetchComprasRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage })

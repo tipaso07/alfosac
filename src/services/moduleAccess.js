@@ -16,6 +16,8 @@ const canonicalizePermissionName = (value) => {
   return PERMISSION_ALIASES[normalized] || normalized
 }
 
+const APPROVAL_FLOW_ROLE_IDS = new Set([5, 6, 7, 8])
+
 const hasPermission = (sourcePermissions, permission) => {
   const normalizedPermission = canonicalizePermissionName(permission)
   if (!normalizedPermission) return false
@@ -110,7 +112,7 @@ export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   if (hasPermission(effectivePermissions, 'CREAR_REQUERIMIENTO')) allowedModules.push(2)
   if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_COMPRA')) allowedModules.push(3)
   if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_SERVICIO')) allowedModules.push(4)
-  if (hasPermission(effectivePermissions, 'GESTIONAR_SOLICITUDES')) {
+  if (APPROVAL_FLOW_ROLE_IDS.has(numericRoleId)) {
     allowedModules.push(5)
   }
   if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRAS')) {

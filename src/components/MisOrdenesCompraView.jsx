@@ -114,7 +114,7 @@ export default function MisOrdenesCompraView({
 }) {
   const defaultFilter = hasPermission(currentUserPermissions, 'GESTIONAR_ENTREGAS')
     ? 'PENDIENTE_ENTREGA'
-    : hasPermission(currentUserPermissions, 'GESTIONAR_SOLICITUDES')
+    : hasPermission(currentUserPermissions, 'GESTIONAR_COMPRAS')
       ? 'APROBADAS'
       : 'POR_RECIBIR'
   const [activeFilter, setActiveFilter] = useState(defaultFilter)
