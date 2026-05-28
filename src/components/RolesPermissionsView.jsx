@@ -64,7 +64,7 @@ const PERMISSION_SECTIONS = [
   {
     title: 'Gestionar solicitudes',
     permissions: [
-      { name: 'GESTIONAR_SOLICITUDES', label: 'Gestionar solicitudes', description: 'Permite ver órdenes de compra, servicios y requerimientos en Mi Órdenes.' },
+      { name: 'GESTIONAR_SOLICITUDES', label: 'Gestionar solicitudes', description: 'Permite acceder al módulo Gestionar solicitudes para aprobar y revisar solicitudes.' },
     ],
   },
   {

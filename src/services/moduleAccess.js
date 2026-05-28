@@ -113,10 +113,7 @@ export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   if (hasPermission(effectivePermissions, 'GESTIONAR_SOLICITUDES')) {
     allowedModules.push(5)
   }
-  if (
-    hasPermission(effectivePermissions, 'GESTIONAR_SOLICITUDES')
-    || hasPermission(effectivePermissions, 'GESTIONAR_COMPRAS')
-  ) {
+  if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRAS')) {
     allowedModules.push(6)
   }
   if (hasPermission(effectivePermissions, 'GESTIONAR_ENTREGAS')) allowedModules.push(7)
