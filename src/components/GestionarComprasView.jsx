@@ -178,6 +178,13 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }
 
   const view = config[activeStatus]
+  const badgeStateForPurchase = (compra) => {
+    if (activeStatus === 'APROBADA') {
+      return normalizePurchasePendingLabel(compra.estado_pedido || compra.estado || 'Sin estado pedido')
+    }
+
+    return normalizePurchasePendingLabel(compra.estado || compra.estado_pedido || 'Sin estado')
+  }
 
   return (
     <section className="purchase-manage-section">
@@ -257,9 +264,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
             <article className="purchase-manage-card" key={compra.id}>
               <div className="purchase-manage-head">
                 <h3>Compra #{compra.id}</h3>
-                <span className={`purchase-status ${normalize(normalizePurchasePendingLabel(compra.estado_pedido || compra.estado)).toLowerCase()}`}>
-                  <span>Estado: {normalizePurchasePendingLabel(compra.estado || 'Sin estado')}</span>
-                  <span>Pedido: {normalizePurchasePendingLabel(compra.estado_pedido || compra.estado || 'Sin estado pedido')}</span>
+                <span className={`purchase-status ${normalize(badgeStateForPurchase(compra)).toLowerCase()}`}>
+                  {badgeStateForPurchase(compra)}
                 </span>
               </div>
 
