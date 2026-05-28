@@ -12226,6 +12226,24 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
     const totals = totalsRows.rows[0] || {};
     const dashboardMovimientos = dashboardMovimientosRows.rows[0] || {};
 
+    if (debugSalida) {
+      const debugRows = Array.isArray(dashboardMovimientos.debug_salida_detalle)
+        ? dashboardMovimientos.debug_salida_detalle.map((row) => ({
+          area: row.area,
+          fecha_mov: row.fecha_mov,
+          id_material: Number(row.id_material || 0),
+          material: row.material,
+          moneda_id: row.moneda_id === null || row.moneda_id === undefined ? null : Number(row.moneda_id),
+          moneda: row.moneda,
+          cantidad: Number(row.cantidad || 0),
+          precio: Number(row.precio || 0),
+          subtotal: Number(row.subtotal || 0),
+        }))
+        : [];
+
+      console.log('[admin-dashboard debug] detalle_salida', JSON.stringify(debugRows, null, 2));
+    }
+
     res.json({
       filtro_fechas: {
         fecha_inicio: fechaInicio || '',
@@ -12281,21 +12299,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         area: row.area,
         total_materiales_recibidos: Number(row.total_materiales_recibidos || 0),
       })),
-      ...(debugSalida ? {
-        debug_salida_detalle: (Array.isArray(dashboardMovimientos.debug_salida_detalle)
-          ? dashboardMovimientos.debug_salida_detalle
-          : []).map((row) => ({
-          area: row.area,
-          fecha_mov: row.fecha_mov,
-          id_material: Number(row.id_material || 0),
-          material: row.material,
-          moneda_id: row.moneda_id === null || row.moneda_id === undefined ? null : Number(row.moneda_id),
-          moneda: row.moneda,
-          cantidad: Number(row.cantidad || 0),
-          precio: Number(row.precio || 0),
-          subtotal: Number(row.subtotal || 0),
-        })),
-      } : {}),
       proveedores_top_rated: topProvidersRows.rows.map((row) => ({
         proveedor: String(row.proveedor || 'Proveedor desconocido').trim(),
         id_proveedor: Number(row.id_proveedor || 0),
