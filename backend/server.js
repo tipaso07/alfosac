@@ -9075,19 +9075,16 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
 
     // Mis ordenes para roles jerarquicos: solo solicitudes que deben gestionar o ya gestionaron.
     if (isApprovalHierarchyRoleId(roleId) && canApproveInCurrentStage) {
-      const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
-        tipo: 'COMPRA',
-        roleId,
-      });
-      const referenceIds = [...new Set(pendingReferenceIds)];
-
-      if (referenceIds.length === 0) {
+      // Select purchases directly by the `estado` stored in `compras` table
+      // (e.g. PENDIENTE_<ID>) instead of resolving via aprobaciones table.
+      const approvalStageStates = getApprovalPendingStatesForRoleId(roleId);
+      if (approvalStageStates.length === 0) {
         return res.json([]);
       }
 
       const comprasJerarquicas = await fetchComprasRows(
-        [referenceIds],
-        'WHERE c.id = ANY($1::int[])',
+        [approvalStageStates],
+        "WHERE upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', ''))) = ANY($1::text[])",
         {
           approvalRoleId: roleId,
           approvalPermissionGranted: canApproveInCurrentStage,
@@ -9095,7 +9092,8 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
       );
 
       comprasJerarquicas.forEach((row) => {
-        row.gestion_estado_usuario = String(row.estado_aprobacion_detalle || 'PENDIENTE').trim().toUpperCase();
+        // Force the gestion_estado_usuario to reflect the raw estado from DB
+        row.gestion_estado_usuario = String(row.estado || '').trim().toUpperCase();
       });
 
       return res.json(comprasJerarquicas);
