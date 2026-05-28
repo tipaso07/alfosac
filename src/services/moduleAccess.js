@@ -112,7 +112,7 @@ export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   if (hasPermission(effectivePermissions, 'CREAR_REQUERIMIENTO')) allowedModules.push(2)
   if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_COMPRA')) allowedModules.push(3)
   if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_SERVICIO')) allowedModules.push(4)
-  if (APPROVAL_FLOW_ROLE_IDS.has(numericRoleId)) {
+  if (hasPermission(effectivePermissions, 'GESTIONAR_SOLICITUDES') || APPROVAL_FLOW_ROLE_IDS.has(numericRoleId)) {
     allowedModules.push(5)
   }
   if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRAS')) {

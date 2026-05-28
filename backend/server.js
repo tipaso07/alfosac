@@ -6016,6 +6016,12 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 
     const dbPermissions = await fetchPermissionNamesByUserId(pool, profile.id);
 
+    // If the user is part of any approval flow, expose a permission so
+    // frontends can enable the 'Gestionar Solicitudes' module dynamically.
+    if (canAccessManageRequestsModule(req.user) && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
+      dbPermissions.push('GESTIONAR_SOLICITUDES');
+    }
+
     res.json({
       id: profile.id,
       nombre: profile.nombre,
