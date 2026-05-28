@@ -252,39 +252,7 @@ function LineTrendCard({ title, subtitle, points = [], lines = [] }) {
   )
 }
 
-function formatTimeWithUnits(value) {
-  // value in days
-  const days = Math.floor(value);
-  if (days > 0) {
-    return `${days.toFixed(1)} días`;
-  }
-  
-  // Convert to hours
-  const hours = Math.floor(value * 24);
-  if (hours > 0) {
-    return `${hours} horas`;
-  }
-  
-  // Convert to minutes
-  const minutes = Math.round(value * 24 * 60);
-  return `${minutes} minutos`;
-}
 
-function TimeCards({ approvals = 0, delivery = 0, attention = 0 }) {
-  return (
-    <article className="erp-card erp-time-card">
-      <header>
-        <h3>Tiempos promedio</h3>
-        <p>Estimacion derivada del volumen y estado de solicitudes</p>
-      </header>
-      <div className="erp-time-grid">
-        <div><span>Aprobacion</span><strong>{formatTimeWithUnits(approvals)}</strong></div>
-        <div><span>Entrega compras</span><strong>{formatTimeWithUnits(delivery)}</strong></div>
-        <div><span>Atencion req/serv</span><strong>{formatTimeWithUnits(attention)}</strong></div>
-      </div>
-    </article>
-  )
-}
 
 function BarComparisonChart({ prevLabel = '', currLabel = '', data = [] }) {
   const width = 760
@@ -491,9 +459,7 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
     [data?.proveedores_worst_rated]
   )
 
-  const pendingTotal = Number(stats?.pendientes || 0)
-  const completedTotal = Number(stats?.completados || 0)
-  const resolvedTotal = pendingTotal + completedTotal
+  
 
   useEffect(() => {
     let active = true
@@ -618,11 +584,7 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
     return diff > 0 ? diff : 30
   }, [fechaInicio, fechaFin])
 
-  const approvalTime = resolvedTotal > 0 ? ((pendingTotal / resolvedTotal) * (periodDays * 0.35)) : 0
-  const deliveryTime = Number(resumen.total_compras || 0) > 0 ? ((periodDays / Number(resumen.total_compras || 1)) * 0.8) : 0
-  const attentionTime = Number(resumen.total_requerimientos || 0) + Number(resumen.total_servicios || 0) > 0
-    ? ((periodDays / (Number(resumen.total_requerimientos || 0) + Number(resumen.total_servicios || 0))) * 0.9)
-    : 0
+  
 
   const topAreasForChart = useMemo(() => consumptionRows, [consumptionRows])
 
@@ -692,7 +654,6 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
             ]
           })()}
         />
-        <TimeCards approvals={approvalTime} delivery={deliveryTime} attention={attentionTime} />
       </div>
 
       <div className="erp-grid three-col">
