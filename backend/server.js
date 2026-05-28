@@ -11716,10 +11716,11 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
         `
           SELECT
             COUNT(*) AS total_requerimientos,
-            COUNT(CASE WHEN estado = 'PENDIENTE' THEN 1 END) AS pendientes,
-            COUNT(CASE WHEN estado = 'APROBADO' THEN 1 END) AS aprobados,
-            COUNT(CASE WHEN estado = 'RECHAZADO' THEN 1 END) AS rechazados,
-            COUNT(CASE WHEN estado = 'COMPLETADO' THEN 1 END) AS completados
+            -- Use estado_entrega for requerimientos: POR_RECOGER vs ENTREGADO
+            COUNT(CASE WHEN upper(trim(COALESCE(estado_entrega, ''))) = 'POR_RECOGER' THEN 1 END) AS pendientes,
+            0 AS aprobados,
+            0 AS rechazados,
+            COUNT(CASE WHEN upper(trim(COALESCE(estado_entrega, ''))) = 'ENTREGADO' THEN 1 END) AS completados
           FROM requerimientos
         `
       ),
