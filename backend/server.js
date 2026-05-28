@@ -11965,7 +11965,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             COALESCE((
               SELECT SUM(COALESCE(md.cantidad, 0)::numeric * 
                 CASE 
-                  WHEN NULLIF(to_jsonb(mat)->>'id_moneda', '')::int = 2 
+                  WHEN NULLIF(COALESCE(to_jsonb(mat)->>'moneda_id', to_jsonb(mat)->>'id_moneda', ''), '')::int = 2 
                     THEN COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0) * ${USD_TO_PEN_RATE}
                   ELSE COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)
                 END
@@ -12085,7 +12085,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               COALESCE(mat.nombre, CONCAT('Material #', md.id_material::text), 'Sin material') AS material,
               COALESCE(md.cantidad, 0)::numeric AS cantidad,
               CASE
-                WHEN NULLIF(to_jsonb(mat)->>'id_moneda', '')::int = 2
+                WHEN NULLIF(COALESCE(to_jsonb(mat)->>'moneda_id', to_jsonb(mat)->>'id_moneda', ''), '')::int = 2
                   THEN ${materialPrecioExpr} * ${USD_TO_PEN_RATE}
                 ELSE ${materialPrecioExpr}
               END AS precio
