@@ -104,6 +104,28 @@ const logSqlQuery = (origin, text, values) => {
   });
 };
 
+const PET_TIME_ZONE = 'America/Lima';
+const PET_SQL_NOW = `timezone('${PET_TIME_ZONE}', now())`;
+
+const formatPetDateTime = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: PET_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
+const currentPetDateTime = () => formatPetDateTime(new Date());
+
 const ESTADOS = ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'COMPLETADO'];
 const PRIORIDADES = ['BAJA', 'MEDIA', 'ALTA'];
 const ESTADOS_ENTREGA = ['POR_RECOGER', 'ENTREGADO'];
@@ -667,7 +689,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         tableName: 'compras',
         stateColumn: 'estado',
         selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_JEFE_AREA'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
-        updateQuery: 'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+        updateQuery: `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
       }
       : {
         tableName: 'servicios',
@@ -790,7 +812,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         UPDATE aprobaciones
         SET estado = $1::text,
             usuario_id = $2,
-            fecha = NOW()
+            fecha = ${PET_SQL_NOW}
         WHERE id = $3
           AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
                OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
@@ -828,25 +850,25 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
           const nextEstado = `PENDIENTE_${nextRoleName}`;
           
           await client.query(
-            'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+            `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
             [nextEstado, referenceId]
           );
         } else {
           // Si no hay pendientes, marcar como APROBADO y registrar estado_pedido
           await client.query(
-            'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+            `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
             [estadoNuevo, referenceId]
           );
           
           await client.query(
-            `UPDATE compras SET estado_pedido = $1::text, fecha_actualizacion = NOW() WHERE id = $2`,
+            `UPDATE compras SET estado_pedido = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
             ['APROBADO', referenceId]
           );
         }
       } else {
         // Si se rechaza, actualizar directamente
         await client.query(
-          'UPDATE compras SET estado = $1::text, fecha_actualizacion = NOW() WHERE id = $2',
+          `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
           [estadoNuevo, referenceId]
         );
       }
@@ -1832,7 +1854,7 @@ const applyApprovalDecision = async (client, {
       UPDATE aprobaciones
       SET estado = $1,
           usuario_id = $2,
-          fecha = NOW()
+          fecha = ${PET_SQL_NOW}
       WHERE id = $3
         AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
              OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
@@ -2152,7 +2174,7 @@ const buildTextWithEmbeddedComments = ({ text = '', comments = [] } = {}) => {
 const buildCommentEntry = ({ user, content }) => ({
   usuario_id: Number(user?.id || 0) || null,
   usuario: String(user?.nombre || user?.username || user?.email || 'Usuario').trim(),
-  fecha: new Date().toISOString(),
+  fecha: currentPetDateTime(),
   contenido: String(content || '').trim(),
 });
 
@@ -2286,7 +2308,7 @@ const parseApprovalCommentContent = (content) => {
 const buildApprovalCommentContent = ({ etapa, usuario, fecha }) => {
   const stageLabel = String(etapa || '').trim().toUpperCase();
   const userLabel = String(usuario || '').trim() || 'Usuario';
-  const dateLabel = String(fecha || new Date().toISOString()).trim();
+  const dateLabel = String(fecha || currentPetDateTime()).trim();
   return `APROBACION | ${stageLabel} | usuario: ${userLabel} | fecha: ${dateLabel}`;
 };
 
@@ -2301,7 +2323,7 @@ const registrarAprobacion = async (db, usuario, tipo, id, estadoActual) => {
   }
 
   const userLabel = String(usuario?.nombre || usuario?.username || usuario?.email || 'Usuario').trim() || 'Usuario';
-  const approvalDate = new Date().toISOString();
+  const approvalDate = currentPetDateTime();
   const content = buildApprovalCommentContent({ etapa: stageLabel, usuario: userLabel, fecha: approvalDate });
 
   return insertCommentForEntity(db, {
@@ -2791,7 +2813,7 @@ const buildProveedorNotificationEntry = async (db, { proveedorId, summary, puntu
     total_calificaciones: total,
     tipo_calificacion: String(tipo || '').trim() || null,
     id_referencia: Number(idReferencia || 0) || null,
-    fecha: new Date().toISOString(),
+    fecha: currentPetDateTime(),
     fecha_creacion_timestamp: Date.now(),
     leida: false,
   };
@@ -2971,7 +2993,7 @@ const upsertProveedorRating = async (db, { user, proveedorId, puntuacion, coment
     alerta_critica: false,
     mi_calificacion: score,
     mi_comentario: note,
-    mi_fecha: new Date().toISOString(),
+    mi_fecha: currentPetDateTime(),
   };
 };
 
@@ -3326,7 +3348,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const resumenTop = doc.y;
   const resumenRows = [
     ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
-    ['Fecha', new Date(compra.fecha_creacion || Date.now()).toLocaleDateString()],
+    ['Fecha', String(formatPetDateTime(compra.fecha_creacion || currentPetDateTime()) || '').split(' ')[0]],
     ['Proveedor', compra.proveedor || compra.razon_social],
     ['Área destino', compra.area_final],
   ];
@@ -3792,7 +3814,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       title: 'Datos de la orden',
       rows: [
         ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
-        ['Fecha', new Date(servicio.fecha || Date.now()).toLocaleDateString()],
+        ['Fecha', String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0]],
         ['Proveedor', servicio.proveedor],
         ['Área destino', servicio.area],
       ],
@@ -4052,6 +4074,8 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
     const parsedDescription = parseEmbeddedCommentsFromText(row.descripcion_servicio || '');
     return {
       ...row,
+      fecha: formatPetDateTime(row.fecha),
+      calificacion_servicio_fecha: formatPetDateTime(row.calificacion_servicio_fecha),
       descripcion_servicio: parsedDescription.text,
       comentarios_historial: [],
       usuario_rol_id: Number(row.usuario_rol_id || 0) || null,
@@ -4126,7 +4150,7 @@ const insertMovimiento = async (client, {
   documentoReferencia = null,
   idAlmacen = null,
   observaciones = null,
-  fechaExpression = 'NOW()',
+  fechaExpression = PET_SQL_NOW,
 } = {}) => {
   const columns = [];
   const values = [];
@@ -4142,7 +4166,7 @@ const insertMovimiento = async (client, {
   const addExpression = (columnName, expression) => {
     if (!columnName) return;
     columns.push(columnName);
-    valueTokens.push(String(expression || 'NOW()'));
+    valueTokens.push(String(expression || PET_SQL_NOW));
   };
 
   addValue(getMovimientoTipoColumn(), String(tipo || '').trim().toUpperCase());
@@ -7400,7 +7424,7 @@ app.get('/api/proveedores/calificaciones/promedios', authMiddleware, async (_req
           UPDATE calificaciones_proveedor
           SET puntuacion = $1,
               comentario = $2,
-              fecha = NOW(),
+              fecha = ${PET_SQL_NOW},
               id_usuario = $3
           WHERE id = $4
         `,
@@ -8638,7 +8662,7 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
         acc[row.id] = {
           id: row.id,
           tipo: row.tipo,
-          fecha: row.fecha,
+          fecha: formatPetDateTime(row.fecha),
           id_usuario: row.id_usuario,
           usuario: row.usuario,
           id_requerimiento: row.id_requerimiento,
@@ -8658,7 +8682,7 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
           mi_calificacion_id: Number(row.mi_calificacion_id || 0) || null,
           mi_calificacion_puntuacion: Number(row.mi_calificacion_puntuacion || 0) || 0,
           mi_calificacion_comentario: String(row.mi_calificacion_comentario || '').trim(),
-          mi_calificacion_fecha: row.mi_calificacion_fecha || null,
+          mi_calificacion_fecha: formatPetDateTime(row.mi_calificacion_fecha),
         });
       }
 
@@ -8729,8 +8753,8 @@ const mapCompraRows = (rows) => {
         entrega_area: entregaArea,
         pendiente_entrega: pendingEntregaFlag,
         numero_orden: row.numero_orden,
-        fecha_creacion: row.fecha_creacion,
-        fecha_actualizacion: row.fecha_actualizacion,
+        fecha_creacion: formatPetDateTime(row.fecha_creacion),
+        fecha_actualizacion: formatPetDateTime(row.fecha_actualizacion),
         puede_aprobar: false,
         puede_rechazar: false,
         items: [],
@@ -9178,7 +9202,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
     const compraInsert = await client.query(
       `
         INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, fecha_creacion, fecha_actualizacion)
-        VALUES ('PENDIENTE_JEFE_AREA', $1, $2, $3, $4, $5, NOW(), NOW())
+        VALUES ('PENDIENTE_JEFE_AREA', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
         RETURNING id
       `,
       [
@@ -9326,7 +9350,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
         `
           UPDATE compras
           SET estado = 'APROBADA',
-              fecha_actualizacion = NOW()
+              fecha_actualizacion = ${PET_SQL_NOW}
           WHERE id = $1
         `,
         [idCompra]
@@ -9412,7 +9436,7 @@ app.patch('/api/compras/:id/estado', authMiddleware, async (req, res) => {
         `
           UPDATE compras
           SET estado = $1,
-              fecha_actualizacion = NOW()
+              fecha_actualizacion = ${PET_SQL_NOW}
           WHERE id = $2
         `,
         [estado, id]
@@ -9654,7 +9678,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
             detalle = $28,
             comentarios = $29,
             id_area_final = $30,
-            fecha_actualizacion = NOW()
+            fecha_actualizacion = ${PET_SQL_NOW}
           WHERE id = $31
       `,
       [
@@ -9774,7 +9798,7 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
       UPDATE compras
       SET ${hasEstadoPedidoColumn ? "estado_pedido = 'POR_RECIBIR'," : ''}
           numero_orden = $1,
-          fecha_actualizacion = NOW()
+          fecha_actualizacion = ${PET_SQL_NOW}
       WHERE id = $2
     `;
 
@@ -9941,7 +9965,7 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
     }
 
     await client.query(
-      'UPDATE compras SET estado_pedido = $1, fecha_actualizacion = NOW() WHERE id = $2',
+      `UPDATE compras SET estado_pedido = $1, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
       [isGeneralDestination ? 'RECIBIDA' : 'RECIBIDO_EN_ALMACEN', idCompra]
     );
 
@@ -10396,7 +10420,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
           pendiente: true,
           entregado: false,
           area_destino: areaRow.rows[0]?.area_destino_nombre || '',
-          fecha_recepcion_almacen: new Date().toISOString(),
+          fecha_recepcion_almacen: currentPetDateTime(),
         }
       : null;
 
@@ -10577,7 +10601,7 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
         receptor_user_id: receptor.id,
         receptor_nombre: receptor.nombre,
         receptor_dni: receptorDni,
-        fecha_entrega_area: new Date().toISOString(),
+        fecha_entrega_area: currentPetDateTime(),
       },
       comentariosHistorial: parsedCompraComments.comentarios_historial,
     });
@@ -11788,7 +11812,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               COALESCE(
                 NULLIF(to_jsonb(m)->>'fecha_movimiento', '')::timestamp,
                 NULLIF(to_jsonb(m)->>'fecha', '')::timestamp,
-                NOW()
+                ${PET_SQL_NOW}
               )::date AS fecha_mov
             FROM movimientos m
           ),
@@ -11891,7 +11915,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           COALESCE(
             NULLIF(to_jsonb(m)->>'fecha_movimiento', '')::timestamp,
             NULLIF(to_jsonb(m)->>'fecha', '')::timestamp,
-            NOW()
+            ${PET_SQL_NOW}
           )::date AS fecha_mov
         FROM movimientos m
         WHERE upper(trim(NULLIF(to_jsonb(m)->>'tipo', ''))) = 'SALIDA'
