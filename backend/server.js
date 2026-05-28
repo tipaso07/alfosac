@@ -305,29 +305,35 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   const normalizedTipo = normalizeApprovalTipo(tipo);
   const creatorRole = Number(creatorRoleId || 0);
 
-  if (normalizedTipo === 'COMPRA') {
-    const purchaseChain = [...APPROVAL_CHAIN_COMPRA];
-    if (purchaseChain.length === 0) {
+  const skipCreatorAndEarlier = (chain) => {
+    const approvalChain = Array.isArray(chain) ? [...chain] : [];
+    if (approvalChain.length === 0) {
       return [];
     }
 
-    const creatorIndex = creatorRole > 0 ? purchaseChain.indexOf(creatorRole) : -1;
+    const creatorIndex = creatorRole > 0 ? approvalChain.indexOf(creatorRole) : -1;
     if (creatorIndex >= 0) {
-      return purchaseChain.slice(creatorIndex + 1);
+      return approvalChain.slice(creatorIndex + 1);
     }
 
-    return purchaseChain;
+    return approvalChain;
+  };
+
+  if (normalizedTipo === 'COMPRA') {
+    return skipCreatorAndEarlier(APPROVAL_CHAIN_COMPRA);
   }
 
   if (normalizedTipo === 'SERVICIO') {
     // Regla especial: servicios creados por rol 11 van directo a Finanzas.
     if (creatorRole === 11) {
-      return dentroPlan ? [7] : [7, 8];
+      return skipCreatorAndEarlier(dentroPlan ? [7] : [7, 8]);
     }
 
-    return dentroPlan
-      ? [...APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN]
-      : [...APPROVAL_CHAIN_SERVICIO_FUERA_PLAN];
+    return skipCreatorAndEarlier(
+      dentroPlan
+        ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
+        : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN
+    );
   }
 
   return [];
@@ -1028,22 +1034,12 @@ const generatePendingStateByRoleId = (roleId) => {
 
 const getInitialApprovalStateForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
   const normalizedTipo = normalizeApprovalTipo(tipo);
-  const creatorRole = Number(creatorRoleId || 0);
-
-  if (normalizedTipo === 'COMPRA' && creatorRole > 0 && APPROVAL_CHAIN_COMPRA.includes(creatorRole)) {
-    const purchaseChain = [...APPROVAL_CHAIN_COMPRA];
-    const creatorIndex = purchaseChain.indexOf(creatorRole);
-    const nextRoleId = creatorIndex >= 0 ? purchaseChain[creatorIndex + 1] : 0;
-
-    if (!nextRoleId) {
-      return 'APROBADA';
-    }
-
-    return generatePendingStateByRoleId(nextRoleId) || 'PENDIENTE';
-  }
-
   const roleChain = getApprovalChainForEntity({ tipo, dentroPlan, creatorRoleId });
   const firstRole = Number(roleChain[0] || 0);
+  if (!firstRole) {
+    return 'APROBADA';
+  }
+
   const mapped = generatePendingStateByRoleId(firstRole);
   return mapped || 'PENDIENTE';
 };
