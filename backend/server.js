@@ -1463,7 +1463,8 @@ const buildApprovalStatusLabel = ({
   if (isPendingApprovalState(normalizedCurrentStatus)) {
     const currentRoleId = getApprovalRoleIdFromState(normalizedCurrentStatus);
     if (currentRoleId > 0) {
-      return `PENDIENTE_${normalizePermissionName(getApprovalRoleLabel(currentRoleId))}`;
+      // Prefer numeric form to match exactly what's stored in the DB
+      return `PENDIENTE_${currentRoleId}`;
     }
 
     return normalizedCurrentStatus;
@@ -1471,7 +1472,8 @@ const buildApprovalStatusLabel = ({
 
   const pendingRole = Number(nextPendingRole || 0);
   if (pendingRole > 0) {
-    return `PENDIENTE_${normalizePermissionName(getApprovalRoleLabel(pendingRole))}`;
+    // Return numeric pending state for clarity and DB parity
+    return `PENDIENTE_${pendingRole}`;
   }
 
   const statusNorm = normalizedCurrentStatus;
