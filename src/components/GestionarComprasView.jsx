@@ -248,6 +248,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
                 </span>
               </div>
 
+              <p><strong>Estado:</strong> {compra.estado || 'Sin estado'}</p>
+              <p><strong>Estado pedido:</strong> {compra.estado_pedido || compra.estado || 'Sin estado pedido'}</p>
               <p><strong>Usuario:</strong> {compra.usuario || `ID ${compra.id_usuario}`}</p>
               <p><strong>Area solicitante:</strong> {compra.area_solicitante || 'Sin area'}</p>
               <p><strong>Fecha:</strong> {compra.fecha_creacion ? new Date(compra.fecha_creacion).toLocaleString() : 'Sin fecha'}</p>
