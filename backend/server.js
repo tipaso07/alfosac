@@ -9004,10 +9004,14 @@ app.get('/api/compras', authMiddleware, async (req, res) => {
       ? await fetchComprasRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage })
       : await fetchComprasRows([req.user.id], 'WHERE c.id_usuario = $1', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage });
 
-    // Do not expose `gestion_estado_usuario` in this API response; frontend should
-    // rely on `estado` and `estado_pedido` for filtering and display.
+    const comprasApi = compras.map((row) => {
+      const safeRow = { ...row };
+      delete safeRow.estado_aprobacion_detalle;
+      delete safeRow.gestion_estado_usuario;
+      return safeRow;
+    });
 
-    res.json(compras);
+    res.json(comprasApi);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
