@@ -375,16 +375,19 @@ const APPROVAL_PERMISSION_BY_ROLE_ID = new Map([
 ]);
 
 const APPROVAL_PERMISSION_BY_STATE = new Map([
+  ['PENDIENTE_JEFE_DE_AREA_SUBGERENTE', 'APROBAR_JEFE_AREA'],
   ['PENDIENTE_JEFE_AREA', 'APROBAR_JEFE_AREA'],
+  ['PENDIENTE_GERENCIA_DEL_AREA', 'APROBAR_GERENCIA_AREA'],
   ['PENDIENTE_GERENCIA', 'APROBAR_GERENCIA_AREA'],
+  ['PENDIENTE_GERENCIA_DE_FINANZAS', 'APROBAR_FINANZAS'],
   ['PENDIENTE_FINANZAS', 'APROBAR_FINANZAS'],
   ['PENDIENTE_ADMIN', 'APROBAR_ADMIN'],
 ]);
 
 const APPROVAL_STATE_BY_PERMISSION = new Map([
-  ['APROBAR_JEFE_AREA', 'PENDIENTE_JEFE_AREA'],
-  ['APROBAR_GERENCIA_AREA', 'PENDIENTE_GERENCIA'],
-  ['APROBAR_FINANZAS', 'PENDIENTE_FINANZAS'],
+  ['APROBAR_JEFE_AREA', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'],
+  ['APROBAR_GERENCIA_AREA', 'PENDIENTE_GERENCIA_DEL_AREA'],
+  ['APROBAR_FINANZAS', 'PENDIENTE_GERENCIA_DE_FINANZAS'],
   ['APROBAR_ADMIN', 'PENDIENTE_ADMIN'],
 ]);
 
@@ -688,7 +691,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       ? {
         tableName: 'compras',
         stateColumn: 'estado',
-        selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_JEFE_AREA'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
+        selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
         updateQuery: `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
       }
       : {
@@ -697,7 +700,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         selectQuery: `
           SELECT
             id,
-            upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', 'PENDIENTE_JEFE_AREA'))) AS estado,
+            upper(trim(COALESCE(to_jsonb(s)->>'estado_aprobacion', to_jsonb(s)->>'estado', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) AS estado,
             CASE
               WHEN lower(trim(COALESCE(to_jsonb(s)->>'dentro_plan', to_jsonb(s)->>'en_plan', 'true'))) IN ('true', 't', '1', 'si', 'yes', 'y') THEN TRUE
               ELSE FALSE
@@ -2284,9 +2287,9 @@ const insertCommentForEntity = async (db, { user, tipoEntidad, idEntidad, conten
 
 const getApprovalStageLabelFromState = (state) => {
   const normalizedState = normalizeApprovalState(state);
-  if (normalizedState === 'PENDIENTE_JEFE_AREA') return 'JEFE_AREA';
-  if (normalizedState === 'PENDIENTE_GERENCIA') return 'GERENCIA';
-  if (normalizedState === 'PENDIENTE_FINANZAS') return 'FINANZAS';
+  if (normalizedState === 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE' || normalizedState === 'PENDIENTE_JEFE_AREA') return 'JEFE_AREA';
+  if (normalizedState === 'PENDIENTE_GERENCIA_DEL_AREA' || normalizedState === 'PENDIENTE_GERENCIA') return 'GERENCIA';
+  if (normalizedState === 'PENDIENTE_GERENCIA_DE_FINANZAS' || normalizedState === 'PENDIENTE_FINANZAS') return 'FINANZAS';
   if (normalizedState === 'PENDIENTE_ADMIN') return 'ADMIN';
   return '';
 };
@@ -9028,7 +9031,7 @@ app.get('/api/mis-compras', authMiddleware, async (req, res) => {
       const canApproveInCurrentStage = Boolean(requiredApprovalPermission) && tienePermiso(req.user, requiredApprovalPermission);
       const comprasAprobacion = await fetchComprasRows(
         [req.user.id, approvalStageState],
-        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE_JEFE_AREA'))) = $2",
+        "WHERE c.id_usuario = $1 AND upper(trim(COALESCE(to_jsonb(c)->>'estado_pedido', to_jsonb(c)->>'estado', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'))) = $2",
         { approvalRoleId, approvalPermissionGranted: canApproveInCurrentStage }
       );
 
@@ -9215,7 +9218,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
     const compraInsert = await client.query(
       `
         INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, fecha_creacion, fecha_actualizacion)
-        VALUES ('PENDIENTE_JEFE_AREA', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
+        VALUES ('PENDIENTE_JEFE_DE_AREA_SUBGERENTE', $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
         RETURNING id
       `,
       [
