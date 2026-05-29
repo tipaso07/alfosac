@@ -1608,6 +1608,18 @@ const canAccessManageRequestsModule = (user) => {
   return isApprovalHierarchyRoleId(roleId);
 };
 
+const filterUserPermissions = (permissions, user) => {
+  const normalizedPermissions = [...new Set((permissions || [])
+    .map((perm) => normalizePermissionName(perm))
+    .filter(Boolean))];
+
+  if (!canAccessManageRequestsModule(user)) {
+    return normalizedPermissions.filter((perm) => perm !== 'GESTIONAR_SOLICITUDES');
+  }
+
+  return normalizedPermissions;
+};
+
 const canApproveApprovalRole = (user, roleId) => {
   const approvalRoleId = resolveApprovalRoleId(user);
   return Number(roleId || 0) > 0 && approvalRoleId === Number(roleId || 0);
@@ -4883,7 +4895,7 @@ const authMiddleware = async (req, res, next) => {
 
     req.user = result.rows[0];
     const dbPermissions = await fetchPermissionNamesByUserId(pool, req.user.id);
-    req.user.permisos = dbPermissions;
+    req.user.permisos = filterUserPermissions(dbPermissions, req.user);
     req.auth = decoded;
     console.log('[AUTH] req.user en middleware:', req.user);
     next();
@@ -5989,17 +6001,11 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 
     let dbPermissions = await fetchPermissionNamesByUserId(pool, profile.id);
     const canAccessManageRequests = canAccessManageRequestsModule(req.user);
-    const normalizedPermissions = dbPermissions.map((perm) => String(perm || '').trim().toUpperCase());
-    const hasManageRequestsPermission = normalizedPermissions.includes('GESTIONAR_SOLICITUDES');
+    dbPermissions = filterUserPermissions(dbPermissions, req.user);
 
     // If the user is part of a real approval flow, expose the hidden module permission.
-    if (canAccessManageRequests && !hasManageRequestsPermission) {
+    if (canAccessManageRequests && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
       dbPermissions.push('GESTIONAR_SOLICITUDES');
-    }
-
-    // Remove stale or manual assignment of the hidden permission if the user is not actually in the approval flow.
-    if (!canAccessManageRequests && hasManageRequestsPermission) {
-      dbPermissions = dbPermissions.filter((perm) => String(perm || '').trim().toUpperCase() !== 'GESTIONAR_SOLICITUDES');
     }
 
     res.json({
