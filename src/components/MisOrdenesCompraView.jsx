@@ -812,6 +812,16 @@ export default function MisOrdenesCompraView({
                   <button type="button" className="btn-detail" onClick={() => toggleExpanded(compra.id)}>
                     {isExpanded ? 'Ocultar detalle' : 'Ver detalle'}
                   </button>
+                  {activeFilter !== 'APROBADAS' && onDescargarPdf && (
+                    <button
+                      type="button"
+                      className="btn-download"
+                      onClick={() => downloadPdf(compra)}
+                      disabled={loadingByCompra[compra.id]}
+                    >
+                      Descargar orden
+                    </button>
+                  )}
                 </div>
 
                 {canMarcarEntregado(compra) && isEntregaFlowOpen && (
@@ -952,14 +962,6 @@ export default function MisOrdenesCompraView({
                     </button>
                     <button type="button" className="btn-generate" onClick={() => generateOrden(compra)} disabled={loadingByCompra[compra.id]}>
                       Finalizar orden de compra
-                    </button>
-                  </div>
-                )}
-
-                {['POR_RECIBIR', 'PENDIENTE_ENTREGA', 'RECIBIDA', 'RECIBIDO', 'RECIBIDO_EN_ALMACEN', 'ENTREGADO'].includes(normalize(compra.estado)) && (
-                  <div className="my-po-actions">
-                    <button type="button" className="btn-download" onClick={() => downloadPdf(compra)} disabled={loadingByCompra[compra.id]}>
-                      Descargar PDF
                     </button>
                   </div>
                 )}
