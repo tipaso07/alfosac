@@ -168,7 +168,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [filteredCompras])
 
   const rejected = useMemo(() => filteredCompras
-    .filter((compra) => getStageStatus(compra) === 'RECHAZADO')
+    .filter((compra) => ['RECHAZADO', 'RECHAZADA', 'RECHAZADOS'].includes(getStageStatus(compra)))
     .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [filteredCompras])
 
   const config = {

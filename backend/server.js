@@ -9499,7 +9499,7 @@ app.patch('/api/compras/:id/estado', authMiddleware, async (req, res) => {
               fecha_actualizacion = ${PET_SQL_NOW}
           WHERE id = $3
         `,
-        [estado, isRejected ? 'RECHAZADO' : estado, id]
+        [isRejected ? 'RECHAZADO' : estado, isRejected ? 'RECHAZADO' : estado, id]
       );
     }
 
