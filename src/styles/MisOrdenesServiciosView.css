@@ -24,8 +24,8 @@
   gap: 10px;
   background: #f8fafc;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 12px;
 }
 
 .my-so-filter-grid label {
@@ -37,8 +37,8 @@
 .my-so-filter-grid select,
 .my-so-filter-grid input {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 10px 12px;
   background: #fff;
 }
 
@@ -55,6 +55,18 @@
   background: var(--primary-color);
   color: #fff;
   border-color: var(--primary-color);
+}
+
+@media (max-width: 960px) {
+  .my-so-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .my-so-filter-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .my-so-list {

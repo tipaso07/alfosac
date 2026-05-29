@@ -683,18 +683,6 @@ export default function MisOrdenesServiciosView({
         <p>Aprobados: {serviciosAprobados.length}</p>
       </div>
 
-      <div className="my-so-filters">
-        <button type="button" className={activeSection === 'aprobados' ? 'active' : ''} onClick={() => setActiveSection('aprobados')}>
-          Aprobados ({serviciosParaCompletar.length})
-        </button>
-        <button type="button" className={activeSection === 'pendientes' ? 'active' : ''} onClick={() => setActiveSection('pendientes')}>
-          Pendientes ({serviciosPendientes.length})
-        </button>
-        <button type="button" className={activeSection === 'realizados' ? 'active' : ''} onClick={() => setActiveSection('realizados')}>
-          Servicios realizados ({serviciosRealizados.length})
-        </button>
-      </div>
-
       <div className="my-so-filter-grid">
         <label>
           Area
@@ -723,6 +711,18 @@ export default function MisOrdenesServiciosView({
           Hasta
           <input type="date" value={realizadosToDate} onChange={(event) => setRealizadosToDate(event.target.value)} />
         </label>
+      </div>
+
+      <div className="my-so-filters">
+        <button type="button" className={activeSection === 'aprobados' ? 'active' : ''} onClick={() => setActiveSection('aprobados')}>
+          Aprobados ({serviciosParaCompletar.length})
+        </button>
+        <button type="button" className={activeSection === 'pendientes' ? 'active' : ''} onClick={() => setActiveSection('pendientes')}>
+          Pendientes ({serviciosPendientes.length})
+        </button>
+        <button type="button" className={activeSection === 'realizados' ? 'active' : ''} onClick={() => setActiveSection('realizados')}>
+          Servicios realizados ({serviciosRealizados.length})
+        </button>
       </div>
 
       {error && <p className="my-so-error">{error}</p>}
