@@ -697,7 +697,7 @@ const getNextApprovalState = ({ tipo, currentState, dentroPlan }) => {
 const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options = {}) => {
   const normalizedTipo = normalize(tipo);
   const referenceId = Number(id || 0);
-  const normalizedDecision = normalize(decision) === 'RECHAZADO' ? 'RECHAZADO' : 'APROBADO';
+  const normalizedDecision = normalize(decision).startsWith('RECHAZ') ? 'RECHAZADO' : 'APROBADO';
   const overrideDentroPlan = Object.prototype.hasOwnProperty.call(options || {}, 'dentro_plan')
     ? options.dentro_plan
     : null;
