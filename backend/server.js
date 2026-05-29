@@ -10000,6 +10000,7 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
       [idCompra]
     );
     const areaDestinoNorm = normalize(areaDestinoQuery.rows[0]?.area_destino_nombre || '');
+    const shouldRegisterStock = isWarehouseAreaName(areaDestinoNorm);
     const isWarehouseDestination = isWarehouseAreaName(areaDestinoNorm);
 
     const detailRows = await client.query(
@@ -10018,53 +10019,60 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
       return res.status(400).json({ error: 'La compra no tiene materiales vinculados' });
     }
 
-    const defaultWarehouse = await client.query(
-      `
-        SELECT id
-        FROM almacenes
-        ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
-        LIMIT 1
-      `
-    );
+    let idAlmacen = null;
 
-    if (defaultWarehouse.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'No existe un almacen configurado para registrar recepcion' });
+    if (shouldRegisterStock) {
+      const defaultWarehouse = await client.query(
+        `
+          SELECT id
+          FROM almacenes
+          ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
+          LIMIT 1
+        `
+      );
+
+      if (defaultWarehouse.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'No existe un almacen configurado para registrar recepcion' });
+      }
+
+      idAlmacen = Number(defaultWarehouse.rows[0].id);
     }
 
-    const idAlmacen = Number(defaultWarehouse.rows[0].id);
     const idMovimientoEntrada = await insertMovimiento(client, {
       tipo: 'ENTRADA',
       usuarioRegistro: req.user.id,
       idAlmacen,
     });
 
-    for (const detail of detailRows.rows) {
-      const idMaterial = Number(detail.id_material || 0);
-      const qty = Number(detail.cantidad_total || 0);
+    if (shouldRegisterStock) {
+      for (const detail of detailRows.rows) {
+        const idMaterial = Number(detail.id_material || 0);
+        const qty = Number(detail.cantidad_total || 0);
 
-      if (!idMaterial || qty <= 0) continue;
+        if (!idMaterial || qty <= 0) continue;
 
-      await client.query(
-        `
-          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
-          VALUES ($1, $2, $3)
-        `,
-        [idMovimientoEntrada, idMaterial, qty]
-      );
-
-      const stockRow = await client.query(
-        'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
-        [idMaterial, idAlmacen]
-      );
-
-      if (stockRow.rows.length === 0) {
         await client.query(
-          'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
-          [idMaterial, idAlmacen, qty]
+          `
+            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+            VALUES ($1, $2, $3)
+          `,
+          [idMovimientoEntrada, idMaterial, qty]
         );
-      } else {
-        await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+
+        const stockRow = await client.query(
+          'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
+          [idMaterial, idAlmacen]
+        );
+
+        if (stockRow.rows.length === 0) {
+          await client.query(
+            'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
+            [idMaterial, idAlmacen, qty]
+          );
+        } else {
+          await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
+        }
       }
     }
 
@@ -10461,20 +10469,24 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       throw new Error('La compra no tiene materiales vinculados para generar movimientos');
     }
 
-    const defaultWarehouse = await client.query(
-      `
-        SELECT id
-        FROM almacenes
-        ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
-        LIMIT 1
-      `
-    );
+    let idAlmacen = null;
+    if (isWarehouseDestination) {
+      const defaultWarehouse = await client.query(
+        `
+          SELECT id
+          FROM almacenes
+          ORDER BY CASE WHEN upper(trim(nombre)) = 'GENERAL' THEN 0 ELSE 1 END, id ASC
+          LIMIT 1
+        `
+      );
 
-    if (defaultWarehouse.rows.length === 0) {
-      throw new Error('No existe un almacen configurado para registrar recepcion');
+      if (defaultWarehouse.rows.length === 0) {
+        throw new Error('No existe un almacen configurado para registrar recepcion');
+      }
+
+      idAlmacen = Number(defaultWarehouse.rows[0].id);
     }
 
-    const idAlmacen = Number(defaultWarehouse.rows[0].id);
     const movimientoIds = [];
 
     const idMovimientoEntrada = await insertMovimiento(client, {
@@ -10497,6 +10509,10 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
         `,
         [idMovimientoEntrada, idMaterial, qty]
       );
+
+      if (!isWarehouseDestination) {
+        continue;
+      }
 
       const stockRow = await client.query(
         'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
@@ -10675,6 +10691,11 @@ app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => 
         const idMaterial = Number(detail.id_material || 0);
         const qty = Number(detail.cantidad_total || 0);
         if (!idMaterial || qty <= 0) continue;
+
+        const stockTotal = await getMaterialStockTotal(client, idMaterial);
+        if (stockTotal > 0) {
+          await discountMaterialStockDistributed(client, idMaterial, Math.min(stockTotal, qty));
+        }
 
         await client.query(
           `
