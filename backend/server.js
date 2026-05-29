@@ -3356,13 +3356,9 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       return !isRequesterRow || approverEntries.length === 1
     })
     .map((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
-      const rolLabel = String(row.rol || '').trim().toUpperCase()
       const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
-      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
-        ? fallbackRoleLabel
-        : safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))
-      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`
+      const aprobadorNombre = safeText(row.aprobador || 'Pendiente')
+      return `${aprobadorNombre} (${fallbackRoleLabel})`
     })
     .join('\n');
   const entregaInfo = compra.entrega_area && compra.entrega_area.entregado === true
@@ -3494,7 +3490,6 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
 
   const items = Array.isArray(compra.items) ? compra.items : [];
   if (items.length > 0) {
-    writeSectionTitle('Items');
     const colWidths = [403, 120];
     const headers = ['Material/Servicio', 'Cantidad'];
     let x = left;
@@ -3512,7 +3507,8 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       });
       return startY + 20;
     };
-    let rowY = drawDetailHeader(doc.y);
+    let rowY = doc.y;
+    let renderedAnyItem = false;
 
     doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
     items.forEach((item) => {
@@ -3520,10 +3516,17 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       const descripcion = safeText(item.material || item.descripcion || item.nombre);
       const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
 
-      if (rowY + rowHeight > bottomLimit - 32) {
+      if (!renderedAnyItem) {
+        if (doc.y + 20 + rowHeight > bottomLimit - 32) {
+          doc.addPage();
+          drawHeader();
+        }
+        writeSectionTitle('Items');
+        rowY = drawDetailHeader(doc.y);
+      } else if (rowY + rowHeight > bottomLimit - 32) {
         doc.addPage();
         drawHeader();
-        writeSectionTitle('Items (continuación)');
+        writeSectionTitle('Items');
         rowY = drawDetailHeader(doc.y);
       }
 
@@ -3542,12 +3545,13 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         x += colWidths[cellIndex];
       });
       rowY += rowHeight;
+      renderedAnyItem = true;
     });
 
     if (rowY + 24 > bottomLimit - 4) {
       doc.addPage();
       drawHeader();
-      writeSectionTitle('Items (continuación)');
+      writeSectionTitle('Items');
       rowY = doc.y;
     }
     const resumenTotalY = rowY;
