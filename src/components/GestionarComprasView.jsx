@@ -180,8 +180,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   const view = config[activeStatus]
   const badgeStateForPurchase = (compra) => {
     if (activeStatus === 'APROBADA') {
-      // For approved purchases show the pedido state directly on the right
-      return String(compra.estado_pedido || compra.estado || 'Sin estado').trim()
+      // For approved purchases show the pedido state (plural field) on the right
+      return String(compra.estado_pedidos || compra.estado_pedido || compra.estado || 'Sin estado').trim()
     }
 
     return normalizePurchasePendingLabel(compra.estado || 'Sin estado')
