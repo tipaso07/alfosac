@@ -12053,6 +12053,36 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               FROM compras c
               ${comprasWhere}
             ) AS monto_total_compras,
+            (
+              SELECT COUNT(*)
+              FROM compras c
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) IN ('PENDIENTE','APROBADA','POR_RECIBIR')
+              ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+            ) AS total_compras_por_recibir,
+            (
+              SELECT COUNT(*)
+              FROM compras c
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) IN ('PENDIENTE_ENTREGA','RECIBIDA','RECIBIDO_EN_ALMACEN')
+              ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+            ) AS total_compras_por_entregar,
+            (
+              SELECT COUNT(*)
+              FROM compras c
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) = 'ENTREGADO'
+              ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+            ) AS total_compras_entregadas,
+            (
+              SELECT COUNT(*)
+              FROM servicios s
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), '')))) IN ('PENDIENTE','DATOS_COMPLETADOS','APROBADO')
+              ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
+            ) AS total_servicios_pendientes,
+            (
+              SELECT COUNT(*)
+              FROM servicios s
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), '')))) = 'REALIZADO'
+              ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
+            ) AS total_servicios_realizados,
             COALESCE((
               SELECT SUM(
                 CASE 

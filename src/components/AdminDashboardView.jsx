@@ -352,17 +352,19 @@ function TopAreasBarChart({ rows = [] }) {
   )
 }
 
-function SolicitudesEstadoDonut({ title, subtitle, pendiente = 0, aprobada = 0, entregada = 0 }) {
-  const segments = [
+function SolicitudesEstadoDonut({ title, subtitle, pendiente = 0, aprobada = 0, entregada = 0, segments = null }) {
+  const defaultSegments = [
     { label: 'Pendiente', value: pendiente, color: 'var(--warning-color)' },
     { label: 'Aprobada', value: aprobada, color: 'var(--primary-color)' },
     { label: 'Entregada/Ejecutada', value: entregada, color: 'var(--success-color)' },
-  ].filter((seg) => Number(seg.value || 0) > 0)
+  ]
 
-  const total = segments.reduce((sum, seg) => sum + Number(seg.value || 0), 0)
+  const finalSegments = (Array.isArray(segments) ? segments : defaultSegments).filter((seg) => Number(seg.value || 0) > 0)
+
+  const total = finalSegments.reduce((sum, seg) => sum + Number(seg.value || 0), 0)
   let acc = 0
   const gradient = total > 0
-    ? `conic-gradient(${segments.map((seg) => {
+    ? `conic-gradient(${finalSegments.map((seg) => {
       const start = acc
       const end = acc + (Number(seg.value || 0) / total) * 100
       acc = end
@@ -379,12 +381,12 @@ function SolicitudesEstadoDonut({ title, subtitle, pendiente = 0, aprobada = 0, 
       <div className="erp-donut-layout">
         <div className="erp-donut" style={{ background: gradient }} />
         <div className="erp-donut-legend">
-            {segments.length === 0 ? (
+            {finalSegments.length === 0 ? (
               <div className="erp-donut-row">
                 <span>Sin datos</span>
               </div>
             ) : (
-              segments.map((seg) => {
+              finalSegments.map((seg) => {
                 const pct = total > 0 ? (Number(seg.value || 0) / total) * 100 : 0
                 return (
                   <div className="erp-donut-row" key={seg.label}>
@@ -662,24 +664,28 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
       <div className="erp-grid three-col">
         <SolicitudesEstadoDonut
           title="Requerimientos"
-          subtitle="Distribucion por estado (Pendiente / Entregada)"
-          pendiente={reqPendientes}
-          aprobada={0}
-          entregada={reqCompletados}
+          subtitle="Distribucion por estado"
+          segments={[
+            { label: 'Pendiente', value: reqPendientes, color: 'var(--warning-color)' },
+            { label: 'Entregado', value: reqCompletados, color: 'var(--success-color)' },
+          ]}
         />
         <SolicitudesEstadoDonut
           title="Compras"
-          subtitle="Distribucion por estado (Pendiente incluye etapas de aprobacion)"
-          pendiente={Number(resumen.total_compras || 0) * 0.25}
-          aprobada={Number(resumen.total_compras || 0) * 0.40}
-          entregada={Number(resumen.total_compras || 0) * 0.35}
+          subtitle="Distribucion por etapa"
+          segments={[
+            { label: 'Por Recibir', value: Number(resumen.total_compras_por_recibir || 0), color: 'var(--warning-color)' },
+            { label: 'Por Entregar', value: Number(resumen.total_compras_por_entregar || 0), color: 'var(--primary-color)' },
+            { label: 'Entregadas', value: Number(resumen.total_compras_entregadas || 0), color: 'var(--success-color)' },
+          ]}
         />
         <SolicitudesEstadoDonut
           title="Servicios"
-          subtitle="Distribucion por estado (Pendiente incluye etapas de aprobacion)"
-          pendiente={Number(resumen.total_servicios || 0) * 0.30}
-          aprobada={Number(resumen.total_servicios || 0) * 0.45}
-          entregada={Number(resumen.total_servicios || 0) * 0.25}
+          subtitle="Distribucion por estado"
+          segments={[
+            { label: 'Pendiente', value: Number(resumen.total_servicios_pendientes || 0), color: 'var(--warning-color)' },
+            { label: 'Realizado', value: Number(resumen.total_servicios_realizados || 0), color: 'var(--success-color)' },
+          ]}
         />
       </div>
 
