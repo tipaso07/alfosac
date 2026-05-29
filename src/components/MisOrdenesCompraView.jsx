@@ -17,6 +17,8 @@ const normalizeText = (value) => String(value || '')
   .trim()
   .toUpperCase()
 
+const isUsdCurrency = (value) => /USD|DOLAR|DOLARES|US\$/.test(normalizeText(value))
+
 const isRetentionEnabled = (value) => {
   if (typeof value === 'boolean') return value
   return normalize(value) === 'SI'
@@ -79,7 +81,7 @@ const requiredProviderFields = [
 const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct, tipoCambio }) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2))
   const monedaNorm = normalizeText(moneda)
-  const isUsd = /USD|DOLAR|DOLARES|US\$/.test(monedaNorm)
+  const isUsd = isUsdCurrency(monedaNorm)
   const isPen = /PEN|SOL|SOLES/.test(monedaNorm)
   const exchangeRate = Number(tipoCambio || 0) > 0 ? Number(tipoCambio) : 3.4
   const totalSoles = isUsd ? Number((totalBase * exchangeRate).toFixed(2)) : totalBase
@@ -318,7 +320,7 @@ export default function MisOrdenesCompraView({
       cci: proveedor.cci || '',
       retencion: proveedor.retencion || '',
       descuento: proveedor.descuento || '',
-      tipo_cambio: /USD|DOLAR|DOLARES|US\$/.test(normalizeText(proveedor.moneda_nombre || proveedor.moneda || '')) ? 3.4 : '',
+      tipo_cambio: isUsdCurrency(proveedor.moneda_nombre || proveedor.moneda || '') ? 3.4 : '',
       tipo: proveedor.tipo || '',
       tipo_retencion:
         ['RETENCION', 'DETRACCION'].includes(normalize(proveedor.tipo_retencion || ''))
@@ -405,9 +407,10 @@ export default function MisOrdenesCompraView({
       const igv = Number((subtotal * 0.18).toFixed(2))
       const costoEnvio = Number(data.costo_envio || 0)
       const otrosCostos = Number(data.otros_costos || 0)
+      const { tipo_cambio, ...payload } = data
 
       await onCompletarDatos(compra.id, {
-        ...data,
+        ...payload,
         id_proveedor: Number(data.id_proveedor),
         id_moneda: Number(data.id_moneda),
         subtotal,
@@ -928,7 +931,7 @@ export default function MisOrdenesCompraView({
                           IGV
                           <input type="number" step="0.01" value={form.igv} readOnly />
                         </label>
-                        {normalizeText(form.moneda).includes('USD') && (
+                        {isUsdCurrency(form.moneda) && (
                           <label>
                             Valor del dolar
                             <input
