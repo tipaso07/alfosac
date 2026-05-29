@@ -11908,6 +11908,14 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             UNION
             
             SELECT DISTINCT
+              COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) AS area_id
+            FROM compras c
+            WHERE ($1::date IS NULL OR COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= $1::date)
+              AND ($2::date IS NULL OR COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= $2::date)
+            
+            UNION
+            
+            SELECT DISTINCT
               NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int AS area_id
             FROM servicios s
           )
@@ -11931,6 +11939,18 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             total_requerimientos: 0,
             total_servicios: 0,
             monto_total_compras: 0,
+            monto_total_requerimientos: 0,
+            monto_total_servicios: 0,
+            monto_total_consumo: 0,
+            total_entradas_movimientos: 0,
+            total_salidas_movimientos: 0,
+            total_compras_pendientes: 0,
+            total_compras_aprobadas: 0,
+            total_compras_por_recibir: 0,
+            total_compras_por_entregar: 0,
+            total_compras_entregadas: 0,
+            total_servicios_pendientes: 0,
+            total_servicios_realizados: 0,
           },
           compras_por_area: [],
           requerimientos_por_area: [],
@@ -12373,6 +12393,13 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         monto_total_consumo: Number(totals.monto_total_consumo || 0),
         total_entradas_movimientos: Number(totals.total_entradas_movimientos || 0),
         total_salidas_movimientos: Number(totals.total_salidas_movimientos || 0),
+        total_compras_pendientes: Number(totals.total_compras_pendientes || 0),
+        total_compras_aprobadas: Number(totals.total_compras_aprobadas || 0),
+        total_compras_por_recibir: Number(totals.total_compras_por_recibir || 0),
+        total_compras_por_entregar: Number(totals.total_compras_por_entregar || 0),
+        total_compras_entregadas: Number(totals.total_compras_entregadas || 0),
+        total_servicios_pendientes: Number(totals.total_servicios_pendientes || 0),
+        total_servicios_realizados: Number(totals.total_servicios_realizados || 0),
       },
       compras_por_area: comprasAreaRows.rows.map((row) => ({
         area: row.area,
