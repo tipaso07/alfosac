@@ -1603,9 +1603,14 @@ const canAccessPurchaseOrdersModule = (user) => (
   || isComprasRole(user?.rol)
 );
 
+const hasApprovalPermissions = (user) => {
+  const permissions = Array.isArray(user?.permisos) ? user.permisos : [];
+  return permissions.some((perm) => normalizePermissionName(perm).startsWith('APROBAR_'));
+};
+
 const canAccessManageRequestsModule = (user) => {
   const roleId = resolveApprovalRoleId(user);
-  return isApprovalHierarchyRoleId(roleId);
+  return isApprovalHierarchyRoleId(roleId) && hasApprovalPermissions(user);
 };
 
 const filterUserPermissions = (permissions, user) => {
