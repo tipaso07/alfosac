@@ -9668,9 +9668,8 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     const isUsd = /USD|US\$|\$|DOL|DÓLAR|DOLAR/.test(monedaNorm);
     const isPen = /PEN|SOL/.test(monedaNorm);
     const totalBase = totalCalc;
-    const tipoCambioTemporal = Number(payload.tipo_cambio || 0);
-    const tipoCambioUsd = Number.isFinite(tipoCambioTemporal) && tipoCambioTemporal > 0
-      ? tipoCambioTemporal
+    const tipoCambioUsd = Number.isFinite(tipoCambioNum) && tipoCambioNum > 0
+      ? tipoCambioNum
       : 3.5;
     const totalEnSoles = isUsd ? Number((totalBase * tipoCambioUsd).toFixed(2)) : totalBase;
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalEnSoles > 700);
