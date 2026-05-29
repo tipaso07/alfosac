@@ -243,13 +243,6 @@ export default function MisOrdenesCompraView({
     })
   }, [activeFilter, compras, materialFilter, areaFilter, dateFromFilter, dateToFilter])
 
-  const clearFilters = () => {
-    setMaterialFilter('')
-    setAreaFilter('')
-    setDateFromFilter('')
-    setDateToFilter('')
-  }
-
   const getStatusLabel = (compra) => {
     if (String(compra?.estado_aprobacion_detalle || '').trim()) {
       return compra.estado_aprobacion_detalle
@@ -847,11 +840,6 @@ export default function MisOrdenesCompraView({
             value={dateToFilter}
             onChange={(event) => setDateToFilter(event.target.value)}
           />
-        </div>
-        <div className="my-po-search-actions">
-          <button type="button" className="btn-detail" onClick={clearFilters}>
-            Limpiar filtros
-          </button>
         </div>
       </div>
 
