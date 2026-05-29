@@ -163,7 +163,8 @@ export default function MisOrdenesServiciosView({
     return serviciosOrdenados
       .filter((servicio) => {
         const flow = getFlow(servicio)
-        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO'
+        // Considerar 'APROBADO' como aprobado también (no remapeamos en backend ahora)
+        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO' || flow === 'APROBADO'
       })
   }, [serviciosOrdenados])
 
