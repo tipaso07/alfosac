@@ -9408,6 +9408,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
         `
           UPDATE compras
           SET estado = 'APROBADA',
+              estado_pedido = 'APROBADO',
               fecha_actualizacion = ${PET_SQL_NOW}
           WHERE id = $1
         `,
