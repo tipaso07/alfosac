@@ -594,11 +594,7 @@ const getApprovalRoleIdByPermission = (permission) => {
     }
   }
 
-  // Fallback: retornar los IDs hardcodeados
-  if (normalizedPermission === 'APROBAR_JEFE_AREA') return 5;
-  if (normalizedPermission === 'APROBAR_GERENCIA_AREA') return 6;
-  if (normalizedPermission === 'APROBAR_FINANZAS') return 7;
-  if (normalizedPermission === 'APROBAR_ADMIN') return 8;
+  // No hay fallback harcodeado: solo roles reconocidos dinámicamente pueden resolverse.
   return 0;
 };
 
@@ -986,7 +982,6 @@ const resolveApprovalRoleIdByPermissions = (user) => {
   // Buscar dinámicamente: si tiene un permiso de aprobación, encontrar el rol correspondiente en ROLE_NAME_BY_ID
   for (const [permission, expectedRoleName] of permissionToRoleName.entries()) {
     if (permissionSet.has(permission)) {
-      // Buscar el rol en ROLE_NAME_BY_ID que coincida con este permiso
       for (const [roleIdFromCache, roleName] of ROLE_NAME_BY_ID.entries()) {
         const normalizedCached = normalizeRoleName(roleName);
         const normalizedExpected = normalizeRoleName(expectedRoleName);
@@ -994,11 +989,8 @@ const resolveApprovalRoleIdByPermissions = (user) => {
           return roleIdFromCache;
         }
       }
-      // Fallback: si no está en el cache, usar el mapa hardcodeado
-      const fallbackRoleId = getApprovalRoleIdByPermission(permission);
-      if (fallbackRoleId > 0) {
-        return fallbackRoleId;
-      }
+      // Si no hay coincidencia con un rol cargado dinámicamente, no asumimos nada.
+      return 0;
     }
   }
 
