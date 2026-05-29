@@ -4140,11 +4140,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
   });
 
   // Normalize legacy estado_flujo values: treat 'APROBADO' as 'DATOS_COMPLETADOS'
-  servicios.forEach((row) => {
-    if (String(row.estado_flujo || '').trim().toUpperCase() === 'APROBADO') {
-      row.estado_flujo = 'DATOS_COMPLETADOS';
-    }
-  });
+  // Keep estado_flujo as stored; do not remap 'APROBADO' to 'DATOS_COMPLETADOS'
 
   const approvalRoleId = Number(options?.approvalRoleId || 0);
   const approvalPermissionGranted = Boolean(options?.approvalPermissionGranted);
