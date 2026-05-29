@@ -5039,6 +5039,28 @@ const getMaterialStockTotal = async (client, idMaterial) => {
   return Number(result.rows[0]?.total || 0);
 };
 
+const isMaterialVisibleInInventory = async (client, idMaterial) => {
+  const result = await client.query(
+    `
+      SELECT
+        EXISTS(
+          SELECT 1
+          FROM stock s
+          WHERE s.id_material = $1
+        ) AS has_stock,
+        EXISTS(
+          SELECT 1
+          FROM detalle_compras dc
+          WHERE dc.id_material = $1
+        ) AS has_purchase_history
+    `,
+    [idMaterial]
+  );
+
+  const row = result.rows[0] || {};
+  return Boolean(row.has_stock || !row.has_purchase_history);
+};
+
 const discountMaterialStockDistributed = async (client, idMaterial, quantity) => {
   let pending = Number(quantity);
   const allocations = [];
@@ -8096,7 +8118,7 @@ app.post('/api/requerimientos', authMiddleware, requirePermissions('CREAR_REQUER
       }
 
       if (!idMaterial && !categoria) {
-        return res.status(400).json({ error: 'Debe ingresar la categoria del material cuando sea nuevo' });
+        return res.status(400).json({ error: 'Debe seleccionar un material existente del inventario' });
       }
 
       if (idMaterial) {
@@ -8104,42 +8126,13 @@ app.post('/api/requerimientos', authMiddleware, requirePermissions('CREAR_REQUER
         if (materialExists.rows.length === 0) {
           return res.status(400).json({ error: `Material no existe: ${idMaterial}` });
         }
-      } else {
-        const matchedMaterial = await client.query(
-          'SELECT id FROM materiales WHERE lower(trim(nombre)) = lower(trim($1)) LIMIT 1',
-          [nombre]
-        );
 
-        if (matchedMaterial.rows.length > 0) {
-          idMaterial = Number(matchedMaterial.rows[0].id);
-        } else {
-          const idUnidad = await ensureDefaultUnit();
-
-          const insertColumns = ['nombre', 'descripcion', 'id_unidad', 'id_proveedor'];
-          const insertValues = [
-            nombre,
-            'Generado automaticamente desde requerimientos',
-            idUnidad,
-            null,
-          ];
-
-          if (materialCategoriaColumn && categoria) {
-            insertColumns.push(materialCategoriaColumn);
-            insertValues.push(categoria);
-          }
-
-          const placeholders = insertValues.map((_, idx) => `$${idx + 1}`);
-          const createdMaterial = await client.query(
-            `
-              INSERT INTO materiales (${insertColumns.join(', ')})
-              VALUES (${placeholders.join(', ')})
-              RETURNING id
-            `,
-            insertValues
-          );
-          idMaterial = Number(createdMaterial.rows[0].id);
-          autoCreatedMaterialIds.add(idMaterial);
+        const isVisible = await isMaterialVisibleInInventory(client, idMaterial);
+        if (!isVisible) {
+          return res.status(400).json({ error: `El material ${idMaterial} no está disponible en inventario` });
         }
+      } else {
+        return res.status(400).json({ error: 'Cada item debe seleccionar un material existente del inventario' });
       }
 
       await ensureMaterialCategoryLink(idMaterial, categoria);

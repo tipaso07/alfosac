@@ -2,28 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import '../styles/AddProductForm.css'
 import { fetchCategorias } from '../services/api'
 
+const createItemFromMaterial = (material) => ({
+  id_material: material?.id || '',
+  nombre: material?.nombre_producto || material?.nombre || '',
+  categoria: material?.categoria || '',
+  cantidad: 1,
+})
+
 export default function AddProductForm({
   onSubmitRequirement,
   materials = [],
   currentUser = 'Usuario',
   currentArea = 'Sin area',
 }) {
+  const firstMaterial = materials[0] || null
   const [formData, setFormData] = useState({
     prioridad: 'MEDIA',
     descripcion: '',
-    items: [
-      {
-        id_material: materials[0]?.id || '',
-        nombre: materials[0]?.nombre_producto || materials[0]?.nombre || '',
-        categoria: materials[0]?.categoria || '',
-        cantidad: 1,
-      },
-    ],
+    items: [createItemFromMaterial(firstMaterial)],
   })
 
   const [errors, setErrors] = useState({})
-  const [openSuggestionsFor, setOpenSuggestionsFor] = useState(null)
-  const [openCategorySuggestionsFor, setOpenCategorySuggestionsFor] = useState(null)
   const [catalogCategories, setCatalogCategories] = useState([])
   const formRef = useRef(null)
 
@@ -53,6 +52,18 @@ export default function AddProductForm({
     loadCategorias()
   }, [])
 
+  useEffect(() => {
+    if (!materials.length) return
+
+    setFormData((current) => ({
+      ...current,
+      items: current.items.map((item, index) => {
+        const material = materials.find((entry) => Number(entry.id) === Number(item.id_material)) || (index === 0 ? firstMaterial : null)
+        return material ? createItemFromMaterial(material) : item
+      }),
+    }))
+  }, [materials, firstMaterial])
+
   const getMaterialStock = (idMaterial) => {
     const material = materials.find((m) => Number(m.id) === Number(idMaterial))
     return Number(material?.stock ?? material?.cantidad ?? 0)
@@ -66,27 +77,6 @@ export default function AddProductForm({
   const getMaterialCategoria = (idMaterial) => {
     const material = materials.find((m) => Number(m.id) === Number(idMaterial))
     return material?.categoria || ''
-  }
-
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (!formRef.current?.contains(event.target)) {
-        setOpenSuggestionsFor(null)
-        setOpenCategorySuggestionsFor(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => document.removeEventListener('mousedown', handleOutsideClick)
-  }, [])
-
-  const getSuggestions = (searchValue) => {
-    const term = String(searchValue || '').trim().toLowerCase()
-    if (!term) return []
-
-    return materials
-      .filter((material) => String(material.nombre_producto || material.nombre || '').toLowerCase().includes(term))
-      .slice(0, 8)
   }
 
   const getCategorySuggestions = (searchValue) => {
@@ -113,18 +103,6 @@ export default function AddProductForm({
     const nextItems = [...formData.items]
     const currentItem = nextItems[index]
 
-    if (field === 'categoria') {
-      nextItems[index] = {
-        ...currentItem,
-        categoria: value,
-      }
-      setFormData({ ...formData, items: nextItems })
-      if (errors.items) {
-        setErrors({ ...errors, items: '' })
-      }
-      return
-    }
-
     const nextMaterialId = field === 'id_material'
       ? parseInt(value || '0', 10) || ''
       : currentItem.id_material
@@ -144,9 +122,6 @@ export default function AddProductForm({
       cantidad: nextMaterialId ? cantidadAjustada : Math.max(1, rawCantidad),
     }
     setFormData({ ...formData, items: nextItems })
-    if (field === 'id_material') {
-      setOpenCategorySuggestionsFor(null)
-    }
     if (errors.items) {
       setErrors({ ...errors, items: '' })
     }
@@ -155,12 +130,7 @@ export default function AddProductForm({
   const addItem = () => {
     setFormData({
       ...formData,
-      items: [...formData.items, {
-        id_material: materials[0]?.id || '',
-        nombre: materials[0]?.nombre_producto || materials[0]?.nombre || '',
-        categoria: materials[0]?.categoria || '',
-        cantidad: 1,
-      }],
+      items: [...formData.items, createItemFromMaterial(firstMaterial)],
     })
   }
 
@@ -169,26 +139,9 @@ export default function AddProductForm({
     setFormData({
       ...formData,
       items: nextItems.length > 0 ? nextItems : [{
-        id_material: materials[0]?.id || '',
-        nombre: materials[0]?.nombre_producto || materials[0]?.nombre || '',
-        categoria: materials[0]?.categoria || '',
-        cantidad: 1,
+        ...createItemFromMaterial(firstMaterial),
       }],
     })
-  }
-
-  const handleItemNameChange = (index, value) => {
-    const nextItems = [...formData.items]
-    nextItems[index] = {
-      ...nextItems[index],
-      nombre: value,
-      categoria: '',
-      id_material: '',
-    }
-    setFormData({ ...formData, items: nextItems })
-    if (errors.items) {
-      setErrors({ ...errors, items: '' })
-    }
   }
 
   const validateForm = () => {
@@ -201,15 +154,14 @@ export default function AddProductForm({
       newErrors.items = 'Debe agregar al menos un material'
     }
 
-    const invalidItem = formData.items.find((item) => !String(item.nombre || '').trim() || Number(item.cantidad) <= 0)
-    if (invalidItem) {
-      newErrors.items = 'Cada item debe tener nombre y cantidad mayor a 0'
+    if (!materials.length) {
+      newErrors.items = 'No hay materiales disponibles en inventario para solicitar'
       return newErrors
     }
 
-    const missingCategory = formData.items.find((item) => !item.id_material && !String(item.categoria || '').trim())
-    if (missingCategory) {
-      newErrors.items = 'Debe ingresar la categoria del material cuando sea nuevo'
+    const invalidItem = formData.items.find((item) => !item.id_material || Number(item.cantidad) <= 0)
+    if (invalidItem) {
+      newErrors.items = 'Cada item debe seleccionar un material existente y cantidad mayor a 0'
       return newErrors
     }
 
@@ -257,12 +209,7 @@ export default function AddProductForm({
     setFormData({
       prioridad: 'MEDIA',
       descripcion: '',
-      items: [{
-        id_material: materials[0]?.id || '',
-        nombre: materials[0]?.nombre_producto || materials[0]?.nombre || '',
-        categoria: materials[0]?.categoria || '',
-        cantidad: 1,
-      }],
+      items: [createItemFromMaterial(firstMaterial)],
     })
     setErrors({})
   }
@@ -332,95 +279,30 @@ export default function AddProductForm({
           {formData.items.map((item, index) => (
             <div key={`${index}-${item.id_material}`} className="form-row" style={{ marginBottom: '8px' }}>
               <div className="form-group">
-                <div className="material-autocomplete">
-                  <input
-                    type="text"
-                    value={item.nombre || ''}
-                    className="material-input"
-                    onFocus={() => setOpenSuggestionsFor(index)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        const suggestions = getSuggestions(item.nombre)
-                        if (suggestions.length > 0) {
-                          event.preventDefault()
-                          handleItemChange(index, 'id_material', suggestions[0].id)
-                          setOpenSuggestionsFor(null)
-                        } else {
-                          setOpenSuggestionsFor(null)
-                        }
-                      }
-                    }}
-                    onChange={(e) => {
-                      handleItemNameChange(index, e.target.value)
-                      setOpenSuggestionsFor(index)
-                    }}
-                    placeholder="Buscar material"
-                  />
-                  {openSuggestionsFor === index && getSuggestions(item.nombre).length > 0 && (
-                    <ul className="material-suggestions">
-                      {getSuggestions(item.nombre).map((material) => (
-                          <li key={`requirement-suggestion-${index}-${material.id}`}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleItemChange(index, 'id_material', material.id)
-                                setOpenSuggestionsFor(null)
-                              }}
-                            >
-                              {(material.nombre_producto || material.nombre)} (Stock: {Number(material.stock ?? material.cantidad ?? 0)})
-                            </button>
-                          </li>
-                        ))}
-                    </ul>
+                <select
+                  value={item.id_material || ''}
+                  className="material-input"
+                  onChange={(e) => handleItemChange(index, 'id_material', e.target.value)}
+                >
+                  {materials.length === 0 ? (
+                    <option value="">No hay materiales en inventario</option>
+                  ) : (
+                    materials.map((material) => (
+                      <option key={material.id} value={material.id}>
+                        {(material.nombre_producto || material.nombre)} - Stock: {Number(material.stock ?? material.cantidad ?? 0)}
+                      </option>
+                    ))
                   )}
-                </div>
+                </select>
               </div>
               <div className="form-group">
-                <div className="category-autocomplete">
-                  <input
-                    type="text"
-                    value={item.categoria || ''}
-                    readOnly={Boolean(item.id_material)}
-                    className="category-input"
-                    onFocus={() => {
-                      if (!item.id_material) setOpenCategorySuggestionsFor(index)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !item.id_material) {
-                        const suggestions = getCategorySuggestions(item.categoria)
-                        if (suggestions.length > 0) {
-                          event.preventDefault()
-                          handleItemChange(index, 'categoria', suggestions[0])
-                          setOpenCategorySuggestionsFor(null)
-                        } else {
-                          setOpenCategorySuggestionsFor(null)
-                        }
-                      }
-                    }}
-                    onChange={(e) => {
-                      handleItemChange(index, 'categoria', e.target.value)
-                      if (!item.id_material) setOpenCategorySuggestionsFor(index)
-                    }}
-                    placeholder={item.id_material ? 'Categoria autocompletada' : 'Categoria del material nuevo'}
-                  />
-                  {!item.id_material && openCategorySuggestionsFor === index && getCategorySuggestions(item.categoria).length > 0 && (
-                    <ul className="material-suggestions">
-                      {getCategorySuggestions(item.categoria).map((categoria) => (
-                        <li key={`requirement-category-${index}-${categoria}`}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleItemChange(index, 'categoria', categoria)
-                              setOpenCategorySuggestionsFor(null)
-                            }}
-                          >
-                            {categoria}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                <input
+                  type="text"
+                  value={item.categoria || ''}
+                  readOnly
+                  className="category-input"
+                  placeholder="Categoria del material"
+                />
               </div>
               <div className="form-group">
                 <input
