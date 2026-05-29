@@ -896,6 +896,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                 <GestionarServiciosView
                   servicios={servicios}
                   currentUserPermissions={currentUserPermissions}
+                  currentUserRoleId={currentUserRoleId}
                   onChangeAprobacion={handleServicioAprobacion}
                 />
               )}
