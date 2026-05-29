@@ -4465,6 +4465,11 @@ const ensureMovimientosColumns = async () => {
     ALTER TABLE movimientos
     ADD COLUMN IF NOT EXISTS id_requerimiento INTEGER;
   `);
+
+  await pool.query(`
+    ALTER TABLE movimientos
+    ADD COLUMN IF NOT EXISTS id_almacen INTEGER;
+  `);
 };
 
 const seedInventoryDemoData = async () => {
