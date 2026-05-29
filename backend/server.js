@@ -8624,6 +8624,7 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
               NULLIF(to_jsonb(m)->>'tipo', ''),
               'N/D'
             ) AS tipo,
+            NULLIF(COALESCE(NULLIF(to_jsonb(m)->>'id_almacen', ''), NULLIF(to_jsonb(m)->>'almacen_id', ''), ''), '')::int AS id_almacen,
             COALESCE(
               NULLIF(to_jsonb(m)->>'fecha_movimiento', ''),
               NULLIF(to_jsonb(m)->>'fecha', ''),
@@ -8649,18 +8650,22 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
           mb.id,
           mb.tipo,
           mb.fecha,
+          mb.id_almacen,
           mb.usuario_ref AS id_usuario,
           COALESCE(usuarios.nombre, mb.usuario_ref) AS usuario,
           mb.id_requerimiento,
           COALESCE(
-            (
-              SELECT areas.nombre
-              FROM requerimientos
-              JOIN usuarios ON usuarios.id = requerimientos.id_usuario
-              LEFT JOIN areas ON areas.id = usuarios.id_area
-              WHERE requerimientos.id = mb.id_requerimiento
-              LIMIT 1
-            ),
+            CASE
+              WHEN upper(trim(COALESCE(mb.tipo, ''))) = 'ENTRADA' AND mb.id_almacen IS NOT NULL THEN almacenes.nombre
+              ELSE (
+                SELECT areas.nombre
+                FROM requerimientos
+                JOIN usuarios ON usuarios.id = requerimientos.id_usuario
+                LEFT JOIN areas ON areas.id = usuarios.id_area
+                WHERE requerimientos.id = mb.id_requerimiento
+                LIMIT 1
+              )
+            END,
             COALESCE(areas.nombre, 'Sin area')
           ) AS area_destino,
           movimiento_detalles.id AS id_movimiento_detalle,
@@ -8679,6 +8684,7 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
           ELSE NULL
         END
         LEFT JOIN areas ON areas.id = usuarios.id_area
+        LEFT JOIN almacenes ON almacenes.id = mb.id_almacen
         LEFT JOIN movimiento_detalles ON movimiento_detalles.id_movimiento = mb.id
         LEFT JOIN materiales ON materiales.id = movimiento_detalles.id_material
         LEFT JOIN proveedores ON proveedores.id = NULLIF(to_jsonb(materiales)->>'id_proveedor', '')::int
@@ -10012,6 +10018,7 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
       idMovimientoEntrada = await insertMovimiento(client, {
         tipo: 'ENTRADA',
         usuarioRegistro: req.user.id,
+        idAlmacen,
       });
 
       for (const detail of detailRows.rows) {
@@ -10462,6 +10469,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       idMovimientoEntrada = await insertMovimiento(client, {
         tipo: 'ENTRADA',
         usuarioRegistro: req.user.id,
+        idAlmacen,
       });
       movimientoIds.push(idMovimientoEntrada);
 
