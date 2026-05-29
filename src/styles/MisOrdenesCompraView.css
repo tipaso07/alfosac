@@ -12,6 +12,43 @@
   margin-bottom: 12px;
 }
 
+.my-po-search-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.my-po-search-field,
+.my-po-search-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.my-po-search-field label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.my-po-search-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 42px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.my-po-search-actions {
+  align-content: end;
+}
+
 .my-po-filters button {
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -35,6 +72,18 @@
 .my-po-list {
   display: grid;
   gap: 10px;
+}
+
+@media (max-width: 960px) {
+  .my-po-search-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .my-po-search-filters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .my-po-card {

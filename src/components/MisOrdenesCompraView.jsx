@@ -30,6 +30,38 @@ const getStageStatus = (compra) => {
   return normalize(compra?.estado_pedido || compra?.estado)
 }
 
+const getPurchaseDateKey = (compra) => {
+  const rawDate = String(compra?.fecha_creacion || compra?.fecha_actualizacion || '').trim()
+  if (!rawDate) return ''
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+    return rawDate.slice(0, 10)
+  }
+
+  const parsed = new Date(rawDate)
+  if (Number.isNaN(parsed.getTime())) return ''
+
+  return parsed.toISOString().slice(0, 10)
+}
+
+const getPurchaseAreaText = (compra) => {
+  return [compra?.area_solicitante, compra?.area_final]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(' ')
+}
+
+const getPurchaseMaterialText = (compra) => {
+  if (!Array.isArray(compra?.items)) return ''
+
+  return compra.items
+    .map((item) => [item.material_solicitado, item.material, item.descripcion, item.categoria]
+      .map((value) => normalizeText(value))
+      .filter(Boolean)
+      .join(' '))
+    .join(' ')
+}
+
 const emptyForm = {
   id_proveedor: '',
   proveedor: '',
@@ -123,6 +155,10 @@ export default function MisOrdenesCompraView({
       ? 'APROBADAS'
       : 'POR_RECIBIR'
   const [activeFilter, setActiveFilter] = useState(defaultFilter)
+  const [materialFilter, setMaterialFilter] = useState('')
+  const [areaFilter, setAreaFilter] = useState('')
+  const [dateFromFilter, setDateFromFilter] = useState('')
+  const [dateToFilter, setDateToFilter] = useState('')
   const [error, setError] = useState('')
   const [loadingByCompra, setLoadingByCompra] = useState({})
   const [formsByCompra, setFormsByCompra] = useState({})
@@ -160,8 +196,30 @@ export default function MisOrdenesCompraView({
   }
 
   const filtered = useMemo(() => {
-  return (compras || []).filter((compra) => {
+    const materialTerm = normalizeText(materialFilter)
+    const areaTerm = normalizeText(areaFilter)
+    const dateFrom = String(dateFromFilter || '').trim()
+    const dateTo = String(dateToFilter || '').trim()
+
+    return (compras || []).filter((compra) => {
     const estado = normalize(compra.estado_pedido || compra.estado)
+
+    if (dateFrom || dateTo) {
+      const purchaseDate = getPurchaseDateKey(compra)
+      if (!purchaseDate) return false
+      if (dateFrom && purchaseDate < dateFrom) return false
+      if (dateTo && purchaseDate > dateTo) return false
+    }
+
+    if (areaTerm) {
+      const areaText = getPurchaseAreaText(compra)
+      if (!areaText.includes(areaTerm)) return false
+    }
+
+    if (materialTerm) {
+      const materialText = getPurchaseMaterialText(compra)
+      if (!materialText.includes(materialTerm)) return false
+    }
 
     if (activeFilter === 'APROBADAS') {
       return ['APROBADA', 'APROBADO'].includes(estado)
@@ -182,8 +240,15 @@ export default function MisOrdenesCompraView({
     }
 
     return true
-  })
-}, [activeFilter, compras])
+    })
+  }, [activeFilter, compras, materialFilter, areaFilter, dateFromFilter, dateToFilter])
+
+  const clearFilters = () => {
+    setMaterialFilter('')
+    setAreaFilter('')
+    setDateFromFilter('')
+    setDateToFilter('')
+  }
 
   const getStatusLabel = (compra) => {
     if (String(compra?.estado_aprobacion_detalle || '').trim()) {
@@ -742,6 +807,52 @@ export default function MisOrdenesCompraView({
       <div className="section-header">
         <h1>Mis ordenes de compra</h1>
         <p>Total: {filtered.length}</p>
+      </div>
+
+      <div className="my-po-search-filters">
+        <div className="my-po-search-field">
+          <label htmlFor="my-po-material-filter">Material</label>
+          <input
+            id="my-po-material-filter"
+            type="search"
+            value={materialFilter}
+            onChange={(event) => setMaterialFilter(event.target.value)}
+            placeholder="Buscar por material"
+          />
+        </div>
+        <div className="my-po-search-field">
+          <label htmlFor="my-po-area-filter">Area</label>
+          <input
+            id="my-po-area-filter"
+            type="search"
+            value={areaFilter}
+            onChange={(event) => setAreaFilter(event.target.value)}
+            placeholder="Buscar por area"
+          />
+        </div>
+        <div className="my-po-search-field">
+          <label htmlFor="my-po-date-from">Desde</label>
+          <input
+            id="my-po-date-from"
+            type="date"
+            value={dateFromFilter}
+            onChange={(event) => setDateFromFilter(event.target.value)}
+          />
+        </div>
+        <div className="my-po-search-field">
+          <label htmlFor="my-po-date-to">Hasta</label>
+          <input
+            id="my-po-date-to"
+            type="date"
+            value={dateToFilter}
+            onChange={(event) => setDateToFilter(event.target.value)}
+          />
+        </div>
+        <div className="my-po-search-actions">
+          <button type="button" className="btn-detail" onClick={clearFilters}>
+            Limpiar filtros
+          </button>
+        </div>
       </div>
 
       <div className="my-po-filters">
