@@ -899,8 +899,8 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       } else {
         // Si se rechaza, actualizar directamente
         await client.query(
-          `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
-          [estadoNuevo, referenceId]
+          `UPDATE compras SET estado = $1::text, estado_pedido = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
+          ['RECHAZADO', referenceId]
         );
       }
     } else {
@@ -9490,14 +9490,16 @@ app.patch('/api/compras/:id/estado', authMiddleware, async (req, res) => {
         return res.status(403).json({ error: 'Sin permiso para gestionar compras' });
       }
 
+      const isRejected = estado === 'RECHAZADA';
       await client.query(
         `
           UPDATE compras
           SET estado = $1,
+              estado_pedido = $2,
               fecha_actualizacion = ${PET_SQL_NOW}
-          WHERE id = $2
+          WHERE id = $3
         `,
-        [estado, id]
+        [estado, isRejected ? 'RECHAZADO' : estado, id]
       );
     }
 
