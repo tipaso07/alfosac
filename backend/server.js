@@ -12074,13 +12074,13 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             (
               SELECT COUNT(*)
               FROM servicios s
-              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), '')))) IN ('PENDIENTE','DATOS_COMPLETADOS','APROBADO')
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), ''))) IN ('PENDIENTE','DATOS_COMPLETADOS','APROBADO')
               ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
             ) AS total_servicios_pendientes,
             (
               SELECT COUNT(*)
               FROM servicios s
-              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), '')))) = 'REALIZADO'
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), ''))) = 'REALIZADO'
               ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
             ) AS total_servicios_realizados,
             COALESCE((
