@@ -341,28 +341,9 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
 
 const isApprovalHierarchyRoleId = (roleId) => {
   const numericRoleId = Number(roleId || 0);
-  
-  // Primero verifica el array cargado dinámicamente
-  if (APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId)) {
-    return true;
-  }
-  
-  // Si no está en el array, verifica si tiene un permiso de aprobación basándose en ROLE_NAME_BY_ID
-  const roleName = ROLE_NAME_BY_ID.get(numericRoleId);
-  if (roleName) {
-    const normalizedName = normalizeRoleName(roleName);
-    // Si el rol tiene un nombre que sugiere que es un rol de aprobación, considerarlo como parte de la jerarquía
-    if (
-      normalizedName === 'ADMIN' ||
-      normalizedName.includes('FINANZAS') ||
-      (normalizedName.includes('GERENCIA') && normalizedName.includes('AREA')) ||
-      normalizedName.includes('JEFE')
-    ) {
-      return true;
-    }
-  }
-  
-  return false;
+
+  // Solo permitir roles que estén en las cadenas de aprobación configuradas.
+  return APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId);
 };
 
 const APPROVAL_PERMISSION_BY_ROLE_ID = new Map([
@@ -6014,12 +5995,19 @@ app.get('/api/me', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const dbPermissions = await fetchPermissionNamesByUserId(pool, profile.id);
+    let dbPermissions = await fetchPermissionNamesByUserId(pool, profile.id);
+    const canAccessManageRequests = canAccessManageRequestsModule(req.user);
+    const normalizedPermissions = dbPermissions.map((perm) => String(perm || '').trim().toUpperCase());
+    const hasManageRequestsPermission = normalizedPermissions.includes('GESTIONAR_SOLICITUDES');
 
-    // If the user is part of any approval flow, expose a permission so
-    // frontends can enable the 'Gestionar Solicitudes' module dynamically.
-    if (canAccessManageRequestsModule(req.user) && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
+    // If the user is part of a real approval flow, expose the hidden module permission.
+    if (canAccessManageRequests && !hasManageRequestsPermission) {
       dbPermissions.push('GESTIONAR_SOLICITUDES');
+    }
+
+    // Remove stale or manual assignment of the hidden permission if the user is not actually in the approval flow.
+    if (!canAccessManageRequests && hasManageRequestsPermission) {
+      dbPermissions = dbPermissions.filter((perm) => String(perm || '').trim().toUpperCase() !== 'GESTIONAR_SOLICITUDES');
     }
 
     res.json({
