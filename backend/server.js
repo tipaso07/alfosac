@@ -10458,44 +10458,39 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
     const idAlmacen = Number(defaultWarehouse.rows[0].id);
     const movimientoIds = [];
 
-    let idMovimientoEntrada = null;
+    const idMovimientoEntrada = await insertMovimiento(client, {
+      tipo: 'ENTRADA',
+      usuarioRegistro: req.user.id,
+      idAlmacen,
+    });
+    movimientoIds.push(idMovimientoEntrada);
 
-    // Solo actualizar inventario si el destino es almacén
-    if (isWarehouseDestination) {
-      idMovimientoEntrada = await insertMovimiento(client, {
-        tipo: 'ENTRADA',
-        usuarioRegistro: req.user.id,
-        idAlmacen,
-      });
-      movimientoIds.push(idMovimientoEntrada);
+    for (const detail of detailRows.rows) {
+      const idMaterial = Number(detail.id_material || 0);
+      const qty = Number(detail.cantidad_total || 0);
 
-      for (const detail of detailRows.rows) {
-        const idMaterial = Number(detail.id_material || 0);
-        const qty = Number(detail.cantidad_total || 0);
+      if (!idMaterial || qty <= 0) continue;
 
-        if (!idMaterial || qty <= 0) continue;
+      await client.query(
+        `
+          INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+          VALUES ($1, $2, $3)
+        `,
+        [idMovimientoEntrada, idMaterial, qty]
+      );
 
+      const stockRow = await client.query(
+        'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
+        [idMaterial, idAlmacen]
+      );
+
+      if (stockRow.rows.length === 0) {
         await client.query(
-          `
-            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
-            VALUES ($1, $2, $3)
-          `,
-          [idMovimientoEntrada, idMaterial, qty]
+          'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
+          [idMaterial, idAlmacen, qty]
         );
-
-        const stockRow = await client.query(
-          'SELECT id FROM stock WHERE id_material = $1 AND id_almacen = $2 FOR UPDATE',
-          [idMaterial, idAlmacen]
-        );
-
-        if (stockRow.rows.length === 0) {
-          await client.query(
-            'INSERT INTO stock (id_material, id_almacen, cantidad) VALUES ($1, $2, $3)',
-            [idMaterial, idAlmacen, qty]
-          );
-        } else {
-          await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
-        }
+      } else {
+        await client.query('UPDATE stock SET cantidad = cantidad + $1 WHERE id = $2', [qty, stockRow.rows[0].id]);
       }
     }
 
@@ -10530,10 +10525,8 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       ...result[0],
       receptor: null,
       movimientos_generados: movimientoIds,
+      id_almacen_entrada: idAlmacen,
     };
-    if (isWarehouseDestination) {
-      response.id_almacen_entrada = idAlmacen;
-    }
     res.json(response);
   } catch (error) {
     await client.query('ROLLBACK');
