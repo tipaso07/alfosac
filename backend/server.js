@@ -10825,12 +10825,16 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
       return res.json([]);
     }
 
-    const userRole = String(req.user?.rol || '');
+    // Restringir acceso: solo usuarios que pueden gestionar solicitudes (miembros de flujo de aprobaciones)
+    const canManage = await canAccessManageRequestsModule(req.user);
+    if (!canManage) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
     const roleId = resolveApprovalRoleId(req.user);
     const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
-
-    // Devolver todos los servicios para "Mis órdenes de servicios" independientemente del rol
+    // Para usuarios autorizados, devolver los servicios (fetchServiciosRows incluye flags de aprobación)
     const servicios = await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage });
     res.json(servicios);
   } catch (error) {
