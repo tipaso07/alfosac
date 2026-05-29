@@ -978,7 +978,19 @@ export const fetchServicios = async () => {
   const response = await fetch(API_ENDPOINTS.SERVICIOS, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener servicios');
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener servicios';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 };
 
@@ -986,7 +998,19 @@ export const fetchMisServicios = async () => {
   const response = await fetch(`${API_BASE_URL}/mis-servicios`, {
     headers: buildHeaders(),
   });
-  if (!response.ok) throw new Error('Error al obtener mis servicios');
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener mis servicios';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    const error = new Error(msg);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 };
 
