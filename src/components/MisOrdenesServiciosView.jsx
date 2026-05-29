@@ -695,37 +695,35 @@ export default function MisOrdenesServiciosView({
         </button>
       </div>
 
-      {activeSection === 'realizados' && (
-        <div className="my-so-filter-grid">
-          <label>
-            Area
-            <select value={realizadosAreaFilter} onChange={(event) => setRealizadosAreaFilter(event.target.value)}>
-              {realizadoAreas.map((area) => (
-                <option key={area} value={area}>{area}</option>
-              ))}
-            </select>
-          </label>
+      <div className="my-so-filter-grid">
+        <label>
+          Area
+          <select value={realizadosAreaFilter} onChange={(event) => setRealizadosAreaFilter(event.target.value)}>
+            {realizadoAreas.map((area) => (
+              <option key={area} value={area}>{area}</option>
+            ))}
+          </select>
+        </label>
 
-          <label>
-            Prioridad
-            <select value={realizadosPrioridadFilter} onChange={(event) => setRealizadosPrioridadFilter(event.target.value)}>
-              {realizadoPrioridades.map((prioridad) => (
-                <option key={prioridad} value={prioridad}>{prioridad}</option>
-              ))}
-            </select>
-          </label>
+        <label>
+          Prioridad
+          <select value={realizadosPrioridadFilter} onChange={(event) => setRealizadosPrioridadFilter(event.target.value)}>
+            {realizadoPrioridades.map((prioridad) => (
+              <option key={prioridad} value={prioridad}>{prioridad}</option>
+            ))}
+          </select>
+        </label>
 
-          <label>
-            Desde
-            <input type="date" value={realizadosFromDate} onChange={(event) => setRealizadosFromDate(event.target.value)} />
-          </label>
+        <label>
+          Desde
+          <input type="date" value={realizadosFromDate} onChange={(event) => setRealizadosFromDate(event.target.value)} />
+        </label>
 
-          <label>
-            Hasta
-            <input type="date" value={realizadosToDate} onChange={(event) => setRealizadosToDate(event.target.value)} />
-          </label>
-        </div>
-      )}
+        <label>
+          Hasta
+          <input type="date" value={realizadosToDate} onChange={(event) => setRealizadosToDate(event.target.value)} />
+        </label>
+      </div>
 
       {error && <p className="my-so-error">{error}</p>}
       {ratingNotice ? <p className="my-so-comment-feedback success">{ratingNotice}</p> : null}
