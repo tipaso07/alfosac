@@ -8745,6 +8745,7 @@ const mapCompraRows = (rows) => {
       acc[row.id] = {
         id: row.id,
         estado: row.estado,
+        estado_pedido: row.estado_pedido,
         id_usuario: row.id_usuario,
         usuario_rol_id: Number(row.usuario_rol_id || 0) || null,
         usuario_rol: row.usuario_rol,
@@ -8831,7 +8832,6 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         -- Keep estado and estado_pedido as separate fields; prefer estado when deciding
         COALESCE(upper(trim(NULLIF(to_jsonb(c)->>'estado', ''))), '') AS estado,
         COALESCE(upper(trim(NULLIF(to_jsonb(c)->>'estado_pedido', ''))), '') AS estado_pedido,
-        COALESCE(upper(trim(NULLIF(to_jsonb(c)->>'estado_pedido', ''))), '') AS estado_pedidos,
         NULLIF(to_jsonb(c)->>'id_usuario', '')::int AS id_usuario,
         NULLIF(to_jsonb(c)->>'id_proveedor', '')::int AS id_proveedor,
         u.nombre AS usuario,
