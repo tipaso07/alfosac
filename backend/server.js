@@ -12056,6 +12056,18 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             (
               SELECT COUNT(*)
               FROM compras c
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) = 'PENDIENTE'
+              ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+            ) AS total_compras_pendientes,
+            (
+              SELECT COUNT(*)
+              FROM compras c
+              WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) IN ('APROBADA','APROBADO')
+              ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+            ) AS total_compras_aprobadas,
+            (
+              SELECT COUNT(*)
+              FROM compras c
               WHERE upper(trim(COALESCE(NULLIF(to_jsonb(c)->>'estado_pedido', ''), NULLIF(to_jsonb(c)->>'estado', '')))) = 'POR_RECIBIR'
               ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
             ) AS total_compras_por_recibir,
