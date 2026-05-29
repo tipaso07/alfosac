@@ -674,17 +674,17 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
           title="Compras"
           subtitle="Distribucion por etapa"
           segments={[
-            { label: 'Por Recibir', value: Number(resumen.total_compras_por_recibir || 0), color: 'var(--warning-color)' },
-            { label: 'Por Entregar', value: Number(resumen.total_compras_por_entregar || 0), color: 'var(--primary-color)' },
-            { label: 'Entregadas', value: Number(resumen.total_compras_entregadas || 0), color: 'var(--success-color)' },
+            { label: 'POR_RECIBIR', value: Number(resumen.total_compras_por_recibir || 0), color: 'var(--warning-color)' },
+            { label: 'POR_ENTREGAR', value: Number(resumen.total_compras_por_entregar || 0), color: 'var(--primary-color)' },
+            { label: 'ENTREGADO', value: Number(resumen.total_compras_entregadas || 0), color: 'var(--success-color)' },
           ]}
         />
         <SolicitudesEstadoDonut
           title="Servicios"
           subtitle="Distribucion por estado"
           segments={[
-            { label: 'Pendiente', value: Number(resumen.total_servicios_pendientes || 0), color: 'var(--warning-color)' },
-            { label: 'Realizado', value: Number(resumen.total_servicios_realizados || 0), color: 'var(--success-color)' },
+            { label: 'PENDIENTE', value: Number(resumen.total_servicios_pendientes || 0), color: 'var(--warning-color)' },
+            { label: 'REALIZADO', value: Number(resumen.total_servicios_realizados || 0), color: 'var(--success-color)' },
           ]}
         />
       </div>
