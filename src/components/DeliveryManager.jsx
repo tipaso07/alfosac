@@ -76,6 +76,8 @@ export default function DeliveryManager({
   const [receptorSelectedByOc, setReceptorSelectedByOc] = useState({})
   const [receptorLoadingByOc, setReceptorLoadingByOc] = useState({})
 
+  const getCompraDeliveryState = useCallback((compra) => normalize(compra?.estado_pedido || compra?.estado), [])
+
   useEffect(() => {
     const loadAreas = async () => {
       try {
@@ -111,27 +113,27 @@ export default function DeliveryManager({
 
   const ordenesPorRecibir = useMemo(() => {
     return (compras || [])
-      .filter((compra) => normalize(compra.estado) === 'POR_RECIBIR')
+      .filter((compra) => getCompraDeliveryState(compra) === 'POR_RECIBIR')
       .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
-  }, [compras])
+  }, [compras, getCompraDeliveryState])
 
   const ordenesPendientesEntrega = useMemo(() => {
     return (compras || [])
       .filter((compra) => {
-        const estado = normalize(compra.estado)
+        const estado = getCompraDeliveryState(compra)
         return estado === 'PENDIENTE_ENTREGA'
       })
       .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
-  }, [compras])
+  }, [compras, getCompraDeliveryState])
 
   const ordenesRecibidas = useMemo(() => {
     return (compras || [])
       .filter((compra) => {
-        const estado = normalize(compra.estado)
+        const estado = getCompraDeliveryState(compra)
         return estado === 'ENTREGADO'
       })
       .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
-  }, [compras])
+  }, [compras, getCompraDeliveryState])
 
   const inDateRange = useCallback((dateValue) => {
     if (!fechaInicio && !fechaFin) return true
