@@ -851,11 +851,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         const hasPendingNext = !!nextPendingRow;
         
         if (hasPendingNext) {
-          // Si hay pendientes posteriores, actualizar a PENDIENTE_<NEXT_ROLE>
-          const nextRoleId = nextPendingRow.rol_aprobador;
-          let nextRoleName = ROLE_NAME_BY_ID.get(Number(nextRoleId)) || `ROL_${nextRoleId}`;
-          nextRoleName = normalizeRoleName(nextRoleName);
-          const nextEstado = `PENDIENTE_${nextRoleName}`;
+          // Si hay pendientes posteriores, actualizar a PENDIENTE_<ID_DEL_ROL>
+          const nextRoleId = Number(nextPendingRow.rol_aprobador || 0);
+          const nextEstado = getPendingStateByRoleId(nextRoleId);
           
           await client.query(
             `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
@@ -926,11 +924,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
             [estadoNuevo, newFlow, referenceId]
           );
         } else {
-          // Si hay aprobaciones pendientes posteriores, actualizar estado_aprobacion a PENDIENTE_<NEXT_ROLE>
-          const nextRoleId = nextPendingRow.rol_aprobador;
-          let nextRoleName = ROLE_NAME_BY_ID.get(Number(nextRoleId)) || `ROL_${nextRoleId}`;
-          nextRoleName = normalizeRoleName(nextRoleName);
-          const nextEstado = `PENDIENTE_${nextRoleName}`;
+          // Si hay aprobaciones pendientes posteriores, actualizar estado_aprobacion a PENDIENTE_<ID_DEL_ROL>
+          const nextRoleId = Number(nextPendingRow.rol_aprobador || 0);
+          const nextEstado = getPendingStateByRoleId(nextRoleId);
           
           await client.query(
             `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
