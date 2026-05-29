@@ -1603,22 +1603,50 @@ const canAccessPurchaseOrdersModule = (user) => (
   || isComprasRole(user?.rol)
 );
 
+const isApprovalRoleIdConfigured = async (roleId) => {
+  const numericRoleId = Number(roleId || 0);
+  if (!Number.isInteger(numericRoleId) || numericRoleId <= 0) {
+    return false;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT 1
+      FROM aprobaciones_config
+      WHERE activo = TRUE
+        AND rol_id = $1
+      LIMIT 1
+    `,
+    [numericRoleId]
+  );
+
+  return result.rows.length > 0;
+};
+
 const hasApprovalPermissions = (user) => {
   const permissions = Array.isArray(user?.permisos) ? user.permisos : [];
   return permissions.some((perm) => normalizePermissionName(perm).startsWith('APROBAR_'));
 };
 
-const canAccessManageRequestsModule = (user) => {
+const canAccessManageRequestsModule = async (user) => {
   const roleId = resolveApprovalRoleId(user);
-  return isApprovalHierarchyRoleId(roleId) && hasApprovalPermissions(user);
+  if (!Number.isInteger(roleId) || roleId <= 0) {
+    return false;
+  }
+
+  if (!hasApprovalPermissions(user)) {
+    return false;
+  }
+
+  return await isApprovalRoleIdConfigured(roleId);
 };
 
-const filterUserPermissions = (permissions, user) => {
+const filterUserPermissions = async (permissions, user) => {
   const normalizedPermissions = [...new Set((permissions || [])
     .map((perm) => normalizePermissionName(perm))
     .filter(Boolean))];
 
-  if (!canAccessManageRequestsModule(user)) {
+  if (!await canAccessManageRequestsModule(user)) {
     return normalizedPermissions.filter((perm) => perm !== 'GESTIONAR_SOLICITUDES');
   }
 
@@ -4900,7 +4928,7 @@ const authMiddleware = async (req, res, next) => {
 
     req.user = result.rows[0];
     const dbPermissions = await fetchPermissionNamesByUserId(pool, req.user.id);
-    req.user.permisos = filterUserPermissions(dbPermissions, req.user);
+    req.user.permisos = await filterUserPermissions(dbPermissions, req.user);
     req.auth = decoded;
     console.log('[AUTH] req.user en middleware:', req.user);
     next();
@@ -6005,8 +6033,8 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     }
 
     let dbPermissions = await fetchPermissionNamesByUserId(pool, profile.id);
-    const canAccessManageRequests = canAccessManageRequestsModule(req.user);
-    dbPermissions = filterUserPermissions(dbPermissions, req.user);
+    const canAccessManageRequests = await canAccessManageRequestsModule(req.user, dbPermissions);
+    dbPermissions = await filterUserPermissions(dbPermissions, req.user);
 
     // If the user is part of a real approval flow, expose the hidden module permission.
     if (canAccessManageRequests && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
@@ -9036,7 +9064,7 @@ app.get('/api/compras', authMiddleware, async (req, res) => {
     const userRole = String(req.user?.rol || '');
     const roleId = resolveApprovalRoleId(req.user);
     const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
-    const canSeeAllPurchases = canAccessManageRequestsModule(req.user)
+    const canSeeAllPurchases = await canAccessManageRequestsModule(req.user)
       || canAccessPurchaseOrdersModule(req.user)
       || canManagePurchasesRole(userRole)
       || canManageDeliveryRole(userRole);
