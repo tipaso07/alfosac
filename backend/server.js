@@ -4369,6 +4369,7 @@ const ensureComprasColumns = async () => {
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS cci VARCHAR(100);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS retencion VARCHAR(10);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS descuento NUMERIC(12,2);`,
+    `ALTER TABLE compras ADD COLUMN IF NOT EXISTS tipo_cambio NUMERIC(12,4);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS aplica_retencion BOOLEAN DEFAULT FALSE;`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);`,
     `ALTER TABLE compras ADD COLUMN IF NOT EXISTS tipo_retencion VARCHAR(20);`,
@@ -8859,6 +8860,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         COALESCE(to_jsonb(c)->>'cci', '') AS cci,
         COALESCE(to_jsonb(c)->>'retencion', '') AS retencion,
         COALESCE(NULLIF(to_jsonb(c)->>'descuento', '')::numeric, 0) AS descuento,
+        NULLIF(to_jsonb(c)->>'tipo_cambio', '')::numeric AS tipo_cambio,
         CASE WHEN upper(trim(COALESCE(to_jsonb(c)->>'aplica_retencion', to_jsonb(c)->>'retencion', ''))) IN ('TRUE', 'T', '1', 'SI', 'YES') THEN TRUE ELSE FALSE END AS aplica_retencion,
         COALESCE(to_jsonb(c)->>'tipo', '') AS tipo,
         COALESCE(to_jsonb(c)->>'tipo_retencion', '') AS tipo_retencion,
@@ -9645,6 +9647,14 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       return res.status(400).json({ error: 'retencion (%) debe ser numerica y >= 0' });
     }
 
+    const tipoCambioRaw = payload.tipo_cambio;
+    const tipoCambioNum = tipoCambioRaw === undefined || String(tipoCambioRaw).trim() === ''
+      ? (row.tipo_cambio === null || row.tipo_cambio === undefined ? null : Number(row.tipo_cambio))
+      : Number(tipoCambioRaw);
+    if (tipoCambioNum !== null && (!Number.isFinite(tipoCambioNum) || tipoCambioNum <= 0)) {
+      return res.status(400).json({ error: 'tipo_cambio debe ser numerico y mayor a 0' });
+    }
+
     const tipoRetencionNorm = normalize(providerData?.tipo_retencion || 'RETENCION');
     if (!['RETENCION', 'DETRACCION'].includes(tipoRetencionNorm)) {
       return res.status(400).json({ error: 'tipo_retencion solo puede ser RETENCION o DETRACCION' });
@@ -9734,21 +9744,22 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
             cci = $15,
             retencion = $16,
             descuento = $17,
-            aplica_retencion = $18,
-            tipo = $19,
-            tipo_retencion = $20,
-            importe_final = $21,
-            condiciones_pago = $22,
-            subtotal = $23,
-            costo_envio = $24,
-            otros_costos = $25,
-            igv = $26,
-            total = $27,
-            detalle = $28,
-            comentarios = $29,
-            id_area_final = $30,
+            tipo_cambio = $18,
+            aplica_retencion = $19,
+            tipo = $20,
+            tipo_retencion = $21,
+            importe_final = $22,
+            condiciones_pago = $23,
+            subtotal = $24,
+            costo_envio = $25,
+            otros_costos = $26,
+            igv = $27,
+            total = $28,
+            detalle = $29,
+            comentarios = $30,
+            id_area_final = $31,
             fecha_actualizacion = ${PET_SQL_NOW}
-          WHERE id = $31
+          WHERE id = $32
       `,
       [
         providerId,
@@ -9768,6 +9779,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         (providerData?.cci || payload.cci || null),
         retencionPersist,
         descuentoNum,
+        tipoCambioNum,
         aplicaRetencion,
         (providerData?.tipo || payload.tipo || null),
         tipoRetencionNorm,
