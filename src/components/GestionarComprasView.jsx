@@ -25,7 +25,7 @@ const getStageStatus = (compra) => {
   if (userStage) return userStage
   const detailStage = normalizeStage(compra?.estado_aprobacion_detalle)
   if (detailStage) return detailStage
-  return normalizeStage(compra?.estado_pedido || compra?.estado)
+  return normalizeStage(compra?.estado || compra?.estado_pedido)
 }
 
 export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserRoleName = '', currentUserPermissions = [], currentUserArea = '', onChangeEstado }) {
