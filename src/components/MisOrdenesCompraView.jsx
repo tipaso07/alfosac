@@ -407,10 +407,9 @@ export default function MisOrdenesCompraView({
       const igv = Number((subtotal * 0.18).toFixed(2))
       const costoEnvio = Number(data.costo_envio || 0)
       const otrosCostos = Number(data.otros_costos || 0)
-      const { tipo_cambio, ...payload } = data
 
       await onCompletarDatos(compra.id, {
-        ...payload,
+        ...data,
         id_proveedor: Number(data.id_proveedor),
         id_moneda: Number(data.id_moneda),
         subtotal,

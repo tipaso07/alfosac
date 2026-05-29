@@ -9658,7 +9658,11 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     const isUsd = /USD|US\$|\$|DOL|DÓLAR|DOLAR/.test(monedaNorm);
     const isPen = /PEN|SOL/.test(monedaNorm);
     const totalBase = totalCalc;
-    const totalEnSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase;
+    const tipoCambioTemporal = Number(payload.tipo_cambio || 0);
+    const tipoCambioUsd = Number.isFinite(tipoCambioTemporal) && tipoCambioTemporal > 0
+      ? tipoCambioTemporal
+      : 3.5;
+    const totalEnSoles = isUsd ? Number((totalBase * tipoCambioUsd).toFixed(2)) : totalBase;
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalEnSoles > 700);
     const aplicaRetencion = providerRetencionFlag && descuentoNum > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
