@@ -47,6 +47,7 @@ const emptyForm = {
   cci: '',
   retencion: '',
   descuento: '',
+  tipo_cambio: '3.4',
   aplica_retencion: false,
   tipo: '',
   tipo_retencion: 'RETENCION',
@@ -75,12 +76,13 @@ const requiredProviderFields = [
   'cci',
 ]
 
-const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct }) => {
+const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct, tipoCambio }) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2))
   const monedaNorm = normalizeText(moneda)
   const isUsd = /USD|DOLAR|DOLARES|US\$/.test(monedaNorm)
   const isPen = /PEN|SOL|SOLES/.test(monedaNorm)
-  const totalSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase
+  const exchangeRate = Number(tipoCambio || 0) > 0 ? Number(tipoCambio) : 3.4
+  const totalSoles = isUsd ? Number((totalBase * exchangeRate).toFixed(2)) : totalBase
   const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalSoles > 700)
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
@@ -98,6 +100,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
     totalFinal,
     totalSoles,
     isUsd,
+    exchangeRate,
   }
 }
 
@@ -217,6 +220,7 @@ export default function MisOrdenesCompraView({
       cci: compra.cci || '',
       retencion: compra.retencion || '',
       descuento: compra.descuento || '',
+      tipo_cambio: compra.tipo_cambio ?? '3.4',
       aplica_retencion: Boolean(compra.aplica_retencion),
       tipo: compra.tipo || '',
       tipo_retencion:
@@ -248,6 +252,7 @@ export default function MisOrdenesCompraView({
       moneda: previous.moneda || baseForm.moneda,
       retencion: previous.retencion || baseForm.retencion,
       descuento: previous.descuento || baseForm.descuento,
+      tipo_cambio: previous.tipo_cambio || baseForm.tipo_cambio,
       aplica_retencion: typeof previous.aplica_retencion === 'boolean' ? previous.aplica_retencion : baseForm.aplica_retencion,
     }
   }
@@ -274,6 +279,7 @@ export default function MisOrdenesCompraView({
       moneda: merged.moneda,
       retencionFlag,
       retencionPct,
+      tipoCambio: Number(merged.tipo_cambio || 0),
     })
 
     setFormsByCompra((prev) => ({
@@ -312,6 +318,7 @@ export default function MisOrdenesCompraView({
       cci: proveedor.cci || '',
       retencion: proveedor.retencion || '',
       descuento: proveedor.descuento || '',
+      tipo_cambio: /USD|DOLAR|DOLARES|US\$/.test(normalizeText(proveedor.moneda_nombre || proveedor.moneda || '')) ? 3.4 : '',
       tipo: proveedor.tipo || '',
       tipo_retencion:
         ['RETENCION', 'DETRACCION'].includes(normalize(proveedor.tipo_retencion || ''))
@@ -684,6 +691,7 @@ export default function MisOrdenesCompraView({
       moneda: form.moneda,
       retencionFlag,
       retencionPct,
+      tipoCambio: Number(form.tipo_cambio || 0),
     })
 
     // Debug logs
@@ -691,6 +699,7 @@ export default function MisOrdenesCompraView({
       'form.retencion (VARCHAR SI/NO)': form.retencion,
       'form.descuento (%)': form.descuento,
       'form.moneda': form.moneda,
+      'form.tipo_cambio': form.tipo_cambio,
       'form.subtotal': subtotal,
       'form.igv': igv,
       'form.costo_envio': costoEnvio,
@@ -700,6 +709,7 @@ export default function MisOrdenesCompraView({
       'totalBase': retentionData.totalBase,
       'isUsd': /USD|US\$|\$|DOL|DÓLAR|DOLAR/.test(String(form.moneda || '').toUpperCase()),
       'isPen': /PEN|SOL/.test(String(form.moneda || '').toUpperCase()),
+      'tipoCambio': Number(form.tipo_cambio || 0),
       'aplicaRetencion (RESULT)': retentionData.aplicaRetencion,
     })
 
@@ -710,6 +720,12 @@ export default function MisOrdenesCompraView({
         <p><strong>IGV:</strong> {Number(igv).toFixed(2)}</p>
         <p><strong>Costo envío:</strong> {Number(costoEnvio).toFixed(2)}</p>
         <p><strong>Otros costos:</strong> {Number(otrosCostos).toFixed(2)}</p>
+        {retentionData.isUsd && (
+          <>
+            <p><strong>Valor del dólar:</strong> {Number(form.tipo_cambio || 3.4).toFixed(2)}</p>
+            <p><strong>Total en soles:</strong> {Number(retentionData.totalSoles).toFixed(2)}</p>
+          </>
+        )}
         <p><strong>Total base:</strong> {Number(retentionData.totalBase).toFixed(2)}</p>
         <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
         {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
@@ -912,6 +928,18 @@ export default function MisOrdenesCompraView({
                           IGV
                           <input type="number" step="0.01" value={form.igv} readOnly />
                         </label>
+                        {normalizeText(form.moneda).includes('USD') && (
+                          <label>
+                            Valor del dolar
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={form.tipo_cambio}
+                              onChange={(e) => updateForm(compra.id, { tipo_cambio: e.target.value })}
+                            />
+                          </label>
+                        )}
                         <label>
                           Costo envio
                           <input type="number" step="0.01" value={form.costo_envio} onChange={(e) => updateForm(compra.id, { costo_envio: e.target.value })} />
