@@ -176,8 +176,8 @@ export default function MisOrdenesServiciosView({
   }, [serviciosAprobados])
 
   const serviciosRealizados = useMemo(() => {
-    return serviciosAprobados.filter((servicio) => getFlow(servicio) === 'REALIZADO')
-  }, [serviciosAprobados])
+    return serviciosOrdenados.filter((servicio) => getFlow(servicio) === 'REALIZADO')
+  }, [serviciosOrdenados])
 
   const realizadoAreas = useMemo(() => {
     return ['TODAS', ...new Set(serviciosRealizados.map((servicio) => String(servicio.area || '').trim()).filter(Boolean))]
