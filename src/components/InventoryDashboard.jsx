@@ -929,7 +929,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
 
               {activeOrdersView === 'servicios' && (
                 <MisOrdenesServiciosView
-                  servicios={misServicios}
+                  servicios={servicios}
                   proveedores={proveedores}
                   monedas={monedas}
                   currentUserRoleId={currentUserRoleId}
