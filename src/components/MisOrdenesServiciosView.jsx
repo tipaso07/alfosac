@@ -489,6 +489,7 @@ export default function MisOrdenesServiciosView({
       moneda,
       retencionFlag,
       retencionPct,
+      tipoCambio: Number(draft.tipo_cambio || 0),
     })
 
     // Debug logs
@@ -540,8 +541,7 @@ export default function MisOrdenesServiciosView({
           <p><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
           <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
           <p><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleDateString() : 'Sin fecha'}</p>
-          <p><strong>Proveedor:</strong> {servicio.proveedor || 'Sin proveedor'}</p>
-          <p className="my-so-total"><strong>Total:</strong> {formatMoney(servicio.total ?? servicio.costo)} {servicio.moneda || ''}</p>
+          <p><strong>Prioridad:</strong> {servicio.prioridad || 'MEDIA'}</p>
         </div>
 
         {mode === 'completar' ? (
