@@ -10955,7 +10955,8 @@ app.post('/api/servicios/:id/comentarios', authMiddleware, async (req, res) => {
     const isOwner = Number(row.id_usuario || 0) === Number(req.user?.id || 0);
     const canManage = isComprasOperatorUser(req.user)
       || canManagePurchasesRole(req.user?.rol)
-      || isApprovalHierarchyRoleId(resolveApprovalRoleId(req.user));
+      || isApprovalHierarchyRoleId(resolveApprovalRoleId(req.user))
+      || canAccessServicesHistoryModule(req.user);
 
     if (!isOwner && !canManage) {
       await client.query('ROLLBACK');
@@ -11404,7 +11405,10 @@ app.put('/api/servicios/:id/estado', authMiddleware, async (req, res) => {
     }
 
     const row = current.rows[0];
-    const canManage = isAdminRole(req.user?.rol) || isComprasRole(req.user?.rol) || canManagePurchasesRole(req.user?.rol);
+    const canManage = isAdminRole(req.user?.rol)
+      || isComprasRole(req.user?.rol)
+      || canManagePurchasesRole(req.user?.rol)
+      || canAccessServicesHistoryModule(req.user);
     if (!canManage && Number(row.id_usuario || 0) !== Number(req.user.id || 0)) {
       return res.status(403).json({ error: 'No autorizado para actualizar este servicio' });
     }

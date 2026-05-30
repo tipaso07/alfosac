@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { guardarCalificacionProveedor, marcarServicioRealizado } from '../services/api'
 import { hasPermission } from '../services/permissions'
 import '../styles/HistorialServiciosView.css'
@@ -27,6 +27,7 @@ const parseDate = (value) => {
 }
 
 export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null, currentUserPermissions = [] }) {
+  const [serviciosLocal, setServiciosLocal] = useState(servicios)
   const [areaFilter, setAreaFilter] = useState('TODAS')
   const [prioridadFilter, setPrioridadFilter] = useState('TODAS')
   const [fromDate, setFromDate] = useState('')
@@ -47,25 +48,29 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       || [2, 3, 5, 7, 8, 9].includes(Number(currentUserRoleId || 0))
   }, [currentUserPermissions, currentUserRoleId])
 
+  useEffect(() => {
+    setServiciosLocal(servicios)
+  }, [servicios])
+
   const serviciosPendientes = useMemo(() => {
-    return (servicios || [])
+    return (serviciosLocal || [])
       .filter((servicio) => getFlow(servicio) === 'PENDIENTE')
       .sort((a, b) => {
         const left = parseDate(a.fecha)?.getTime() || 0
         const right = parseDate(b.fecha)?.getTime() || 0
         return right - left
       })
-  }, [servicios])
+  }, [serviciosLocal])
 
   const serviciosRealizados = useMemo(() => {
-    return (servicios || [])
+    return (serviciosLocal || [])
       .filter((servicio) => isRealizado(servicio))
       .sort((a, b) => {
         const left = parseDate(a.fecha)?.getTime() || 0
         const right = parseDate(b.fecha)?.getTime() || 0
         return right - left
       })
-  }, [servicios])
+  }, [serviciosLocal])
 
   const serviciosHistorial = useMemo(() => {
     return [...serviciosPendientes, ...serviciosRealizados].sort((a, b) => {
@@ -165,6 +170,14 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       
       // Marcar servicio como realizado
       await marcarServicioRealizado(Number(ratingService.id || 0))
+      setServiciosLocal((prev) => prev.map((servicio) => {
+        if (Number(servicio?.id || 0) !== Number(ratingService.id || 0)) return servicio
+        return {
+          ...servicio,
+          estado_flujo: 'REALIZADO',
+          estado_servicio: 'REALIZADO',
+        }
+      }))
       
       setRatedByServiceId((prev) => ({ ...prev, [ratingService.id]: true }))
       setRatingSnapshotByServiceId((prev) => ({
