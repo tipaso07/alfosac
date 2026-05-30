@@ -26,10 +26,8 @@ const toNumber = (value) => {
 }
 const formatMoney = (value) => Number(toNumber(value)).toFixed(2)
 const getFlow = (service) => normalize(service.estado_flujo || 'PENDIENTE')
-const getApproval = (service) => normalize(service.estado_aprobacion || 'PENDIENTE')
 const getApprovalState = (service) => normalize(service.estado_aprobacion_detalle || service.estado_aprobacion || 'PENDIENTE')
 const isRealizadoFlow = (service) => getFlow(service) === 'REALIZADO'
-const isApprovedService = (service) => getApproval(service) === 'APROBADO'
 const isPendingFlow = (service) => {
   const flow = getFlow(service)
   return flow === 'PENDIENTE' || flow.startsWith('PENDIENTE_')
@@ -160,13 +158,7 @@ export default function MisOrdenesServiciosView({
   }, [servicios])
 
   const serviciosAprobados = useMemo(() => {
-    return serviciosOrdenados
-      .filter((servicio) => {
-        const flow = getFlow(servicio)
-        // Use estado_flujo (flow) exclusively to determine "aprobados".
-        // Approved flows are DATOS_COMPLETADOS, REALIZADO or APROBADO.
-        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO' || flow === 'APROBADO'
-      })
+    return serviciosOrdenados.filter((servicio) => getFlow(servicio) === 'APROBADO')
   }, [serviciosOrdenados])
 
   const serviciosPendientes = useMemo(() => {
@@ -174,7 +166,7 @@ export default function MisOrdenesServiciosView({
   }, [serviciosOrdenados])
 
   const serviciosParaCompletar = useMemo(() => {
-    return serviciosAprobados.filter((servicio) => !isRealizadoFlow(servicio))
+    return serviciosAprobados
   }, [serviciosAprobados])
 
   const serviciosRealizados = useMemo(() => {
@@ -207,10 +199,10 @@ export default function MisOrdenesServiciosView({
   }, [serviciosRealizados, realizadosAreaFilter, realizadosPrioridadFilter, realizadosFromDate, realizadosToDate])
 
   const activeServicios = useMemo(() => {
-    if (activeSection === 'aprobados') return serviciosParaCompletar
+    if (activeSection === 'aprobados') return serviciosAprobados
     if (activeSection === 'pendientes') return serviciosPendientes
     return serviciosRealizadosFiltrados
-  }, [activeSection, serviciosParaCompletar, serviciosPendientes, serviciosRealizadosFiltrados])
+  }, [activeSection, serviciosAprobados, serviciosPendientes, serviciosRealizadosFiltrados])
 
   const getDraft = (servicio) => {
     const existingDraft = draftByService[servicio.id]
@@ -717,7 +709,7 @@ export default function MisOrdenesServiciosView({
 
       <div className="my-so-filters">
         <button type="button" className={activeSection === 'aprobados' ? 'active' : ''} onClick={() => setActiveSection('aprobados')}>
-          Aprobados ({serviciosParaCompletar.length})
+          Aprobados ({serviciosAprobados.length})
         </button>
         <button type="button" className={activeSection === 'pendientes' ? 'active' : ''} onClick={() => setActiveSection('pendientes')}>
           Pendientes ({serviciosPendientes.length})
