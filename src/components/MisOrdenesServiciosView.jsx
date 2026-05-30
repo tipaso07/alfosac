@@ -501,17 +501,23 @@ export default function MisOrdenesServiciosView({
       <article className="my-so-card" key={servicio.id}>
         <div className="my-so-head">
           <h3>Servicio #{servicio.id}</h3>
-          <span className="my-so-status">{flow === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (flow || 'N/A')}</span>
+          <div className="my-so-head-actions">
+            <span className="my-so-status">{flow === 'PENDIENTE' ? 'PENDIENTE' : (flow || 'N/A')}</span>
+            {mode === 'completar' && canSave && (
+              <button type="button" className="btn-detail" onClick={() => setExpandedId(isExpanded ? null : servicio.id)}>
+                {isExpanded ? 'Ocultar datos' : 'Completar datos'}
+              </button>
+            )}
+          </div>
         </div>
 
-        <p className="my-so-summary-line"><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
-        <p className="my-so-summary-line"><strong>Prioridad:</strong> {servicio.prioridad || 'MEDIA'}</p>
-        <p className="my-so-summary-line"><strong>Descripcion:</strong> {servicio.descripcion_servicio || 'Sin descripcion'}</p>
-        <p className="my-so-summary-line"><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
-        <p className="my-so-summary-line"><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleDateString() : 'Sin fecha'}</p>
-        <p className="my-so-summary-line"><strong>Proveedor:</strong> {servicio.proveedor || 'Pendiente de asignacion'}</p>
-        <p className="my-so-summary-line"><strong>Aprobación:</strong> {servicio.estado_aprobacion_detalle || servicio.estado_aprobacion || 'N/A'}</p>
-        <p className="my-so-summary-line"><strong>Total:</strong> {formatMoney(servicio.total ?? servicio.costo)} {servicio.moneda || ''}</p>
+        <div className="my-so-summary-compact">
+          <p><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
+          <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
+          <p><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleDateString() : 'Sin fecha'}</p>
+          <p><strong>Proveedor:</strong> {servicio.proveedor || 'Sin proveedor'}</p>
+          <p className="my-so-total"><strong>Total:</strong> {formatMoney(servicio.total ?? servicio.costo)} {servicio.moneda || ''}</p>
+        </div>
 
         {mode === 'completar' ? (
           <div className="my-so-actions">
