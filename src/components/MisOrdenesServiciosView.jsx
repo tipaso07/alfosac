@@ -25,6 +25,7 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 const formatMoney = (value) => Number(toNumber(value)).toFixed(2)
+const isUsdCurrency = (value) => /USD|DOLAR|DOLARES|US\$/.test(normalizeText(value))
 const getFlow = (service) => normalize(service.estado_flujo || 'PENDIENTE')
 const getApprovalState = (service) => normalize(service.estado_aprobacion_detalle || service.estado_aprobacion || 'PENDIENTE')
 const isRealizadoFlow = (service) => getFlow(service) === 'REALIZADO'
@@ -52,16 +53,18 @@ const buildDraft = (base = {}) => {
     subtotal: base.subtotal ?? '',
     costo_envio: base.costo_envio ?? '',
     otros_costos: base.otros_costos ?? '',
+    tipo_cambio: base.tipo_cambio ?? '3.4',
     igv,
   }
 }
 
-const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct }) => {
+const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct, tipoCambio }) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2))
   const monedaNorm = normalizeText(moneda)
   const isUsd = /USD|DOLAR|DOLARES|US\$/.test(monedaNorm)
   const isPen = /PEN|SOL|SOLES/.test(monedaNorm)
-  const totalSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase
+  const exchangeRate = Number(tipoCambio || 0) > 0 ? Number(tipoCambio) : 3.4
+  const totalSoles = isUsd ? Number((totalBase * exchangeRate).toFixed(2)) : totalBase
   const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalSoles > 700)
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
@@ -77,6 +80,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
     aplicaRetencion,
     montoRetencion,
     totalFinal,
+    exchangeRate,
   }
 }
 
@@ -318,6 +322,7 @@ export default function MisOrdenesServiciosView({
       const retencionFlag = normalize(selectedProvider?.retencion) === 'SI'
       const retencionPct = Number(selectedProvider?.descuento || 0)
       const moneda = selectedProvider?.moneda_nombre || selectedProvider?.moneda || servicio.moneda || ''
+      const providerIsUsd = isUsdCurrency(moneda)
       const retentionData = computeRetentionData({
         subtotal,
         igv,
@@ -326,6 +331,7 @@ export default function MisOrdenesServiciosView({
         moneda,
         retencionFlag,
         retencionPct,
+        tipoCambio: Number(draft.tipo_cambio || 0),
       })
 
       // Debug logs
@@ -335,12 +341,14 @@ export default function MisOrdenesServiciosView({
         'retencionFlag (is SI?)': retencionFlag,
         'retencionPct': retencionPct,
         'moneda': moneda,
+        'tipo_cambio': draft.tipo_cambio,
         'subtotal': subtotal,
         'igv': igv,
         'costoEnvio': costoEnvio,
         'otrosCostos': otrosCostos,
         'totalBase': retentionData.totalBase,
         'aplicaRetencion': retentionData.aplicaRetencion,
+        'exchangeRate': retentionData.exchangeRate,
       })
 
       if (!proveedorId) {
@@ -582,8 +590,10 @@ export default function MisOrdenesServiciosView({
                       <button
                         type="button"
                         onClick={() => {
+                          const providerCurrency = provider.moneda_nombre || provider.moneda || ''
                           setDraft(servicio.id, {
                             proveedor_id: Number(provider.id),
+                            tipo_cambio: isUsdCurrency(providerCurrency) ? '3.4' : '',
                           })
                           setQueryByService((prev) => ({ ...prev, [servicio.id]: String(provider.razon_social || provider.nombre || '') }))
                         }}
@@ -658,6 +668,19 @@ export default function MisOrdenesServiciosView({
               />
             </label>
 
+            {providerIsUsd && (
+              <label>
+                Tasa de cambio
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft.tipo_cambio}
+                  onChange={(event) => setDraft(servicio.id, { tipo_cambio: event.target.value })}
+                />
+              </label>
+            )}
+
             <label>
               Total
               <input type="number" min="0" step="0.01" value={formatMoney(retentionData.totalFinal)} readOnly />
@@ -668,6 +691,7 @@ export default function MisOrdenesServiciosView({
               <p><strong>IGV:</strong> {formatMoney(draft.igv)}</p>
               <p><strong>Costo envío:</strong> {formatMoney(draft.costo_envio)}</p>
               <p><strong>Otros costos:</strong> {formatMoney(draft.otros_costos)}</p>
+              {providerIsUsd && <p><strong>Tasa de cambio:</strong> {Number(draft.tipo_cambio || 0) > 0 ? Number(draft.tipo_cambio).toFixed(2) : '3.40'}</p>}
               <p><strong>Total base:</strong> {formatMoney(retentionData.totalBase)}</p>
               <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
               {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
