@@ -12,11 +12,6 @@ const isRealizado = (servicio) => {
   return ['REALIZADO', 'COMPLETADO', 'FINALIZADO'].includes(flow)
 }
 
-const isPendienteOAprobado = (servicio) => {
-  const flow = getFlow(servicio)
-  return ['PENDIENTE', 'REALIZADO'].includes(flow)
-}
-
 const isAprobado = (servicio) => ['APROBADO', 'APROBADA'].includes(normalize(servicio.estado_aprobacion))
 
 const isRated = (servicio, ratedById = {}) => Boolean(ratedById[servicio?.id]) || Boolean(servicio?.calificacion_servicio_existe)
@@ -52,9 +47,9 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       || [2, 3, 5, 7, 8, 9].includes(Number(currentUserRoleId || 0))
   }, [currentUserPermissions, currentUserRoleId])
 
-  const serviciosRealizados = useMemo(() => {
+  const serviciosPendientes = useMemo(() => {
     return (servicios || [])
-      .filter((servicio) => isAprobado(servicio) && isPendienteOAprobado(servicio))
+      .filter((servicio) => getFlow(servicio) === 'PENDIENTE')
       .sort((a, b) => {
         const left = parseDate(a.fecha)?.getTime() || 0
         const right = parseDate(b.fecha)?.getTime() || 0
@@ -63,25 +58,25 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
   }, [servicios])
 
   const areas = useMemo(() => {
-    const values = (servicios || [])
+    const values = serviciosPendientes
       .map((servicio) => String(servicio.area || '').trim())
       .filter(Boolean)
     return ['TODAS', ...new Set(values)]
-  }, [servicios])
+  }, [serviciosPendientes])
 
   const prioridades = useMemo(() => {
-    const values = serviciosRealizados
+    const values = serviciosPendientes
       .map((servicio) => normalize(servicio.prioridad || 'SIN PRIORIDAD'))
       .filter(Boolean)
     return ['TODAS', ...new Set(values)]
-  }, [serviciosRealizados])
+  }, [serviciosPendientes])
 
   const filteredServices = useMemo(() => {
     const term = String(searchTerm || '').trim().toLowerCase()
     const fromTime = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null
     const toTime = toDateFilter ? new Date(`${toDateFilter}T23:59:59`).getTime() : null
 
-    return serviciosRealizados.filter((servicio) => {
+    return serviciosPendientes.filter((servicio) => {
       const area = String(servicio.area || '').trim()
       const prioridad = normalize(servicio.prioridad || 'SIN PRIORIDAD')
       const createdAt = parseDate(servicio.fecha)?.getTime() || 0
@@ -102,7 +97,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       if (term && !haystack.includes(term)) return false
       return true
     })
-  }, [serviciosRealizados, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
+  }, [serviciosPendientes, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
 
   const openRatingModal = (servicio) => {
     if (!canCurrentUserRate || isRated(servicio, ratedByServiceId)) return
@@ -224,7 +219,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       </div>
 
       {filteredServices.length === 0 ? (
-        <div className="hs-empty">No hay servicios realizados con los filtros actuales.</div>
+        <div className="hs-empty">No hay servicios pendientes con los filtros actuales.</div>
       ) : (
         <div className="hs-list">
           {filteredServices.map((servicio) => (
