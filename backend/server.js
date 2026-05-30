@@ -4012,6 +4012,8 @@ const getServicioRetencionColumn = () =>
   pickExistingColumn(schemaMeta.serviciosColumns, ['retencion', 'descuento']);
 const getServicioTipoRetencionColumn = () =>
   pickExistingColumn(schemaMeta.serviciosColumns, ['tipo_retencion']);
+const getServicioTipoCambioColumn = () =>
+  pickExistingColumn(schemaMeta.serviciosColumns, ['tipo_cambio']);
 const getServicioCostColumn = () =>
   pickExistingColumn(schemaMeta.serviciosColumns, ['costo', 'importe', 'monto']) || 'costo';
 const getServicioCurrencyIdColumn = () =>
@@ -4052,6 +4054,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         NULLIF(COALESCE(to_jsonb(s)->>'costo_envio', ''), '')::numeric AS costo_envio,
         NULLIF(COALESCE(to_jsonb(s)->>'otros_costos', ''), '')::numeric AS otros_costos,
         NULLIF(COALESCE(to_jsonb(s)->>'total', ''), '')::numeric AS total,
+        NULLIF(COALESCE(to_jsonb(s)->>'tipo_cambio', ''), '')::numeric AS tipo_cambio,
         CASE
           WHEN upper(trim(COALESCE(to_jsonb(s)->>'aplica_retencion', ''))) IN ('TRUE', 'T', '1', 'SI', 'YES') THEN TRUE
           ELSE FALSE
@@ -10864,7 +10867,23 @@ app.get('/api/mis-servicios', authMiddleware, async (req, res) => {
       );
 
       serviciosJerarquicos.forEach((row) => {
-        row.gestion_estado_usuario = String(row.estado_aprobacion_detalle || 'PENDIENTE').trim().toUpperCase();
+        // Normalize approval detail/state: do not expose human-readable detail labels
+        // Convert legacy or name-based pending states (e.g. PENDIENTE_ADMIN) into canonical PENDIENTE_<roleId>
+        try {
+          const detail = String(row.estado_aprobacion_detalle || row.estado_aprobacion || 'PENDIENTE').trim();
+          const roleFromDetail = getApprovalRoleIdFromState(detail);
+          if (roleFromDetail > 0) {
+            row.estado_aprobacion = getPendingStateByRoleId(roleFromDetail);
+          } else {
+            row.estado_aprobacion = String(row.estado_aprobacion || 'PENDIENTE').trim().toUpperCase();
+          }
+        } catch (e) {
+          row.estado_aprobacion = String(row.estado_aprobacion || 'PENDIENTE').trim().toUpperCase();
+        }
+
+        // Remove UI-only fields before returning the API response
+        delete row.estado_aprobacion_detalle;
+        delete row.gestion_estado_usuario;
       });
 
       return res.json(serviciosJerarquicos);
@@ -11520,7 +11539,17 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const isUsd = monedaNorm.includes('USD') || monedaNorm.includes('DOLAR');
     const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL');
     const totalBase = Number((subtotalInput + igvInput + costoEnvioInput + otrosCostosInput).toFixed(2));
-    const totalBaseSoles = isUsd ? Number((totalBase * 3.5).toFixed(2)) : totalBase;
+    const tipoCambioRaw = req.body?.tipo_cambio;
+    const tipoCambioInput = tipoCambioRaw === undefined || String(tipoCambioRaw).trim() === ''
+      ? null
+      : Number(tipoCambioRaw);
+    if (tipoCambioInput !== null && (!Number.isFinite(tipoCambioInput) || tipoCambioInput <= 0)) {
+      return res.status(400).json({ error: 'tipo_cambio debe ser numerico y mayor a 0' });
+    }
+    const tipoCambioUsd = Number.isFinite(tipoCambioInput) && tipoCambioInput > 0
+      ? tipoCambioInput
+      : 3.4;
+    const totalBaseSoles = isUsd ? Number((totalBase * tipoCambioUsd).toFixed(2)) : totalBase;
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalBaseSoles > 700);
     const aplicaRetencion = providerRetencionFlag && retencionPct > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
@@ -11543,6 +11572,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const aplicaRetencionColumn = getServicioAplicaRetencionColumn();
     const retencionColumn = getServicioRetencionColumn();
     const tipoRetencionColumn = getServicioTipoRetencionColumn();
+    const tipoCambioColumn = getServicioTipoCambioColumn();
     const monedaIdColumn = getServicioCurrencyIdColumn();
 
     const setClauses = [
@@ -11590,6 +11620,11 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     if (tipoRetencionColumn) {
       setClauses.push(`${quoteIdentifier(tipoRetencionColumn)} = $${values.length + 1}`);
       values.push(tipoRetencionInput);
+    }
+
+    if (tipoCambioColumn) {
+      setClauses.push(`${quoteIdentifier(tipoCambioColumn)} = $${values.length + 1}`);
+      values.push(Number.isFinite(tipoCambioInput) && tipoCambioInput > 0 ? tipoCambioInput : null);
     }
 
     values.push(id);

@@ -1,0 +1,2 @@
+ALTER TABLE servicios
+ADD COLUMN IF NOT EXISTS tipo_cambio NUMERIC(12,4);
