@@ -479,6 +479,7 @@ export default function MisOrdenesServiciosView({
     const retencionFlag = normalize(selectedProvider?.retencion) === 'SI'
     const retencionPct = Number(selectedProvider?.descuento || 0)
     const moneda = selectedProvider?.moneda_nombre || selectedProvider?.moneda || servicio.moneda || ''
+    const providerIsUsd = isUsdCurrency(moneda)
     const retentionData = computeRetentionData({
       subtotal: toNumber(draft.subtotal),
       igv: toNumber(draft.igv),
