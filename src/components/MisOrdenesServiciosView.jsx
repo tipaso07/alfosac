@@ -158,7 +158,12 @@ export default function MisOrdenesServiciosView({
   }, [servicios])
 
   const serviciosAprobados = useMemo(() => {
-    return serviciosOrdenados.filter((servicio) => getFlow(servicio) === 'APROBADO')
+    return serviciosOrdenados
+      .filter((servicio) => {
+        const flow = getFlow(servicio)
+        // Approved bucket includes services that have completed data, are realized, or fully approved
+        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO' || flow === 'APROBADO'
+      })
   }, [serviciosOrdenados])
 
   const serviciosPendientes = useMemo(() => {
@@ -166,7 +171,7 @@ export default function MisOrdenesServiciosView({
   }, [serviciosOrdenados])
 
   const serviciosParaCompletar = useMemo(() => {
-    return serviciosAprobados
+    return serviciosAprobados.filter((servicio) => !isRealizadoFlow(servicio))
   }, [serviciosAprobados])
 
   const serviciosRealizados = useMemo(() => {
