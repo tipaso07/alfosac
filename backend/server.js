@@ -11542,7 +11542,8 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const isPen = monedaNorm.includes('PEN') || monedaNorm.includes('SOL');
     const totalBase = Number((subtotalInput + igvInput + costoEnvioInput + otrosCostosInput).toFixed(2));
     const tipoCambioRaw = req.body?.tipo_cambio;
-    const tipoCambioInput = tipoCambioRaw === undefined || String(tipoCambioRaw).trim() === ''
+    const tipoCambioNormalized = String(tipoCambioRaw ?? '').trim().toLowerCase();
+    const tipoCambioInput = tipoCambioRaw === undefined || tipoCambioRaw === null || tipoCambioNormalized === '' || tipoCambioNormalized === 'null' || tipoCambioNormalized === 'undefined'
       ? null
       : Number(tipoCambioRaw);
     if (tipoCambioInput !== null && (!Number.isFinite(tipoCambioInput) || tipoCambioInput <= 0)) {

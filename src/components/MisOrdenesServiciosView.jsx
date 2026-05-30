@@ -370,7 +370,7 @@ export default function MisOrdenesServiciosView({
         igv,
         costo_envio: costoEnvio,
         otros_costos: otrosCostos,
-        tipo_cambio: providerIsUsd ? Number(draft.tipo_cambio || 0) || 3.4 : null,
+        ...(providerIsUsd ? { tipo_cambio: Number(draft.tipo_cambio || 0) || 3.4 } : {}),
         total: retentionData.totalFinal,
       })
       return true
