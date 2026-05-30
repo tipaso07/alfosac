@@ -161,8 +161,9 @@ export default function MisOrdenesServiciosView({
     return serviciosOrdenados
       .filter((servicio) => {
         const flow = getFlow(servicio)
-        // Approved bucket includes services that have completed data, are realized, or fully approved
-        return flow === 'DATOS_COMPLETADOS' || flow === 'REALIZADO' || flow === 'APROBADO'
+        // Approved bucket includes services that are approved or already have their data completed.
+        // Realized services stay only in the realized section.
+        return flow === 'DATOS_COMPLETADOS' || flow === 'APROBADO'
       })
   }, [serviciosOrdenados])
 
