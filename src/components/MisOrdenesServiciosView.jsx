@@ -27,15 +27,10 @@ const toNumber = (value) => {
 const formatMoney = (value) => Number(toNumber(value)).toFixed(2)
 const isUsdCurrency = (value) => /USD|DOLAR|DOLARES|US\$/.test(normalizeText(value))
 const getFlow = (service) => normalize(service.estado_flujo || 'PENDIENTE')
-const getApprovalState = (service) => normalize(service.estado_aprobacion_detalle || service.estado_aprobacion || 'PENDIENTE')
 const isRealizadoFlow = (service) => getFlow(service) === 'REALIZADO'
 const isPendingFlow = (service) => {
   const flow = getFlow(service)
   return flow === 'PENDIENTE' || flow.startsWith('PENDIENTE_')
-}
-const isPendingApproval = (service) => {
-  const approval = getApprovalState(service)
-  return approval === 'PENDIENTE' || approval.startsWith('PENDIENTE_') || approval === 'EN_PROCESO'
 }
 const isPendingSectionService = (service) => {
   if (isRealizadoFlow(service)) return false
