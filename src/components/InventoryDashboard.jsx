@@ -938,6 +938,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                   onGenerarOrden={handleGenerarOrdenServicio}
                   onDescargarPdf={handleDescargarOrdenServicioPdf}
                   onMarcarRealizado={handleServicioRealizado}
+                  onChangeAprobacion={handleServicioAprobacion}
                   onAgregarComentario={handleAgregarComentarioServicio}
                 />
               )}

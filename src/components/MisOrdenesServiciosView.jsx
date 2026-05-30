@@ -89,6 +89,7 @@ export default function MisOrdenesServiciosView({
   onDescargarPdf,
   onMarcarRealizado,
   onAgregarComentario,
+  onChangeAprobacion,
 }) {
   const [activeSection, setActiveSection] = useState('aprobados')
   const [expandedId, setExpandedId] = useState(null)
@@ -503,10 +504,27 @@ export default function MisOrdenesServiciosView({
           <h3>Servicio #{servicio.id}</h3>
           <div className="my-so-head-actions">
             <span className="my-so-status">{flow === 'PENDIENTE' ? 'PENDIENTE' : (flow || 'N/A')}</span>
-            {mode === 'completar' && canSave && (
-              <button type="button" className="btn-detail" onClick={() => setExpandedId(isExpanded ? null : servicio.id)}>
-                {isExpanded ? 'Ocultar datos' : 'Completar datos'}
-              </button>
+            <button type="button" className="btn-detail" onClick={() => setExpandedId(isExpanded ? null : servicio.id)}>
+              {isExpanded ? 'Ocultar' : (canSave ? 'Completar datos' : 'Ver')}
+            </button>
+            {servicio.puede_aprobar && typeof onChangeAprobacion === 'function' && (
+              <div style={{ display: 'inline-block', marginLeft: 8 }}>
+                <button
+                  type="button"
+                  className="btn-approve"
+                  onClick={() => onChangeAprobacion(Number(servicio.id || 0), 'APROBADO')}
+                >
+                  Aprobar
+                </button>
+                <button
+                  type="button"
+                  className="btn-reject"
+                  onClick={() => onChangeAprobacion(Number(servicio.id || 0), 'RECHAZADO')}
+                  style={{ marginLeft: 6 }}
+                >
+                  Rechazar
+                </button>
+              </div>
             )}
           </div>
         </div>
