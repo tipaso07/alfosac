@@ -10823,7 +10823,9 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
     }
 
     // Restringir acceso: solo usuarios que pueden gestionar solicitudes (miembros de flujo de aprobaciones)
-    const canManage = await canAccessManageRequestsModule(req.user) || canAccessServicesHistoryModule(req.user);
+    const canManage = await canAccessManageRequestsModule(req.user)
+      || canAccessPurchaseOrdersModule(req.user)
+      || canAccessServicesHistoryModule(req.user);
     if (!canManage) {
       return res.status(403).json({ error: 'No autorizado' });
     }
