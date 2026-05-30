@@ -495,7 +495,7 @@ export default function MisOrdenesServiciosView({
       'totalBase': retentionData.totalBase,
       'aplicaRetencion': retentionData.aplicaRetencion,
     })
-    const canSave = flow === 'DATOS_COMPLETADOS'
+    const canSave = flow === 'APROBADO' || flow === 'DATOS_COMPLETADOS'
     const canGenerate = flow === 'DATOS_COMPLETADOS'
 
     return (
@@ -504,9 +504,6 @@ export default function MisOrdenesServiciosView({
           <h3>Servicio #{servicio.id}</h3>
           <div className="my-so-head-actions">
             <span className="my-so-status">{flow === 'PENDIENTE' ? 'PENDIENTE' : (flow || 'N/A')}</span>
-            <button type="button" className="btn-detail" onClick={() => setExpandedId(isExpanded ? null : servicio.id)}>
-              {isExpanded ? 'Ocultar' : (canSave ? 'Completar datos' : 'Ver')}
-            </button>
             {servicio.puede_aprobar && typeof onChangeAprobacion === 'function' && (
               <div style={{ display: 'inline-block', marginLeft: 8 }}>
                 <button
