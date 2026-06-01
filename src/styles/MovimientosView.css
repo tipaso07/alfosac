@@ -24,13 +24,16 @@
 }
 
 .area-search-grid label {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .area-search-grid input {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 9px 10px;
+  padding: 8px 10px;
   font-size: 14px;
 }
 
