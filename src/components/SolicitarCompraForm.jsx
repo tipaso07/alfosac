@@ -116,6 +116,11 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
 
     const idMaterial = Number(item.id_material || 0)
     const idUnidad = Number(item.id_unidad || 0) || null
+    if (!idUnidad) {
+      setError('Debes seleccionar una unidad de medida')
+      return
+    }
+
     const payloadItem = idMaterial > 0
       ? { id_material: idMaterial, nombre: desc, categoria: categoria || null, cantidad: qty, id_unidad: idUnidad }
       : { id_material: null, nombre: desc, descripcion: desc, categoria, cantidad: qty, id_unidad: idUnidad }

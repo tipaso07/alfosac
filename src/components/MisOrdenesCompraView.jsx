@@ -44,6 +44,24 @@ const getPurchaseDateKey = (compra) => {
   return parsed.toISOString().slice(0, 10)
 }
 
+const formatPeruDateTime = (value) => {
+  if (!value) return 'Sin fecha'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Sin fecha'
+
+  return new Intl.DateTimeFormat('es-PE', {
+    timeZone: 'America/Lima',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
 const getPurchaseAreaText = (compra) => {
   return [compra?.area_solicitante, compra?.area_final]
     .map((value) => normalizeText(value))
@@ -503,6 +521,19 @@ export default function MisOrdenesCompraView({
     setError('')
     try {
       setLoadingByCompra((prev) => ({ ...prev, [compra.id]: true }))
+      const items = Array.isArray(compra.items) ? compra.items : []
+      const unitMap = (formsByCompra[compra.id] && formsByCompra[compra.id].itemsUnits) || {}
+      const missingUnits = items.filter((item) => {
+        const itemIdKey = String(item.id_detalle || item.id || item.material || '')
+        const selectedUnit = String(unitMap[itemIdKey] || item.id_unidad || item.id_unidad_detalle || '').trim()
+        return !selectedUnit
+      })
+
+      if (missingUnits.length > 0) {
+        setError('Debes seleccionar una unidad de medida para cada material antes de finalizar la orden de compra.')
+        return
+      }
+
       const saved = await saveDatos(compra)
       if (!saved) return
       await onGenerarOrden(compra.id)
@@ -528,7 +559,35 @@ export default function MisOrdenesCompraView({
   }
 
   const toggleExpanded = (compraId) => {
-    setExpandedByCompra((prev) => ({ ...prev, [compraId]: !prev[compraId] }))
+    setExpandedByCompra((prev) => {
+      const nextExpanded = !prev[compraId]
+
+      if (nextExpanded) {
+        const compra = compras.find((item) => Number(item.id || 0) === Number(compraId || 0))
+        const currentUnits = (formsByCompra[compraId] && formsByCompra[compraId].itemsUnits) || {}
+
+        if (compra?.items?.length && Object.keys(currentUnits).length === 0) {
+          const initialUnits = compra.items.reduce((acc, item) => {
+            const itemIdKey = String(item.id_detalle || item.id || item.material || '')
+            if (!itemIdKey) return acc
+            acc[itemIdKey] = String(item.id_unidad || item.id_unidad_detalle || '')
+            return acc
+          }, {})
+
+          if (Object.keys(initialUnits).length > 0) {
+            setFormsByCompra((prevForms) => ({
+              ...prevForms,
+              [compraId]: {
+                ...(prevForms[compraId] || emptyForm),
+                itemsUnits: initialUnits,
+              },
+            }))
+          }
+        }
+      }
+
+      return { ...prev, [compraId]: nextExpanded }
+    })
   }
 
   const handleMarcarRecibidoAlmacen = async (compra) => {
@@ -899,7 +958,7 @@ export default function MisOrdenesCompraView({
                     {compra.numero_orden && <p className="my-po-summary-line"><strong>OC:</strong> {compra.numero_orden}</p>}
                     <p className="my-po-summary-line"><strong>Area:</strong> {compra.area_solicitante || 'Sin area'}</p>
                     <p className="my-po-summary-line"><strong>Solicitante:</strong> {compra.usuario || 'Sin solicitante'}</p>
-                    <p className="my-po-summary-line"><strong>Fecha:</strong> {compra.fecha_creacion ? new Date(compra.fecha_creacion).toLocaleString() : 'Sin fecha'}</p>
+                    <p className="my-po-summary-line"><strong>Fecha:</strong> {formatPeruDateTime(compra.fecha_creacion)}</p>
                   </div>
                   <span className={`my-po-status ${normalize(compra.estado).toLowerCase()}`}>{getStatusLabel(compra)}</span>
                 </div>
