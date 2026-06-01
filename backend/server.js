@@ -10012,7 +10012,8 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
           id,
           COALESCE(to_jsonb(compras)->>'estado_pedido', to_jsonb(compras)->>'estado', '') AS estado,
           NULLIF(to_jsonb(compras)->>'id_area_final', '')::int AS id_area_final,
-          NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante
+          NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante,
+          NULLIF(to_jsonb(compras)->>'id_unidad', '')::int AS id_unidad
         FROM compras
         WHERE id = $1
         FOR UPDATE
@@ -10027,10 +10028,49 @@ app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req
 
     const compra = compraResult.rows[0];
     const estadoActual = normalize(compra.estado);
+    const idUnidadCompra = Number(compra.id_unidad || 0);
 
     if (estadoActual !== 'POR_RECIBIR') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Solo se puede marcar como recibido compras en estado POR_RECIBIR' });
+    }
+
+    if (idUnidadCompra > 0) {
+      await client.query(
+        `
+          UPDATE detalle_compras
+          SET id_unidad = $1
+          WHERE id_compra = $2
+            AND id_material IS NOT NULL
+            AND (id_unidad IS NULL OR id_unidad = 0)
+        `,
+        [idUnidadCompra, idCompra]
+      );
+    }
+
+    const materialUnitRows = await client.query(
+      `
+        SELECT
+          id_material,
+          MAX(NULLIF(to_jsonb(dc)->>'id_unidad', '')::int) AS id_unidad
+        FROM detalle_compras dc
+        WHERE id_compra = $1
+          AND id_material IS NOT NULL
+        GROUP BY id_material
+      `,
+      [idCompra]
+    );
+
+    for (const materialUnitRow of materialUnitRows.rows) {
+      const materialId = Number(materialUnitRow.id_material || 0);
+      const detailUnitId = Number(materialUnitRow.id_unidad || 0);
+      const unitIdToUse = detailUnitId || idUnidadCompra;
+      if (!materialId || !unitIdToUse) continue;
+
+      await client.query(
+        'UPDATE materiales SET id_unidad = $1 WHERE id = $2',
+        [unitIdToUse, materialId]
+      );
     }
 
     const idAreaFinal = Number(compra.id_area_final || 0);
@@ -10171,7 +10211,8 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
           COALESCE(NULLIF(to_jsonb(compras)->>'total', '')::numeric, 0) AS total,
           COALESCE(NULLIF(to_jsonb(compras)->>'igv', '')::numeric, 0) AS igv,
           COALESCE(NULLIF(to_jsonb(compras)->>'costo_envio', '')::numeric, 0) AS costo_envio,
-          COALESCE(NULLIF(to_jsonb(compras)->>'otros_costos', '')::numeric, 0) AS otros_costos
+          COALESCE(NULLIF(to_jsonb(compras)->>'otros_costos', '')::numeric, 0) AS otros_costos,
+          NULLIF(to_jsonb(compras)->>'id_unidad', '')::int AS id_unidad
         FROM compras
         WHERE id = $1
         FOR UPDATE
@@ -10253,6 +10294,45 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       `,
       [id]
     );
+
+    const compraUnitId = Number(row.id_unidad || 0);
+    if (compraUnitId > 0) {
+      await client.query(
+        `
+          UPDATE detalle_compras
+          SET id_unidad = $1
+          WHERE id_compra = $2
+            AND id_material IS NOT NULL
+            AND (id_unidad IS NULL OR id_unidad = 0)
+        `,
+        [compraUnitId, id]
+      );
+    }
+
+    const materialUnitRows = await client.query(
+      `
+        SELECT
+          id_material,
+          MAX(NULLIF(to_jsonb(dc)->>'id_unidad', '')::int) AS id_unidad
+        FROM detalle_compras dc
+        WHERE dc.id_compra = $1
+          AND dc.id_material IS NOT NULL
+        GROUP BY id_material
+      `,
+      [id]
+    );
+
+    for (const materialUnitRow of materialUnitRows.rows) {
+      const materialId = Number(materialUnitRow.id_material || 0);
+      const detailUnitId = Number(materialUnitRow.id_unidad || 0);
+      const unitIdToUse = detailUnitId || compraUnitId;
+      if (!materialId || !unitIdToUse) continue;
+
+      await client.query(
+        'UPDATE materiales SET id_unidad = $1 WHERE id = $2',
+        [unitIdToUse, materialId]
+      );
+    }
 
     const currencyIdResolved = Number(row.id_moneda || 0);
     if (!currencyIdResolved) {
