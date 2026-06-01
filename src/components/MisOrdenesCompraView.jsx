@@ -173,6 +173,18 @@ export default function MisOrdenesCompraView({
   const [entregaFlowOpenByCompra, setEntregaFlowOpenByCompra] = useState({})
   const [commentDraftByCompra, setCommentDraftByCompra] = useState({})
   const [commentStatusByCompra, setCommentStatusByCompra] = useState({})
+
+  const unidadLabelById = useMemo(() => {
+    return new Map(
+      (Array.isArray(unidades) ? unidades : []).map((unidad) => [String(unidad.id), unidad.nombre || unidad.nombre_unidad || `Unidad ${unidad.id}`])
+    )
+  }, [unidades])
+
+  const getUnidadLabel = (value, fallback = '-') => {
+    const key = String(value || '').trim()
+    if (!key) return fallback
+    return unidadLabelById.get(key) || fallback
+  }
   const [ratingCompra, setRatingCompra] = useState(null)
   const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
   const [ratingSaving, setRatingSaving] = useState(false)
@@ -994,6 +1006,7 @@ export default function MisOrdenesCompraView({
                           const itemKey = `${compra.id}-${item.id_detalle || item.id || item.descripcion || item.material}`
                           const itemIdKey = String(item.id_detalle || item.id || item.material)
                           const itemUnitValue = (formsByCompra[compra.id]?.itemsUnits || {})[itemIdKey] || String(item.id_unidad || item.id_unidad_detalle || '')
+                          const itemUnitLabel = getUnidadLabel(itemUnitValue, item.unidad_medida || item.unidad || '-')
 
                           return (
                             <li key={itemKey} className="my-po-material-row">
@@ -1031,7 +1044,7 @@ export default function MisOrdenesCompraView({
                                       ))}
                                     </select>
                                   ) : (
-                                    item.unidad_medida || item.unidad || '-'
+                                    itemUnitLabel
                                   )}</span>
                                 </div>
                               </div>

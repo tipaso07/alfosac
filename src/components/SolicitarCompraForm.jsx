@@ -123,7 +123,7 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
     try {
       setSaving(true)
       await onSubmitCompra({ item: payloadItem })
-      setItem({ id_material: '', nombre: '', categoria: '', cantidad: 1 })
+      setItem({ id_material: '', nombre: '', categoria: '', cantidad: 1, id_unidad: '' })
     } catch (err) {
       setError(err.message || 'Error al registrar compra')
     } finally {
