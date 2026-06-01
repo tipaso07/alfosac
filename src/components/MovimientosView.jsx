@@ -8,6 +8,7 @@ export default function MovimientosView({ movimientos = [] }) {
   const [tipo, setTipo] = useState('SALIDA')
   const [areaQuery, setAreaQuery] = useState('')
   const [selectedArea, setSelectedArea] = useState('')
+  const [materialQuery, setMaterialQuery] = useState('')
   const [areaSuggestions, setAreaSuggestions] = useState([])
   const [loadingAreas, setLoadingAreas] = useState(false)
   const [areasError, setAreasError] = useState('')
@@ -91,11 +92,22 @@ export default function MovimientosView({ movimientos = [] }) {
     const startDate = fechaInicio ? new Date(`${fechaInicio}T00:00:00`) : null
     const endDate = fechaFin ? new Date(`${fechaFin}T23:59:59.999`) : null
     const areaFilter = normalize(selectedArea)
+    const materialFilter = normalize(materialQuery)
 
     return movimientos.filter((mov) => {
       if (normalize(mov.tipo) !== tipo) return false
 
       if (areaFilter && normalize(mov.area_destino) !== areaFilter) return false
+
+      if (materialFilter) {
+        const materialText = normalize(
+          [
+            mov.material || '',
+            ...(Array.isArray(mov.detalles) ? mov.detalles.map((det) => det.material || '') : []),
+          ].join(' ')
+        )
+        if (!materialText.includes(materialFilter)) return false
+      }
 
       if (startDate || endDate) {
         const movDate = mov.fecha ? new Date(mov.fecha) : null
@@ -106,16 +118,20 @@ export default function MovimientosView({ movimientos = [] }) {
 
       return true
     })
-  }, [movimientos, tipo, selectedArea, fechaInicio, fechaFin])
+  }, [movimientos, tipo, selectedArea, materialQuery, fechaInicio, fechaFin])
 
   const hasAreaFilter = Boolean(selectedArea.trim())
+  const hasMaterialFilter = Boolean(materialQuery.trim())
   const hasDateFilter = Boolean(fechaInicio || fechaFin)
 
   return (
     <section className="movs-section">
       <div className="section-header">
         <h1>Movimientos</h1>
-        <p>Total{hasAreaFilter ? ` en ${selectedArea}` : ''}: {filtered.length}</p>
+        <p>
+          Total{hasAreaFilter ? ` en ${selectedArea}` : ''}
+          {hasMaterialFilter ? ` | material: ${materialQuery}` : ''}: {filtered.length}
+        </p>
       </div>
 
       <div className="movs-filters">
@@ -128,8 +144,10 @@ export default function MovimientosView({ movimientos = [] }) {
       </div>
 
       <form className="area-search" onSubmit={onSearchSubmit}>
-        <label htmlFor="mov-area-search-input">Buscar por area</label>
-        <div className="area-search-row">
+        <div className="area-search-grid">
+          <label htmlFor="mov-area-search-input">Buscar por area</label>
+          <label htmlFor="mov-material-search-input">Buscar por material</label>
+
           <input
             id="mov-area-search-input"
             type="text"
@@ -143,8 +161,14 @@ export default function MovimientosView({ movimientos = [] }) {
               if (areaSuggestions.length > 0) setShowSuggestions(true)
             }}
           />
-          <button type="submit" className="btn-area-search">Buscar</button>
-          <button type="button" className="btn-area-clear" onClick={clearAreaFilter}>Limpiar</button>
+
+          <input
+            id="mov-material-search-input"
+            type="text"
+            value={materialQuery}
+            placeholder="Escribe un material..."
+            onChange={(event) => setMaterialQuery(event.target.value)}
+          />
         </div>
 
         {loadingAreas && <p className="area-search-hint">Buscando areas...</p>}
