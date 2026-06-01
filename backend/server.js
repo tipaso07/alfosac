@@ -87,6 +87,7 @@ const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'postgres',
+  options: '-c timezone=America/Lima',
 });
 
 const SQL_DEBUG_ENABLED = String(process.env.SQL_DEBUG || 'true').toLowerCase() !== 'false';
@@ -4484,6 +4485,20 @@ const ensureMovimientosColumns = async () => {
   await pool.query(`
     ALTER TABLE movimientos
     ADD COLUMN IF NOT EXISTS id_almacen INTEGER;
+  `);
+  await pool.query(`
+    ALTER TABLE movimientos
+    ALTER COLUMN fecha_movimiento TYPE TIMESTAMP USING fecha_movimiento::timestamp;
+  `);
+
+  await pool.query(`
+    ALTER TABLE movimientos
+    ALTER COLUMN fecha_movimiento SET DEFAULT timezone('America/Lima', now());
+  `);
+
+  await pool.query(`
+    ALTER TABLE movimientos
+    ALTER COLUMN created_at SET DEFAULT timezone('America/Lima', now());
   `);
 };
 

@@ -21,14 +21,14 @@ CREATE TABLE IF NOT EXISTS roles (
   id SERIAL PRIMARY KEY,
   nombre VARCHAR(100) NOT NULL UNIQUE,
   descripcion TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS permisos (
   id SERIAL PRIMARY KEY,
   nombre VARCHAR(100) NOT NULL UNIQUE,
   descripcion TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS rol_permiso (
@@ -79,8 +79,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id_role INTEGER REFERENCES roles(id),
   id_area INTEGER REFERENCES areas(id),
   estado VARCHAR(20) DEFAULT 'ACTIVO',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS proveedores (
@@ -108,9 +108,9 @@ CREATE TABLE IF NOT EXISTS proveedores (
   tipo VARCHAR(20) DEFAULT 'BIEN',
   tipo_retencion VARCHAR(20) DEFAULT 'RETENCION',
   estado BOOLEAN DEFAULT TRUE,
-  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_creacion TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   moneda_nombre VARCHAR(50)
 );
 
@@ -124,8 +124,8 @@ CREATE TABLE IF NOT EXISTS materiales (
   id_moneda INTEGER REFERENCES monedas(id),
   imagen VARCHAR(255),
   id_categoria INTEGER REFERENCES categorias(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   categoria VARCHAR(100)
 );
 
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS stock (
   id_material INTEGER REFERENCES materiales(id),
   id_almacen INTEGER REFERENCES almacenes(id),
   cantidad NUMERIC(12,2) DEFAULT 0,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   UNIQUE(id_material, id_almacen)
 );
 
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS requerimientos (
   id_usuario INTEGER REFERENCES usuarios(id),
   id_area INTEGER REFERENCES areas(id),
   fecha_requerimiento DATE,
-  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_creacion TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   estado VARCHAR(30) DEFAULT 'PENDIENTE',
   prioridad VARCHAR(20) DEFAULT 'MEDIA',
   comentario TEXT,
@@ -169,8 +169,8 @@ CREATE TABLE IF NOT EXISTS requerimientos (
   estado_entrega VARCHAR(30),
   nombre_receptor VARCHAR(120),
   dni_receptor VARCHAR(20),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS detalle_requerimiento (
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS comentarios (
   tipo_entidad VARCHAR(50) NOT NULL,
   id_entidad INTEGER NOT NULL,
   contenido TEXT NOT NULL,
-  fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  fecha TIMESTAMP NOT NULL DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS compras (
@@ -210,8 +210,8 @@ CREATE TABLE IF NOT EXISTS compras (
   id_area INTEGER REFERENCES areas(id),
   fecha_solicitud DATE,
   fecha_aprobacion DATE,
-  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_creacion TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  fecha_actualizacion TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   estado VARCHAR(30) DEFAULT 'PENDIENTE',
   estado_pedido VARCHAR(30) DEFAULT 'PENDIENTE',
   proveedor VARCHAR(200),
@@ -245,8 +245,8 @@ CREATE TABLE IF NOT EXISTS compras (
   numero_orden VARCHAR(50),
   detalle TEXT,
   comentarios TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS servicios (
@@ -273,8 +273,8 @@ CREATE TABLE IF NOT EXISTS servicios (
   estado_servicio VARCHAR(30),
   fecha TIMESTAMP,
   numero_orden VARCHAR(50),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   CONSTRAINT chk_servicios_estado_flujo CHECK (estado_flujo IS NULL OR estado_flujo IN ('APROBADO', 'DATOS_COMPLETADOS', 'PENDIENTE', 'REALIZADO')),
   CONSTRAINT chk_servicios_estado_servicio CHECK (estado_servicio IS NULL OR estado_servicio IN ('COMPLETADO', 'PENDIENTE', 'REALIZADO')),
   CONSTRAINT chk_servicios_tipo_retencion CHECK (tipo_retencion IS NULL OR tipo_retencion IN ('RETENCION', 'DETRACCION')),
@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS calificaciones_proveedor (
   id_referencia INTEGER,
   puntuacion INTEGER,
   comentario TEXT,
-  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  fecha TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE INDEX IF NOT EXISTS idx_calif_proveedor_ref ON calificaciones_proveedor(id_proveedor, id_referencia);
@@ -305,7 +305,7 @@ CREATE TABLE IF NOT EXISTS aprobaciones (
     estado VARCHAR(60) NOT NULL DEFAULT 'PENDIENTE',
   usuario_id INTEGER REFERENCES usuarios(id),
   fecha TIMESTAMP,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT (timezone('America/Lima', now())),
   UNIQUE(tipo, referencia_id, orden)
 );
 
@@ -321,8 +321,8 @@ CREATE TABLE IF NOT EXISTS aprobaciones_config (
   orden INTEGER NOT NULL,
   rol_id INTEGER NOT NULL REFERENCES roles(id),
   activo BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT (timezone('America/Lima', now())),
+  updated_at TIMESTAMP NOT NULL DEFAULT (timezone('America/Lima', now())),
   UNIQUE(flujo, orden),
   UNIQUE(flujo, rol_id)
 );
@@ -349,9 +349,9 @@ CREATE TABLE IF NOT EXISTS movimientos (
   documento_referencia VARCHAR(100),
   id_almacen INTEGER REFERENCES almacenes(id),
   usuario_registro VARCHAR(100),
-  fecha_movimiento DATE,
+  fecha_movimiento TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   observaciones TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
 
 CREATE TABLE IF NOT EXISTS movimiento_detalles (
