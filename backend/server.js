@@ -8671,7 +8671,11 @@ app.get('/api/movimientos', authMiddleware, async (req, res) => {
               'N/D'
             ) AS tipo,
             NULLIF(COALESCE(NULLIF(to_jsonb(m)->>'id_almacen', ''), NULLIF(to_jsonb(m)->>'almacen_id', ''), ''), '')::int AS id_almacen,
-            m.fecha_movimiento AT TIME ZONE 'America/Lima' AS fecha,
+            COALESCE(
+              NULLIF(to_jsonb(m)->>'fecha_movimiento', ''),
+              NULLIF(to_jsonb(m)->>'fecha', ''),
+              ''
+            ) AS fecha,
             COALESCE(
               NULLIF(to_jsonb(m)->>'usuario_registro', ''),
               NULLIF(to_jsonb(m)->>'id_usuario', ''),
