@@ -8849,6 +8849,7 @@ const mapCompraRows = (rows) => {
       acc[row.id].items.push({
         id_detalle: row.id_detalle,
         id_material: row.id_material,
+        id_unidad: row.id_unidad,
         id_categoria: row.id_categoria,
         categoria: categoriaFinal,
         material: row.material,
@@ -8915,6 +8916,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         c.fecha_actualizacion,
         dc.id AS id_detalle,
         NULLIF(to_jsonb(dc)->>'id_material', '')::int AS id_material,
+        NULLIF(to_jsonb(dc)->>'id_unidad', '')::int AS id_unidad,
         COALESCE(
           NULLIF(to_jsonb(dc)->>'id_categoria', '')::int,
           NULLIF(to_jsonb(m)->>'id_categoria', '')::int

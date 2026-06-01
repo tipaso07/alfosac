@@ -1000,7 +1000,6 @@ export default function MisOrdenesCompraView({
                 {isExpanded && (
                   <div className="my-po-edit-grid">
                     <div className="full-row">
-                      <strong>Materiales:</strong>
                       <ul>
                         {materials.map((item) => {
                           const itemKey = `${compra.id}-${item.id_detalle || item.id || item.descripcion || item.material}`
