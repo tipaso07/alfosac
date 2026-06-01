@@ -8807,6 +8807,7 @@ const mapCompraRows = (rows) => {
         contacto_proveedor: row.contacto_proveedor,
         banco: row.banco,
         id_moneda: row.id_moneda,
+        id_unidad: row.id_unidad,
         moneda: row.moneda,
         numero_cuenta: row.numero_cuenta,
         cuenta: row.cuenta,
@@ -8892,6 +8893,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         COALESCE(to_jsonb(c)->>'contacto_proveedor', '') AS contacto_proveedor,
         COALESCE(to_jsonb(c)->>'banco', '') AS banco,
         NULLIF(to_jsonb(c)->>'id_moneda', '')::int AS id_moneda,
+        NULLIF(to_jsonb(c)->>'id_unidad', '')::int AS id_unidad,
         COALESCE(to_jsonb(c)->>'moneda', '') AS moneda,
         COALESCE(to_jsonb(c)->>'numero_cuenta', '') AS numero_cuenta,
         COALESCE(to_jsonb(c)->>'cuenta', '') AS cuenta,
@@ -9293,6 +9295,18 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
       providerData = providerResult.rows[0];
     }
 
+    const idUnidadCompra = (() => {
+      const raw = Number(item?.id_unidad || 0);
+      return Number.isInteger(raw) && raw > 0 ? raw : null;
+    })();
+
+    if (idUnidadCompra !== null) {
+      const unidadExists = await client.query('SELECT id FROM unidades WHERE id = $1 LIMIT 1', [idUnidadCompra]);
+      if (unidadExists.rows.length === 0) {
+        return res.status(400).json({ error: 'id_unidad no existe en unidades' });
+      }
+    }
+
     await client.query('BEGIN');
 
     const creatorRoleId = Number(req.user?.id_role || req.user?.rol_id || 0);
@@ -9303,8 +9317,8 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
 
     const compraInsert = await client.query(
       `
-        INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, fecha_creacion, fecha_actualizacion)
-        VALUES ($6, $1, $2, $3, $4, $5, ${PET_SQL_NOW}, ${PET_SQL_NOW})
+        INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, id_unidad, fecha_creacion, fecha_actualizacion)
+        VALUES ($7, $1, $2, $3, $4, $5, $6, ${PET_SQL_NOW}, ${PET_SQL_NOW})
         RETURNING id
       `,
       [
@@ -9313,6 +9327,7 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
         providerId || null,
         providerData.proveedor_nombre || null,
         providerData.proveedor_ruc || null,
+        idUnidadCompra,
         initialApprovalState,
       ]
     );
@@ -9626,6 +9641,15 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
 
     const payload = req.body || {};
     const detallePersist = String(payload.detalle || '').trim();
+    const payloadUnidadRaw = Number(payload.id_unidad || 0);
+    const payloadItemsUnidades = payload.items_unidades && typeof payload.items_unidades === 'object'
+      ? Object.values(payload.items_unidades)
+          .map((value) => Number(value || 0))
+          .filter((value) => Number.isInteger(value) && value > 0)
+      : [];
+    const idUnidadCompra = Number.isInteger(payloadUnidadRaw) && payloadUnidadRaw > 0
+      ? payloadUnidadRaw
+      : (payloadItemsUnidades.length === 1 ? payloadItemsUnidades[0] : null);
 
     const parsedExistingComments = parsePurchaseComments(row.comentarios);
     const shouldReplaceVisibleComments = Object.prototype.hasOwnProperty.call(payload, 'detalle')
@@ -9810,8 +9834,9 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
             detalle = $29,
             comentarios = $30,
             id_area_final = $31,
+            id_unidad = COALESCE($32, id_unidad),
             fecha_actualizacion = ${PET_SQL_NOW}
-          WHERE id = $32
+          WHERE id = $33
       `,
       [
         providerId,
@@ -9845,6 +9870,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         detallePersist,
         comentariosPersist,
         payload.id_area_final ? Number(payload.id_area_final) : null,
+        idUnidadCompra,
         id,
       ]
     );
@@ -10340,9 +10366,10 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       const categoriaFallback = String(itemCategoriesFromComments[normalizeItemCategoryKey(descripcion)] || '').trim();
       const categoria = categoriaDetalle || categoriaPorId || categoriaFallback;
       const idUnidadPendiente = Number(pending.id_unidad || 0);
+      const idUnidadCompra = Number(row.id_unidad || 0);
       const idUnidadSeleccionada = Number.isInteger(idUnidadPendiente) && idUnidadPendiente > 0
         ? idUnidadPendiente
-        : await ensureDefaultUnit();
+        : (Number.isInteger(idUnidadCompra) && idUnidadCompra > 0 ? idUnidadCompra : await ensureDefaultUnit());
 
       // ===== VALIDACIÓN DESDE BD (NO DEL FRONTEND) =====
       // Usar solo datos persistidos en la orden de compra

@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS compras (
   total NUMERIC(12,2),
   moneda VARCHAR(20),
   id_moneda INTEGER REFERENCES monedas(id),
+  id_unidad INTEGER REFERENCES unidades(id),
   numero_orden VARCHAR(50),
   detalle TEXT,
   comentarios TEXT,
