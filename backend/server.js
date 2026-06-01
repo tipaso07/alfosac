@@ -5933,6 +5933,23 @@ app.put('/api/usuarios/:id/password', authMiddleware, requireAdmin, async (req, 
       [hashedPassword, userId]
     );
 
+    // Persist item units if provided: payload.items_unidades should map detalle_id -> id_unidad
+    if (payload && payload.items_unidades && typeof payload.items_unidades === 'object') {
+      for (const [detalleKey, unidadVal] of Object.entries(payload.items_unidades)) {
+        const detalleId = Number(detalleKey || 0);
+        const unidadId = Number(unidadVal || 0);
+        if (!Number.isInteger(detalleId) || detalleId <= 0) continue;
+        if (!Number.isInteger(unidadId) || unidadId <= 0) continue;
+        const unidadExists = await pool.query('SELECT id FROM unidades WHERE id = $1 LIMIT 1', [unidadId]);
+        if (unidadExists.rows.length === 0) continue;
+        try {
+          await pool.query('UPDATE detalle_compras SET id_unidad = $1 WHERE id = $2', [unidadId, detalleId]);
+        } catch (e) {
+          // ignore individual update failures and continue
+        }
+      }
+    }
+
     res.json({ success: true, message: 'Contraseña actualizada correctamente' });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -142,6 +142,7 @@ export default function MisOrdenesCompraView({
   compras,
   currentUserRoleId,
   currentUserPermissions = [],
+  unidades = [],
   onCompletarDatos,
   onGenerarOrden,
   onDescargarPdf,
@@ -468,6 +469,7 @@ export default function MisOrdenesCompraView({
 
       await onCompletarDatos(compra.id, {
         ...data,
+        items_unidades: (formsByCompra[compra.id] && formsByCompra[compra.id].itemsUnits) ? formsByCompra[compra.id].itemsUnits : undefined,
         id_proveedor: Number(data.id_proveedor),
         id_moneda: Number(data.id_moneda),
         subtotal,
@@ -988,11 +990,43 @@ export default function MisOrdenesCompraView({
                     <div className="full-row">
                       <strong>Materiales:</strong>
                       <ul>
-                        {materials.map((item) => (
-                          <li key={`${compra.id}-${item.id_detalle || item.id || item.descripcion || item.material}`}>
-                            {item.material_solicitado || item.material || item.descripcion || 'Material'} - {item.cantidad}
-                          </li>
-                        ))}
+                        {materials.map((item) => {
+                          const itemKey = `${compra.id}-${item.id_detalle || item.id || item.descripcion || item.material}`
+                          const itemIdKey = String(item.id_detalle || item.id || item.material)
+                          const itemUnitValue = (formsByCompra[compra.id]?.itemsUnits || {})[itemIdKey] || String(item.id_unidad || item.id_unidad_detalle || '')
+
+                          return (
+                            <li key={itemKey} className="my-po-material-row">
+                              <span className="my-po-material-name">{item.material_solicitado || item.material || item.descripcion || 'Material'}</span>
+                              <span className="my-po-material-qty">{item.cantidad}</span>
+                              {isEditable ? (
+                                <select
+                                  value={String(itemUnitValue || '')}
+                                  onChange={(e) => {
+                                    const selected = e.target.value
+                                    setFormsByCompra((prev) => ({
+                                      ...prev,
+                                      [compra.id]: {
+                                        ...(prev[compra.id] || {}),
+                                        itemsUnits: {
+                                          ...((prev[compra.id] || {}).itemsUnits || {}),
+                                          [itemIdKey]: selected,
+                                        },
+                                      },
+                                    }))
+                                  }}
+                                >
+                                  <option value="">Selecciona unidad</option>
+                                  {unidades.map((unidad) => (
+                                    <option key={unidad.id} value={unidad.id}>{unidad.nombre || unidad.nombre_unidad || `Unidad ${unidad.id}`}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="my-po-material-unit">{item.unidad_medida || item.unidad || '-'}</span>
+                              )}
+                            </li>
+                          )
+                        })}
                       </ul>
                     </div>
 

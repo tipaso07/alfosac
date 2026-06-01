@@ -918,6 +918,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
                   compras={compras}
                   currentUserRoleId={currentUserRoleId}
                   currentUserPermissions={currentUserPermissions}
+                  unidades={unidades}
                   onCompletarDatos={handleCompletarCompra}
                   onGenerarOrden={handleGenerarOrdenCompra}
                   onDescargarPdf={handleDescargarOrdenCompraPdf}
