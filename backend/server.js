@@ -8912,8 +8912,8 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         COALESCE(to_jsonb(c)->>'detalle', to_jsonb(c)->>'observaciones', '') AS detalle,
         COALESCE(to_jsonb(c)->>'comentarios', '') AS comentarios,
         COALESCE(to_jsonb(c)->>'numero_orden', '') AS numero_orden,
-        c.fecha_creacion,
-        c.fecha_actualizacion,
+        c.fecha_creacion AT TIME ZONE 'America/Lima' AS fecha_creacion,
+        c.fecha_actualizacion AT TIME ZONE 'America/Lima' AS fecha_actualizacion,
         dc.id AS id_detalle,
         NULLIF(to_jsonb(dc)->>'id_material', '')::int AS id_material,
         NULLIF(to_jsonb(dc)->>'id_unidad', '')::int AS id_unidad,
@@ -10215,6 +10215,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
             ''
           ) AS descripcion,
           COALESCE(dc.cantidad, 0)::numeric AS cantidad,
+          NULLIF(to_jsonb(dc)->>'id_unidad', '')::int AS id_unidad,
           ${hasDetalleCategoria ? "COALESCE(NULLIF(to_jsonb(dc)->>'categoria', ''), '')" : "''"} AS categoria,
           ${hasDetalleSubtotal ? 'COALESCE(dc.subtotal, 0)::numeric' : '0::numeric'} AS subtotal_item,
           NULLIF(to_jsonb(dc)->>'id_categoria', '')::int AS id_categoria,
@@ -10338,6 +10339,10 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
       const categoriaPorId = String(pending.categoria_por_id || '').trim();
       const categoriaFallback = String(itemCategoriesFromComments[normalizeItemCategoryKey(descripcion)] || '').trim();
       const categoria = categoriaDetalle || categoriaPorId || categoriaFallback;
+      const idUnidadPendiente = Number(pending.id_unidad || 0);
+      const idUnidadSeleccionada = Number.isInteger(idUnidadPendiente) && idUnidadPendiente > 0
+        ? idUnidadPendiente
+        : await ensureDefaultUnit();
 
       // ===== VALIDACIÓN DESDE BD (NO DEL FRONTEND) =====
       // Usar solo datos persistidos en la orden de compra
@@ -10375,6 +10380,10 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
         // Material ya existe: solo vincular categoría si es necesario
         await ensureMaterialCategoryLink(Number(match.rows[0].id), categoria);
         await client.query(
+          'UPDATE materiales SET id_unidad = $1 WHERE id = $2',
+          [idUnidadSeleccionada, Number(match.rows[0].id)]
+        );
+        await client.query(
           'UPDATE detalle_compras SET id_material = $1 WHERE id = $2',
           [Number(match.rows[0].id), Number(pending.id)]
         );
@@ -10384,7 +10393,7 @@ app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
           throw new Error('La compra tiene items sin material vinculado y no tiene proveedor para crearlos automaticamente');
         }
 
-        const idUnidad = await ensureDefaultUnit();
+        const idUnidad = idUnidadSeleccionada;
 
         // ===== INSERCIÓN: CAMPOS OBLIGATORIOS =====
         const insertColumns = ['nombre', 'descripcion', 'id_unidad', 'id_proveedor'];
