@@ -31,7 +31,15 @@ const resetDatabase = () => {
   execFileSync('psql', [
     '-U', dbUser,
     '-d', maintenanceDb,
-    '-c', `DROP DATABASE IF EXISTS \"${dbName}\"; CREATE DATABASE \"${dbName}\";`,
+    '-c', `DROP DATABASE IF EXISTS "${dbName}";`,
+  ], {
+    stdio: 'inherit',
+    env,
+  });
+  execFileSync('psql', [
+    '-U', dbUser,
+    '-d', maintenanceDb,
+    '-c', `CREATE DATABASE "${dbName}";`,
   ], {
     stdio: 'inherit',
     env,
