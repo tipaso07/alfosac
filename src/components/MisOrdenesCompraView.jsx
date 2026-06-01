@@ -997,33 +997,44 @@ export default function MisOrdenesCompraView({
 
                           return (
                             <li key={itemKey} className="my-po-material-row">
-                              <span className="my-po-material-name">{item.material_solicitado || item.material || item.descripcion || 'Material'}</span>
-                              <span className="my-po-material-qty">{item.cantidad}</span>
-                              {isEditable ? (
-                                <select
-                                  value={String(itemUnitValue || '')}
-                                  onChange={(e) => {
-                                    const selected = e.target.value
-                                    setFormsByCompra((prev) => ({
-                                      ...prev,
-                                      [compra.id]: {
-                                        ...(prev[compra.id] || {}),
-                                        itemsUnits: {
-                                          ...((prev[compra.id] || {}).itemsUnits || {}),
-                                          [itemIdKey]: selected,
-                                        },
-                                      },
-                                    }))
-                                  }}
-                                >
-                                  <option value="">Selecciona unidad</option>
-                                  {unidades.map((unidad) => (
-                                    <option key={unidad.id} value={unidad.id}>{unidad.nombre || unidad.nombre_unidad || `Unidad ${unidad.id}`}</option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <span className="my-po-material-unit">{item.unidad_medida || item.unidad || '-'}</span>
-                              )}
+                              <div className="my-po-material-main">
+                                <span className="my-po-material-label">Material</span>
+                                <span className="my-po-material-name">{item.material_solicitado || item.material || item.descripcion || 'Material'}</span>
+                              </div>
+                              <div className="my-po-material-meta">
+                                <div className="my-po-material-field">
+                                  <span className="my-po-material-label">Cantidad</span>
+                                  <span className="my-po-material-qty">{item.cantidad}</span>
+                                </div>
+                                <div className="my-po-material-field">
+                                  <span className="my-po-material-label">Unidad</span>
+                                  <span className="my-po-material-unit">{isEditable ? (
+                                    <select
+                                      value={String(itemUnitValue || '')}
+                                      onChange={(e) => {
+                                        const selected = e.target.value
+                                        setFormsByCompra((prev) => ({
+                                          ...prev,
+                                          [compra.id]: {
+                                            ...(prev[compra.id] || {}),
+                                            itemsUnits: {
+                                              ...((prev[compra.id] || {}).itemsUnits || {}),
+                                              [itemIdKey]: selected,
+                                            },
+                                          },
+                                        }))
+                                      }}
+                                    >
+                                      <option value="">Selecciona unidad</option>
+                                      {unidades.map((unidad) => (
+                                        <option key={unidad.id} value={unidad.id}>{unidad.nombre || unidad.nombre_unidad || `Unidad ${unidad.id}`}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    item.unidad_medida || item.unidad || '-'
+                                  )}</span>
+                                </div>
+                              </div>
                             </li>
                           )
                         })}

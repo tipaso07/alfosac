@@ -150,6 +150,70 @@
   font-size: 14px;
 }
 
+.my-po-material-row {
+  list-style: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(220px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  margin: 10px 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.my-po-material-main,
+.my-po-material-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.my-po-material-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.my-po-material-field {
+  display: grid;
+  gap: 4px;
+}
+
+.my-po-material-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.my-po-material-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.my-po-material-qty,
+.my-po-material-unit {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.my-po-material-unit select {
+  width: 100%;
+  min-height: 40px;
+}
+
+@media (max-width: 720px) {
+  .my-po-material-row {
+    grid-template-columns: 1fr;
+  }
+
+  .my-po-material-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
 .supplier-field input {
   width: 100%;
   min-height: 44px;
