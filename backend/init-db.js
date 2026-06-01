@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS detalle_compras (
   id SERIAL PRIMARY KEY,
   id_compra INTEGER REFERENCES compras(id),
   id_material INTEGER REFERENCES materiales(id),
+  id_unidad INTEGER REFERENCES unidades(id),
   nombre_material VARCHAR(255),
   cantidad NUMERIC(12,2),
   precio_unitario NUMERIC(12,2),
