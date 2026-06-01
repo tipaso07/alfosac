@@ -851,6 +851,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               onSubmitCompra={handleCreateCompra}
               materials={materials}
               proveedores={proveedores}
+              unidades={unidades}
               currentUser={currentUserName}
               currentArea={currentUserArea}
             />

@@ -9395,6 +9395,20 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
     addIfMissing('categoria', categoria || null);
     addIfMissing('id_categoria', idCategoriaDetalle || null);
 
+    // If client provided id_unidad for the item at creation time, validate and persist it
+    if (hasColumn('id_unidad') && item && Object.prototype.hasOwnProperty.call(item, 'id_unidad') && item.id_unidad !== '') {
+      const unidadId = Number(item.id_unidad || 0);
+      if (!Number.isInteger(unidadId) || unidadId <= 0) {
+        throw new Error('id_unidad debe ser valido');
+      }
+      const unidadExists = await client.query('SELECT id FROM unidades WHERE id = $1 LIMIT 1', [unidadId]);
+      if (unidadExists.rows.length === 0) {
+        throw new Error('id_unidad no existe en unidades');
+      }
+      columns.push('id_unidad');
+      values.push(unidadId);
+    }
+
     const maybeRequiredColumns = Object.keys(detailMetaByColumn)
       .filter((col) => {
         if (columns.includes(col)) return false;

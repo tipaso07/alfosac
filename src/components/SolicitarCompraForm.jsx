@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import '../styles/SolicitarCompraForm.css'
 import { fetchCategorias } from '../services/api'
 
-export default function SolicitarCompraForm({ materials = [], currentUser, currentArea, onSubmitCompra }) {
-  const [item, setItem] = useState({ id_material: '', nombre: '', categoria: '', cantidad: 1 })
+export default function SolicitarCompraForm({ materials = [], currentUser, currentArea, onSubmitCompra, unidades = [] }) {
+  const [item, setItem] = useState({ id_material: '', nombre: '', categoria: '', cantidad: 1, id_unidad: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [openSuggestions, setOpenSuggestions] = useState(false)
@@ -80,6 +80,7 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
       id_material: material.id,
       nombre: material.nombre || '',
       categoria: material.categoria || '',
+      id_unidad: material.id_unidad || '',
     })
     setOpenSuggestions(false)
     setOpenCategorySuggestions(false)
@@ -114,9 +115,10 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
     }
 
     const idMaterial = Number(item.id_material || 0)
+    const idUnidad = Number(item.id_unidad || 0) || null
     const payloadItem = idMaterial > 0
-      ? { id_material: idMaterial, nombre: desc, categoria: categoria || null, cantidad: qty }
-      : { id_material: null, nombre: desc, descripcion: desc, categoria, cantidad: qty }
+      ? { id_material: idMaterial, nombre: desc, categoria: categoria || null, cantidad: qty, id_unidad: idUnidad }
+      : { id_material: null, nombre: desc, descripcion: desc, categoria, cantidad: qty, id_unidad: idUnidad }
 
     try {
       setSaving(true)
@@ -244,6 +246,16 @@ export default function SolicitarCompraForm({ materials = [], currentUser, curre
                 value={item.cantidad}
                 onChange={(event) => updateItem({ cantidad: event.target.value })}
               />
+            </label>
+
+            <label>
+              Unidad
+              <select value={String(item.id_unidad || '')} onChange={(e) => updateItem({ id_unidad: e.target.value })}>
+                <option value="">Selecciona unidad</option>
+                {unidades.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nombre || u.nombre_unidad || `Unidad ${u.id}`}</option>
+                ))}
+              </select>
             </label>
           </article>
         </div>
