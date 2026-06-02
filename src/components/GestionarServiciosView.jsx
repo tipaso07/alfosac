@@ -11,7 +11,7 @@ const normalizeRoleName = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '')
-const getGestionEstado = (servicio) => normalize(servicio?.estado_aprobacion_detalle || servicio?.estado_aprobacion)
+const getGestionEstado = (servicio) => normalize(servicio?.estado_aprobacion)
 const isPendingApprovalStage = (value) => normalize(value).startsWith('PENDIENTE')
 const statusLabel = (value) => (normalize(value) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (value || 'N/A'))
 const priorityRank = (value) => {
@@ -57,7 +57,12 @@ const getApprovalRouteLabel = (servicio, approvalConfig = {}) => {
     .join(' → ')
 }
 
-export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], onChangeAprobacion }) {
+const getPendingStageForRoleId = (roleId) => {
+  const numericRoleId = Number(roleId || 0)
+  return numericRoleId > 0 ? `PENDIENTE_${numericRoleId}` : ''
+}
+
+export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], currentUserRoleId = null, onChangeAprobacion }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [activePriority, setActivePriority] = useState('TODAS')
   const [planChoiceByService, setPlanChoiceByService] = useState({})
@@ -203,17 +208,30 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     return new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime()
   })
 
+  const baseFilteredServicios = useMemo(() => {
+    if (activePriority === 'TODAS') return servicios
+    return servicios.filter((servicio) => normalize(servicio.prioridad) === activePriority)
+  }, [servicios, activePriority])
+
   const pendientes = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => isPendingApprovalStage(getGestionEstado(servicio)))
-  ), [servicios])
+    baseFilteredServicios.filter((servicio) => {
+      const estado = getGestionEstado(servicio)
+      if (!isPendingApprovalStage(estado)) return false
+
+      const expectedStage = getPendingStageForRoleId(currentUserRoleId)
+      if (!expectedStage) return false
+
+      return normalize(estado) === normalize(expectedStage)
+    })
+  ), [baseFilteredServicios, currentUserRoleId])
 
   const approved = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => getGestionEstado(servicio) === 'APROBADO')
-  ), [servicios])
+    baseFilteredServicios.filter((servicio) => getGestionEstado(servicio) === 'APROBADO')
+  ), [baseFilteredServicios])
 
   const rejected = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => getGestionEstado(servicio) === 'RECHAZADO')
-  ), [servicios])
+    baseFilteredServicios.filter((servicio) => getGestionEstado(servicio) === 'RECHAZADO')
+  ), [baseFilteredServicios])
 
   const config = {
     PENDIENTE: { label: 'Pendientes', data: pendientes, actions: true },
@@ -222,11 +240,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
   }
 
   const view = config[activeStatus]
-  const filteredViewData = useMemo(() => {
-    const byStatus = view.data || []
-    if (activePriority === 'TODAS') return byStatus
-    return byStatus.filter((servicio) => normalize(servicio.prioridad) === activePriority)
-  }, [view.data, activePriority])
+  const filteredViewData = useMemo(() => view.data || [], [view.data])
 
   return (
     <section className="service-manage-section">
