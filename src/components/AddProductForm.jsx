@@ -24,6 +24,7 @@ export default function AddProductForm({
 
   const [errors, setErrors] = useState({})
   const [catalogCategories, setCatalogCategories] = useState([])
+  const [openMaterialSuggestions, setOpenMaterialSuggestions] = useState({})
   const formRef = useRef(null)
 
   const categoryOptions = useMemo(() => {
@@ -79,13 +80,23 @@ export default function AddProductForm({
     return material?.categoria || ''
   }
 
-  const getCategorySuggestions = (searchValue) => {
+  const getMaterialSuggestions = (searchValue) => {
     const term = String(searchValue || '').trim().toLowerCase()
-    if (!term) return categoryOptions.slice(0, 8)
+    if (!term) return materials.slice(0, 8)
 
-    return categoryOptions
-      .filter((category) => category.toLowerCase().includes(term))
+    return materials
+      .filter((material) => {
+        const materialName = String(material.nombre_producto || material.nombre || '').toLowerCase()
+        const materialCategory = String(material.categoria || '').toLowerCase()
+        return materialName.includes(term) || materialCategory.includes(term)
+      })
       .slice(0, 8)
+  }
+
+  const findMaterialByName = (name) => {
+    const target = String(name || '').trim()
+    if (!target) return null
+    return materials.find((material) => normalize(material.nombre_producto || material.nombre) === normalize(target))
   }
 
   const handleChange = (e) => {
@@ -103,24 +114,48 @@ export default function AddProductForm({
     const nextItems = [...formData.items]
     const currentItem = nextItems[index]
 
-    const nextMaterialId = field === 'id_material'
-      ? parseInt(value || '0', 10) || ''
-      : currentItem.id_material
-    const stockDisponible = getMaterialStock(nextMaterialId)
-    const rawCantidad = field === 'cantidad'
-      ? parseInt(value || '0', 10) || 0
-      : parseInt(currentItem.cantidad || '0', 10) || 0
-    const cantidadAjustada = stockDisponible > 0
-      ? Math.min(rawCantidad, stockDisponible)
-      : 0
+    if (field === 'id_material') {
+      const nextMaterialId = parseInt(value || '0', 10) || ''
+      const stockDisponible = getMaterialStock(nextMaterialId)
+      const nextMaterialName = nextMaterialId ? getMaterialName(nextMaterialId) : ''
+      const nextMaterialCategory = nextMaterialId ? getMaterialCategoria(nextMaterialId) : ''
+      const rawCantidad = parseInt(currentItem.cantidad || '0', 10) || 0
+      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
 
-    nextItems[index] = {
-      ...currentItem,
-      id_material: nextMaterialId,
-      nombre: field === 'id_material' ? getMaterialName(nextMaterialId) : currentItem.nombre,
-      categoria: field === 'id_material' ? getMaterialCategoria(nextMaterialId) : currentItem.categoria,
-      cantidad: nextMaterialId ? cantidadAjustada : Math.max(1, rawCantidad),
+      nextItems[index] = {
+        ...currentItem,
+        id_material: nextMaterialId,
+        nombre: nextMaterialName,
+        categoria: nextMaterialCategory,
+        cantidad: nextCantidad,
+      }
+    } else if (field === 'nombre') {
+      const nextName = String(value || '').trim()
+      const matchedMaterial = findMaterialByName(nextName)
+      const nextMaterialId = matchedMaterial ? matchedMaterial.id : ''
+      const stockDisponible = getMaterialStock(nextMaterialId)
+      const rawCantidad = parseInt(currentItem.cantidad || '0', 10) || 0
+      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
+
+      nextItems[index] = {
+        ...currentItem,
+        id_material: nextMaterialId,
+        nombre: nextName,
+        categoria: matchedMaterial ? matchedMaterial.categoria : '',
+        cantidad: nextMaterialId ? nextCantidad : currentItem.cantidad,
+      }
+    } else {
+      const nextMaterialId = currentItem.id_material
+      const stockDisponible = getMaterialStock(nextMaterialId)
+      const rawCantidad = parseInt(value || '0', 10) || 0
+      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
+
+      nextItems[index] = {
+        ...currentItem,
+        cantidad: nextCantidad,
+      }
     }
+
     setFormData({ ...formData, items: nextItems })
     if (errors.items) {
       setErrors({ ...errors, items: '' })
@@ -132,6 +167,32 @@ export default function AddProductForm({
       ...formData,
       items: [...formData.items, createItemFromMaterial(firstMaterial)],
     })
+  }
+
+  const setSuggestionOpen = (index, value) => {
+    setOpenMaterialSuggestions((prev) => ({
+      ...prev,
+      [index]: value,
+    }))
+  }
+
+  const selectSuggestedMaterial = (index, material) => {
+    const nextItems = [...formData.items]
+    const currentItem = nextItems[index]
+    const stockDisponible = getMaterialStock(material.id)
+    nextItems[index] = {
+      ...currentItem,
+      id_material: material.id,
+      nombre: material.nombre_producto || material.nombre || '',
+      categoria: material.categoria || '',
+      cantidad: Math.min(Math.max(1, currentItem.cantidad || 1), Math.max(1, stockDisponible)),
+    }
+    nextItems[index].cantidad = nextItems[index].cantidad || 1
+    setFormData({ ...formData, items: nextItems })
+    setSuggestionOpen(index, false)
+    if (errors.items) {
+      setErrors({ ...errors, items: '' })
+    }
   }
 
   const removeItem = (index) => {
@@ -278,22 +339,34 @@ export default function AddProductForm({
           <label>Materiales solicitados *</label>
           {formData.items.map((item, index) => (
             <div key={`${index}-${item.id_material}`} className="form-row" style={{ marginBottom: '8px' }}>
-              <div className="form-group">
-                <select
-                  value={item.id_material || ''}
-                  className="material-input"
-                  onChange={(e) => handleItemChange(index, 'id_material', e.target.value)}
-                >
-                  {materials.length === 0 ? (
-                    <option value="">No hay materiales en inventario</option>
-                  ) : (
-                    materials.map((material) => (
-                      <option key={material.id} value={material.id}>
-                        {(material.nombre_producto || material.nombre)} - Stock: {Number(material.stock ?? material.cantidad ?? 0)}
-                      </option>
-                    ))
-                  )}
-                </select>
+              <div className="form-group material-autocomplete">
+                <input
+                  type="text"
+                  className={`material-input ${errors.items ? 'error' : ''}`}
+                  value={item.nombre || ''}
+                  placeholder={materials.length === 0 ? 'No hay materiales en inventario' : 'Buscar material...'}
+                  onChange={(e) => {
+                    handleItemChange(index, 'nombre', e.target.value)
+                    setSuggestionOpen(index, true)
+                  }}
+                  onFocus={() => setSuggestionOpen(index, true)}
+                  onBlur={() => setTimeout(() => setSuggestionOpen(index, false), 150)}
+                  disabled={materials.length === 0}
+                />
+                {openMaterialSuggestions[index] && materials.length > 0 && (
+                  <ul className="material-suggestions">
+                    {getMaterialSuggestions(item.nombre).map((material) => (
+                      <li key={material.id}>
+                        <button
+                          type="button"
+                          onMouseDown={() => selectSuggestedMaterial(index, material)}
+                        >
+                          {(material.nombre_producto || material.nombre)} - Stock: {Number(material.stock ?? material.cantidad ?? 0)}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <div className="form-group">
                 <input
