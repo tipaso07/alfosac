@@ -112,13 +112,42 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     return Boolean(view.actions && isCurrentUserPendingStage(stage))
   }
 
-  const baseFilteredCompras = useMemo(() => {
+  const pending = useMemo(() => compras
+    .filter((compra) => isPendingFlowStage(getStageStatus(compra)))
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [compras])
+
+  const approved = useMemo(() => compras
+    .filter((compra) => getStageStatus(compra) === 'APROBADO')
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [compras])
+
+  const rejected = useMemo(() => compras
+    .filter((compra) => getStageStatus(compra) === 'RECHAZADO')
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [compras])
+
+  const config = {
+    PENDIENTE: { label: 'Pendientes', data: pending, actions: true },
+    APROBADA: { label: 'Aprobadas', data: approved, actions: false },
+    RECHAZADA: { label: 'Rechazadas', data: rejected, actions: false },
+  }
+
+  const view = config[activeStatus]
+
+  const filteredCompras = useMemo(() => {
     const userTerm = normalizeSearch(userQuery)
     const materialTerm = normalizeSearch(materialQuery)
+    const currentAreaTerm = normalizeSearch(currentUserArea)
     const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
     const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null
 
-    return compras.filter((compra) => {
+    return view.data.filter((compra) => {
+      const stage = getStageStatus(compra)
+      if (activeStatus === 'PENDIENTE' && !isCurrentUserPendingStage(stage)) return false
+
+      if (activeStatus === 'PENDIENTE' && currentUserIsAreaRole && currentAreaTerm) {
+        const areaText = normalizeSearch([compra.area_solicitante, compra.area_final].filter(Boolean).join(' '))
+        if (!areaText.includes(currentAreaTerm)) return false
+      }
+
       const userText = normalizeSearch([compra.usuario, compra.id_usuario ? `ID ${compra.id_usuario}` : ''].filter(Boolean).join(' '))
       if (userTerm && !userText.includes(userTerm)) return false
 
@@ -135,31 +164,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
 
       return true
     })
-  }, [compras, userQuery, materialQuery, dateFrom, dateTo])
-
-  const pending = useMemo(() => baseFilteredCompras
-    .filter((compra) => {
-      const stage = getStageStatus(compra)
-      if (!isPendingFlowStage(stage)) return false
-      if (!isCurrentUserPendingStage(stage)) return false
-
-      if (currentUserIsAreaRole && currentUserArea) {
-        const currentAreaTerm = normalizeSearch(currentUserArea)
-        const areaText = normalizeSearch([compra.area_solicitante, compra.area_final].filter(Boolean).join(' '))
-        if (!areaText.includes(currentAreaTerm)) return false
-      }
-
-      return true
-    })
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras, currentUserArea, currentUserIsAreaRole, currentUserPendingStages])
-
-  const approved = useMemo(() => baseFilteredCompras
-    .filter((compra) => getStageStatus(compra) === 'APROBADO')
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
-
-  const rejected = useMemo(() => baseFilteredCompras
-    .filter((compra) => getStageStatus(compra) === 'RECHAZADO')
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
+  }, [userQuery, materialQuery, dateFrom, dateTo, activeStatus, currentUserIsAreaRole, currentUserArea, currentUserPendingStages, view])
 
   const config = {
     PENDIENTE: { label: 'Pendientes', data: pending, actions: true },
