@@ -93,12 +93,6 @@ export default function AddProductForm({
       .slice(0, 8)
   }
 
-  const findMaterialByName = (name) => {
-    const target = String(name || '').trim()
-    if (!target) return null
-    return materials.find((material) => normalize(material.nombre_producto || material.nombre) === normalize(target))
-  }
-
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData({
@@ -107,58 +101,6 @@ export default function AddProductForm({
     })
     if (errors[name]) {
       setErrors({ ...errors, [name]: '' })
-    }
-  }
-
-  const handleItemChange = (index, field, value) => {
-    const nextItems = [...formData.items]
-    const currentItem = nextItems[index]
-
-    if (field === 'id_material') {
-      const nextMaterialId = parseInt(value || '0', 10) || ''
-      const stockDisponible = getMaterialStock(nextMaterialId)
-      const nextMaterialName = nextMaterialId ? getMaterialName(nextMaterialId) : ''
-      const nextMaterialCategory = nextMaterialId ? getMaterialCategoria(nextMaterialId) : ''
-      const rawCantidad = parseInt(currentItem.cantidad || '0', 10) || 0
-      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
-
-      nextItems[index] = {
-        ...currentItem,
-        id_material: nextMaterialId,
-        nombre: nextMaterialName,
-        categoria: nextMaterialCategory,
-        cantidad: nextCantidad,
-      }
-    } else if (field === 'nombre') {
-      const nextName = String(value || '').trim()
-      const matchedMaterial = findMaterialByName(nextName)
-      const nextMaterialId = matchedMaterial ? matchedMaterial.id : ''
-      const stockDisponible = getMaterialStock(nextMaterialId)
-      const rawCantidad = parseInt(currentItem.cantidad || '0', 10) || 0
-      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
-
-      nextItems[index] = {
-        ...currentItem,
-        id_material: nextMaterialId,
-        nombre: nextName,
-        categoria: matchedMaterial ? matchedMaterial.categoria : '',
-        cantidad: nextMaterialId ? nextCantidad : currentItem.cantidad,
-      }
-    } else {
-      const nextMaterialId = currentItem.id_material
-      const stockDisponible = getMaterialStock(nextMaterialId)
-      const rawCantidad = parseInt(value || '0', 10) || 0
-      const nextCantidad = nextMaterialId ? Math.min(Math.max(1, rawCantidad), Math.max(1, stockDisponible)) : Math.max(1, rawCantidad)
-
-      nextItems[index] = {
-        ...currentItem,
-        cantidad: nextCantidad,
-      }
-    }
-
-    setFormData({ ...formData, items: nextItems })
-    if (errors.items) {
-      setErrors({ ...errors, items: '' })
     }
   }
 
@@ -185,11 +127,27 @@ export default function AddProductForm({
       id_material: material.id,
       nombre: material.nombre_producto || material.nombre || '',
       categoria: material.categoria || '',
-      cantidad: Math.min(Math.max(1, currentItem.cantidad || 1), Math.max(1, stockDisponible)),
+      cantidad: Math.max(1, Math.min(currentItem.cantidad || 1, stockDisponible)),
     }
-    nextItems[index].cantidad = nextItems[index].cantidad || 1
     setFormData({ ...formData, items: nextItems })
     setSuggestionOpen(index, false)
+    if (errors.items) {
+      setErrors({ ...errors, items: '' })
+    }
+  }
+
+  const handleItemQuantityChange = (index, value) => {
+    const nextItems = [...formData.items]
+    const currentItem = nextItems[index]
+    const stockDisponible = getMaterialStock(currentItem.id_material)
+    const rawCantidad = parseInt(value || '0', 10) || 0
+    const nextCantidad = Math.max(1, Math.min(rawCantidad, stockDisponible || 9999))
+
+    nextItems[index] = {
+      ...currentItem,
+      cantidad: nextCantidad,
+    }
+    setFormData({ ...formData, items: nextItems })
     if (errors.items) {
       setErrors({ ...errors, items: '' })
     }
@@ -341,24 +299,34 @@ export default function AddProductForm({
               <div className="form-group material-autocomplete">
                 <input
                   type="text"
-                  className={`material-input ${errors.items ? 'error' : ''}`}
                   value={item.nombre || ''}
-                  placeholder={materials.length === 0 ? 'No hay materiales en inventario' : 'Buscar material...'}
-                  onChange={(e) => {
-                    handleItemChange(index, 'nombre', e.target.value)
-                    setSuggestionOpen(index, true)
-                  }}
+                  placeholder={materials.length === 0 ? 'No hay materiales en inventario' : 'Escribe para buscar material...'}
+                  className={`material-input ${errors.items ? 'error' : ''}`}
                   onFocus={() => setSuggestionOpen(index, true)}
                   onBlur={() => setTimeout(() => setSuggestionOpen(index, false), 150)}
+                  onChange={(e) => {
+                    const nextItems = [...formData.items]
+                    nextItems[index] = {
+                      ...nextItems[index],
+                      nombre: e.target.value,
+                      id_material: '',
+                      categoria: '',
+                    }
+                    setFormData({ ...formData, items: nextItems })
+                    setSuggestionOpen(index, true)
+                    if (errors.items) {
+                      setErrors({ ...errors, items: '' })
+                    }
+                  }}
                   disabled={materials.length === 0}
                 />
-                {openMaterialSuggestions[index] && materials.length > 0 && (
+                {openMaterialSuggestions[index] && materials.length > 0 && getMaterialSuggestions(item.nombre).length > 0 && (
                   <ul className="material-suggestions">
                     {getMaterialSuggestions(item.nombre).map((material) => (
                       <li key={material.id}>
                         <button
                           type="button"
-                          onMouseDown={() => selectSuggestedMaterial(index, material)}
+                          onClick={() => selectSuggestedMaterial(index, material)}
                         >
                           {(material.nombre_producto || material.nombre)} - Stock: {Number(material.stock ?? material.cantidad ?? 0)}
                         </button>
@@ -382,7 +350,7 @@ export default function AddProductForm({
                   min="1"
                   max={item.id_material ? Math.max(1, getMaterialStock(item.id_material)) : undefined}
                   value={item.cantidad}
-                  onChange={(e) => handleItemChange(index, 'cantidad', e.target.value)}
+                  onChange={(e) => handleItemQuantityChange(index, e.target.value)}
                   placeholder="Cantidad"
                 />
               </div>
