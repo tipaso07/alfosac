@@ -279,7 +279,6 @@ export default function AddProductForm({
     <div className="add-product-section">
       <div className="section-header">
         <h1>Solicitar Requerimiento</h1>
-        <p>Registra una nueva solicitud con multiples materiales</p>
       </div>
 
       <form className="product-form" onSubmit={handleSubmit} ref={formRef}>
