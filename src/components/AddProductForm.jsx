@@ -302,7 +302,21 @@ export default function AddProductForm({
                   value={item.nombre || ''}
                   placeholder={materials.length === 0 ? 'No hay materiales en inventario' : 'Escribe para buscar material...'}
                   className={`material-input ${errors.items ? 'error' : ''}`}
-                  onFocus={() => setSuggestionOpen(index, true)}
+                  autoComplete="off"
+                  onFocus={(e) => {
+                    setSuggestionOpen(index, true)
+                    // Limpiar el input al hacer focus para poder escribir
+                    if (item.id_material) {
+                      const nextItems = [...formData.items]
+                      nextItems[index] = {
+                        ...nextItems[index],
+                        nombre: '',
+                        id_material: '',
+                        categoria: '',
+                      }
+                      setFormData({ ...formData, items: nextItems })
+                    }
+                  }}
                   onBlur={() => setTimeout(() => setSuggestionOpen(index, false), 150)}
                   onChange={(e) => {
                     const nextItems = [...formData.items]
