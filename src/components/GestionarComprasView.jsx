@@ -18,14 +18,17 @@ const normalizeRoleName = (value) => String(value || '')
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '')
 const normalizeStage = (value) => normalizeRoleName(value)
-// Only matches PENDIENTE_* format (with underscore and role name), not bare 'PENDIENTE'
-const isPendingFlowStage = (value) => normalizeStage(value).startsWith('PENDIENTE_')
+// Matches both bare PENDIENTE and PENDIENTE_* flow stages
+const isPendingFlowStage = (value) => {
+  const normalized = normalizeStage(value)
+  return normalized === 'PENDIENTE' || normalized.startsWith('PENDIENTE_')
+}
 const getStageStatus = (compra) => {
   const userStage = normalizeStage(compra?.gestion_estado_usuario)
   if (userStage) return userStage
   const detailStage = normalizeStage(compra?.estado_aprobacion_detalle)
   if (detailStage) return detailStage
-  return normalizeStage(compra?.estado || compra?.estado_pedido)
+  return normalizeStage(compra?.estado_pedido || compra?.estado)
 }
 
 export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserRoleName = '', currentUserPermissions = [], currentUserArea = '', onChangeEstado }) {
@@ -88,27 +91,11 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
 
       if (stageKey && (matchesRoleName || matchesRoleId)) {
         addStage(stageKey)
-        // Also add numeric variant (PENDIENTE_<roleId>) to match backend numeric states
-        if (roleId > 0) stages.add(`PENDIENTE_${roleId}`)
       }
     })
 
     return stages
   }, [currentUserApprovalStage, currentUserRoleId, currentUserRoleName, purchaseFlowConfig])
-
-  const normalizePurchasePendingLabel = (value) => {
-    const normalizedValue = normalizeStage(value)
-    if (!normalizedValue.startsWith('PENDIENTE_')) return normalizedValue
-    if (/^PENDIENTE_\d+$/.test(normalizedValue)) return normalizedValue
-
-    const pendingKey = normalizedValue.replace(/^PENDIENTE_/, '')
-    const matchedRole = purchaseFlowConfig.find((role) => normalizeRoleName(role?.rol_nombre) === pendingKey)
-    if (matchedRole?.rol_id) {
-      return `PENDIENTE_${Number(matchedRole.rol_id || 0)}`
-    }
-
-    return normalizedValue
-  }
 
   const isCurrentUserPendingStage = (stage) => {
     const normalizedStage = normalizeStage(stage)
@@ -125,22 +112,13 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     return Boolean(view.actions && isCurrentUserPendingStage(stage))
   }
 
-  const filteredCompras = useMemo(() => {
+  const baseFilteredCompras = useMemo(() => {
     const userTerm = normalizeSearch(userQuery)
     const materialTerm = normalizeSearch(materialQuery)
-    const currentAreaTerm = normalizeSearch(currentUserArea)
     const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
     const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null
 
     return compras.filter((compra) => {
-      const stage = getStageStatus(compra)
-      if (activeStatus === 'PENDIENTE' && !isCurrentUserPendingStage(stage)) return false
-
-      if (activeStatus === 'PENDIENTE' && currentUserIsAreaRole && currentAreaTerm) {
-        const areaText = normalizeSearch([compra.area_solicitante, compra.area_final].filter(Boolean).join(' '))
-        if (!areaText.includes(currentAreaTerm)) return false
-      }
-
       const userText = normalizeSearch([compra.usuario, compra.id_usuario ? `ID ${compra.id_usuario}` : ''].filter(Boolean).join(' '))
       if (userTerm && !userText.includes(userTerm)) return false
 
@@ -157,19 +135,31 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
 
       return true
     })
-  }, [compras, userQuery, materialQuery, dateFrom, dateTo, activeStatus, currentUserIsAreaRole, currentUserArea, currentUserPendingStages])
+  }, [compras, userQuery, materialQuery, dateFrom, dateTo])
 
-  const pending = useMemo(() => filteredCompras
-    .filter((compra) => isPendingFlowStage(getStageStatus(compra)))
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [filteredCompras])
+  const pending = useMemo(() => baseFilteredCompras
+    .filter((compra) => {
+      const stage = getStageStatus(compra)
+      if (!isPendingFlowStage(stage)) return false
+      if (!isCurrentUserPendingStage(stage)) return false
 
-  const approved = useMemo(() => filteredCompras
-    .filter((compra) => Boolean(compra.aprobado_por_usuario))
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [filteredCompras])
+      if (currentUserIsAreaRole && currentUserArea) {
+        const currentAreaTerm = normalizeSearch(currentUserArea)
+        const areaText = normalizeSearch([compra.area_solicitante, compra.area_final].filter(Boolean).join(' '))
+        if (!areaText.includes(currentAreaTerm)) return false
+      }
 
-  const rejected = useMemo(() => filteredCompras
-    .filter((compra) => ['RECHAZADO', 'RECHAZADA', 'RECHAZADOS'].includes(getStageStatus(compra)))
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [filteredCompras])
+      return true
+    })
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras, currentUserArea, currentUserIsAreaRole, currentUserPendingStages])
+
+  const approved = useMemo(() => baseFilteredCompras
+    .filter((compra) => getStageStatus(compra) === 'APROBADO')
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
+
+  const rejected = useMemo(() => baseFilteredCompras
+    .filter((compra) => getStageStatus(compra) === 'RECHAZADO')
+    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
 
   const config = {
     PENDIENTE: { label: 'Pendientes', data: pending, actions: true },
@@ -178,14 +168,6 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }
 
   const view = config[activeStatus]
-  const badgeStateForPurchase = (compra) => {
-    if (activeStatus === 'APROBADA') {
-      // For approved purchases show the pedido state (plural field) on the right
-      return String(compra.estado_pedidos || compra.estado_pedido || compra.estado || 'Sin estado').trim()
-    }
-
-    return normalizePurchasePendingLabel(compra.estado || 'Sin estado')
-  }
 
   return (
     <section className="purchase-manage-section">
@@ -265,8 +247,8 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
             <article className="purchase-manage-card" key={compra.id}>
               <div className="purchase-manage-head">
                 <h3>Compra #{compra.id}</h3>
-                <span className={`purchase-status ${normalize(badgeStateForPurchase(compra)).toLowerCase()}`}>
-                  {badgeStateForPurchase(compra)}
+                <span className={`purchase-status ${normalize(compra.estado_pedido || compra.estado).toLowerCase()}`}>
+                  {compra.estado_aprobacion_detalle || (compra.estado_pedido || compra.estado)}
                 </span>
               </div>
 

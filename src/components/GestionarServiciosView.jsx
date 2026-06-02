@@ -11,7 +11,7 @@ const normalizeRoleName = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '')
-const getGestionEstado = (servicio) => normalize(servicio?.estado_aprobacion)
+const getGestionEstado = (servicio) => normalize(servicio?.estado_aprobacion_detalle || servicio?.estado_aprobacion)
 const isPendingApprovalStage = (value) => normalize(value).startsWith('PENDIENTE')
 const statusLabel = (value) => (normalize(value) === 'PENDIENTE' ? 'PENDIENTE DE REALIZACION' : (value || 'N/A'))
 const priorityRank = (value) => {
@@ -57,12 +57,7 @@ const getApprovalRouteLabel = (servicio, approvalConfig = {}) => {
     .join(' → ')
 }
 
-const getPendingStageForRoleId = (roleId) => {
-  const numericRoleId = Number(roleId || 0)
-  return numericRoleId > 0 ? `PENDIENTE_${numericRoleId}` : ''
-}
-
-export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], currentUserRoleId = null, onChangeAprobacion }) {
+export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], onChangeAprobacion }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [activePriority, setActivePriority] = useState('TODAS')
   const [planChoiceByService, setPlanChoiceByService] = useState({})
@@ -209,16 +204,8 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
   })
 
   const pendientes = useMemo(() => sortByPriorityAndDate(
-    servicios.filter((servicio) => {
-      const estado = getGestionEstado(servicio)
-      if (!isPendingApprovalStage(estado)) return false
-
-      const expectedStage = getPendingStageForRoleId(currentUserRoleId)
-      if (!expectedStage) return false
-
-      return normalize(estado) === normalize(expectedStage)
-    })
-  ), [servicios, currentUserRoleId])
+    servicios.filter((servicio) => isPendingApprovalStage(getGestionEstado(servicio)))
+  ), [servicios])
 
   const approved = useMemo(() => sortByPriorityAndDate(
     servicios.filter((servicio) => getGestionEstado(servicio) === 'APROBADO')
