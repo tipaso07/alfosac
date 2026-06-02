@@ -535,6 +535,7 @@ export default function MisOrdenesServiciosView({
 
         <div className="my-so-summary-compact">
           <p><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
+          <p><strong>Detalle:</strong> {servicio.descripcion_servicio || 'Sin detalle'}</p>
           <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
           <p><strong>Fecha:</strong> {servicio.fecha ? new Date(servicio.fecha).toLocaleDateString() : 'Sin fecha'}</p>
           <p><strong>Prioridad:</strong> {servicio.prioridad || 'MEDIA'}</p>
