@@ -590,9 +590,11 @@ export default function MisOrdenesServiciosView({
                         type="button"
                         onClick={() => {
                           const providerCurrency = provider.moneda_nombre || provider.moneda || ''
+                          const currentDraft = getDraft(servicio)
                           setDraft(servicio.id, {
+                            ...currentDraft,
                             proveedor_id: Number(provider.id),
-                            tipo_cambio: isUsdCurrency(providerCurrency) ? '3.4' : '',
+                            tipo_cambio: isUsdCurrency(providerCurrency) ? '3.4' : (currentDraft.tipo_cambio || ''),
                           })
                           setQueryByService((prev) => ({ ...prev, [servicio.id]: String(provider.razon_social || provider.nombre || '') }))
                         }}
