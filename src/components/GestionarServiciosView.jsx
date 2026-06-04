@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
 import '../styles/GestionarServiciosView.css'
-import { hasPermission } from '../services/permissions'
 import { fetchApprovalConfig } from '../services/api'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -62,6 +61,13 @@ const getPendingStageForRoleId = (roleId) => {
   return numericRoleId > 0 ? `PENDIENTE_${numericRoleId}` : ''
 }
 
+const isServiceItemInFlow = (servicio) => {
+  if (Boolean(servicio?.es_primer_aprobador)) return true
+  if (typeof servicio?.dentro_plan === 'boolean') return true
+  const raw = String(servicio?.dentro_plan ?? servicio?.en_plan ?? '').trim()
+  return raw !== ''
+}
+
 export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], currentUserRoleId = null, onChangeAprobacion }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [activePriority, setActivePriority] = useState('TODAS')
@@ -82,24 +88,28 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     loadApprovalConfig()
   }, [])
 
-  const serviceApprovalStages = useMemo(() => {
+  const serviceFlowRoleIds = useMemo(() => {
     const flows = approvalConfig?.flujos || {}
-    const buildStages = (flowKey) => {
-      if (!Array.isArray(flows[flowKey])) return []
-      return flows[flowKey]
-        .map((step) => {
-          const explicitState = normalize(step?.estado_pendiente)
-          if (explicitState.startsWith('PENDIENTE')) return explicitState
-          return getPendingStageForRoleName(step?.rol_nombre)
-        })
-        .filter(Boolean)
-    }
-
-    return {
-      dentroPlan: buildStages('SERVICIO_DENTRO_PLAN'),
-      fueraPlan: buildStages('SERVICIO_FUERA_PLAN'),
-    }
+    const ids = new Set()
+    ;['SERVICIO_DENTRO_PLAN', 'SERVICIO_FUERA_PLAN'].forEach((flowKey) => {
+      if (!Array.isArray(flows[flowKey])) return
+      flows[flowKey].forEach((step) => {
+        const roleId = Number(step?.rol_id || 0)
+        if (roleId > 0) ids.add(roleId)
+      })
+    })
+    return ids
   }, [approvalConfig])
+
+  const currentUserIsServiceApprover = useMemo(() => {
+    const roleId = Number(currentUserRoleId || 0)
+    return roleId > 0 && serviceFlowRoleIds.has(roleId)
+  }, [currentUserRoleId, serviceFlowRoleIds])
+
+  const visibleServicios = useMemo(() => {
+    if (!currentUserIsServiceApprover) return []
+    return servicios.filter(isServiceItemInFlow)
+  }, [servicios, currentUserIsServiceApprover])
 
   const firstApproverRoleNames = useMemo(() => {
     const flows = approvalConfig?.flujos || {}
@@ -209,9 +219,9 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
   })
 
   const baseFilteredServicios = useMemo(() => {
-    if (activePriority === 'TODAS') return servicios
-    return servicios.filter((servicio) => normalize(servicio.prioridad) === activePriority)
-  }, [servicios, activePriority])
+    const items = activePriority === 'TODAS' ? visibleServicios : visibleServicios.filter((servicio) => normalize(servicio.prioridad) === activePriority)
+    return items
+  }, [visibleServicios, activePriority])
 
   const pendientes = useMemo(() => sortByPriorityAndDate(
     baseFilteredServicios.filter((servicio) => {
@@ -246,7 +256,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     <section className="service-manage-section">
       <div className="section-header">
         <h1>Gestionar Servicios</h1>
-        <p>Total: {servicios.length}</p>
+        <p>Total: {visibleServicios.length}</p>
       </div>
 
       <div className="service-status-tabs">
@@ -276,7 +286,11 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
       </div>
 
       {filteredViewData.length === 0 ? (
-        <div className="empty-state">No hay servicios en esta seccion.</div>
+        <div className="empty-state">
+          {currentUserIsServiceApprover
+            ? 'No hay servicios en esta sección.'
+            : 'No estás asignado como aprobador en los flujos de servicios.'}
+        </div>
       ) : (
         <div className="service-manage-list">
           {filteredViewData.map((servicio) => (
@@ -340,4 +354,3 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     </section>
   )
 }
-
