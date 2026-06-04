@@ -297,8 +297,8 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
             <article className="service-manage-card" key={servicio.id}>
               <div className="service-manage-head">
                 <h3>Servicio #{servicio.id}</h3>
-                <span className={`service-status ${normalize(servicio.estado_aprobacion).toLowerCase()}`}>
-                  {servicio.estado_aprobacion}
+                <span className={`service-status ${normalize(servicio.estado_flujo).toLowerCase()}`}>
+                  {servicio.estado_flujo}
                 </span>
               </div>
 
