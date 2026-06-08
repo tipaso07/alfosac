@@ -968,7 +968,6 @@ const resolveApprovalRoleIdByPermissions = (user) => {
     .map((perm) => String(perm || '').trim().toUpperCase())
     .filter(Boolean));
 
-  // Mapeo de permisos a nombres de roles esperados
   const permissionToRoleName = new Map([
     ['APROBAR_ADMIN', 'ADMIN'],
     ['APROBAR_FINANZAS', 'GERENCIA DE FINANZAS'],
@@ -976,18 +975,22 @@ const resolveApprovalRoleIdByPermissions = (user) => {
     ['APROBAR_JEFE_AREA', 'JEFE DE AREA'],
   ]);
 
-  // Buscar dinámicamente: si tiene un permiso de aprobación, encontrar el rol correspondiente en ROLE_NAME_BY_ID
-  for (const [permission, expectedRoleName] of permissionToRoleName.entries()) {
-    if (permissionSet.has(permission)) {
-      for (const [roleIdFromCache, roleName] of ROLE_NAME_BY_ID.entries()) {
-        const normalizedCached = normalizeRoleName(roleName);
-        const normalizedExpected = normalizeRoleName(expectedRoleName);
-        if (normalizedCached === normalizedExpected) {
-          return roleIdFromCache;
-        }
+  for (const normalizedPermission of permissionSet) {
+    if (!normalizedPermission.startsWith('APROBAR_')) {
+      continue;
+    }
+
+    let expectedRoleName = permissionToRoleName.get(normalizedPermission);
+    if (!expectedRoleName) {
+      expectedRoleName = normalizedPermission.replace(/^APROBAR_/, '').replace(/_/g, ' ').trim();
+    }
+
+    for (const [roleIdFromCache, roleName] of ROLE_NAME_BY_ID.entries()) {
+      const normalizedCached = normalizeRoleName(roleName).replace(/[\s_]+/g, '');
+      const normalizedExpected = normalizeRoleName(expectedRoleName).replace(/[\s_]+/g, '');
+      if (normalizedCached === normalizedExpected) {
+        return roleIdFromCache;
       }
-      // Si no hay coincidencia con un rol cargado dinámicamente, no asumimos nada.
-      return 0;
     }
   }
 
@@ -1628,10 +1631,6 @@ const hasApprovalPermissions = (user) => {
 const canAccessManageRequestsModule = async (user) => {
   const roleId = resolveApprovalRoleId(user);
   if (!Number.isInteger(roleId) || roleId <= 0) {
-    return false;
-  }
-
-  if (!hasApprovalPermissions(user)) {
     return false;
   }
 
@@ -5947,23 +5946,6 @@ app.put('/api/usuarios/:id/password', authMiddleware, requireAdmin, async (req, 
       'UPDATE usuarios SET password_hash = $1 WHERE id = $2',
       [hashedPassword, userId]
     );
-
-    // Persist item units if provided: payload.items_unidades should map detalle_id -> id_unidad
-    if (payload && payload.items_unidades && typeof payload.items_unidades === 'object') {
-      for (const [detalleKey, unidadVal] of Object.entries(payload.items_unidades)) {
-        const detalleId = Number(detalleKey || 0);
-        const unidadId = Number(unidadVal || 0);
-        if (!Number.isInteger(detalleId) || detalleId <= 0) continue;
-        if (!Number.isInteger(unidadId) || unidadId <= 0) continue;
-        const unidadExists = await pool.query('SELECT id FROM unidades WHERE id = $1 LIMIT 1', [unidadId]);
-        if (unidadExists.rows.length === 0) continue;
-        try {
-          await pool.query('UPDATE detalle_compras SET id_unidad = $1 WHERE id = $2', [unidadId, detalleId]);
-        } catch (e) {
-          // ignore individual update failures and continue
-        }
-      }
-    }
 
     res.json({ success: true, message: 'Contraseña actualizada correctamente' });
   } catch (error) {
