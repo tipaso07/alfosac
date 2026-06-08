@@ -16,7 +16,7 @@ const canonicalizePermissionName = (value) => {
   return PERMISSION_ALIASES[normalized] || normalized
 }
 
-const hasPermission = (sourcePermissions, permission) => {
+export const hasPermission = (sourcePermissions, permission) => {
   const normalizedPermission = canonicalizePermissionName(permission)
   if (!normalizedPermission) return false
 
