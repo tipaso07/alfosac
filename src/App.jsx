@@ -4,8 +4,16 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import LoginView from './components/LoginView'
 import ChangePasswordView from './components/ChangePasswordView'
-import { clearAuthSession, logout, fetchCurrentUser, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
-import { buildAllowedModules, modules } from './services/moduleAccess'
+import { clearAuthSession, logout, fetchCurrentUser, fetchApprovalConfig, hasActiveSession, requiresPasswordChange, setUnauthorizedHandler } from './services/api'
+import { buildAllowedModules, hasPermission, modules } from './services/moduleAccess'
+
+const normalizeRoleName = (value) => String(value || '')
+  .trim()
+  .toUpperCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
 
 function ProtectedRoute({ isAuthenticated, moduleId = null, allowedModules = [], children }) {
   if (!isAuthenticated) {
@@ -90,11 +98,47 @@ function App() {
     setCurrentUser(null)
   }
 
+  const [approvalConfig, setApprovalConfig] = useState({ flujos: {} })
+
+  useEffect(() => {
+    const loadApprovalConfig = async () => {
+      try {
+        const config = await fetchApprovalConfig()
+        setApprovalConfig(config || { flujos: {} })
+      } catch (error) {
+        console.error('No se pudo cargar la configuración de aprobaciones:', error)
+        setApprovalConfig({ flujos: {} })
+      }
+    }
+
+    loadApprovalConfig()
+  }, [])
+
   const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
-  const allowedModules = useMemo(() => {
-    const userPermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
-    return buildAllowedModules(roleId, userPermissions)
-  }, [currentUser, roleId])
+  const roleName = String(currentUser?.rol || currentUser?.rol_nombre || currentUser?.nombre_rol || '').trim()
+  const userPermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
+
+  const currentUserInApprovalFlow = useMemo(() => {
+    const flows = approvalConfig?.flujos && typeof approvalConfig.flujos === 'object' ? approvalConfig.flujos : {}
+    const normalizedRoleName = normalizeRoleName(roleName)
+
+    return Object.values(flows).some((flow) => Array.isArray(flow) && flow.some((step) => {
+      const stepRoleId = Number(step?.rol_id || 0)
+      const stepRoleName = normalizeRoleName(step?.rol_nombre || step?.nombre || '')
+      return (stepRoleId && stepRoleId === roleId) || (stepRoleName && stepRoleName === normalizedRoleName)
+    }))
+  }, [approvalConfig, roleId, roleName])
+
+  const effectivePermissions = useMemo(() => {
+    const permissions = Array.isArray(userPermissions) ? [...new Set(userPermissions)] : []
+    if (currentUserInApprovalFlow && !hasPermission(permissions, 'GESTIONAR_SOLICITUDES')) {
+      permissions.push('GESTIONAR_SOLICITUDES')
+    }
+    return permissions
+  }, [userPermissions, currentUserInApprovalFlow])
+
+  const allowedModules = useMemo(() => buildAllowedModules(roleId, effectivePermissions), [roleId, effectivePermissions])
+
   const visibleModules = useMemo(() => modules.filter((mod) => allowedModules.includes(mod.id)), [allowedModules])
   const defaultPath = visibleModules[0]?.path || '/inventario'
 
