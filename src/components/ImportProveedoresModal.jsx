@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
-import * as XLSX from 'xlsx'
 import { bulkImportProveedores, fetchMonedas, fetchAreas } from '../services/api'
 import '../styles/ImportProveedoresModal.css'
+
+const XLSX = window.XLSX
 
 const EXPECTED_COLUMNS = [
   'nombre',
