@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import '../styles/GestionarProveedoresView.css'
+import ImportProveedoresModal from './ImportProveedoresModal'
 import {
   createProveedor,
   fetchAreas,
@@ -86,6 +87,7 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
   const [success, setSuccess] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [showFormModal, setShowFormModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [editingProviderId, setEditingProviderId] = useState(null)
   const [editingCell, setEditingCell] = useState(null)
   const [drafts, setDrafts] = useState({})
@@ -490,9 +492,14 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
       <div className="section-header">
         <h1>Gestionar Proveedores</h1>
         {canEdit && (
-          <button type="button" className="primary-btn" onClick={openCreateModal}>
-            + Agregar proveedor
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" className="primary-btn" onClick={openCreateModal}>
+              + Agregar proveedor
+            </button>
+            <button type="button" className="primary-btn" onClick={() => setShowImportModal(true)}>
+              Importar Proveedores
+            </button>
+          </div>
         )}
       </div>
 
@@ -729,6 +736,18 @@ export default function GestionarProveedoresView({ canEdit = false, onCreated })
             </form>
           </div>
         </div>
+      )}
+
+      {showImportModal && (
+        <ImportProveedoresModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onImportSuccess={() => {
+            setSuccess('Proveedores importados exitosamente')
+            refreshProviders()
+            setTimeout(() => setSuccess(''), 3000)
+          }}
+        />
       )}
     </section>
   )
