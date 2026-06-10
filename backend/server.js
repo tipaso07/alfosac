@@ -7776,6 +7776,259 @@ app.post('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVE
   }
 });
 
+app.post('/api/proveedores/bulk-import', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const providers = Array.isArray(req.body?.providers) ? req.body.providers : [];
+    const skipInvalidRows = Boolean(req.body?.skipInvalidRows);
+
+    if (providers.length === 0) {
+      return res.status(400).json({ error: 'No hay proveedores para importar' });
+    }
+
+    const providerColumnsMeta = await client.query(
+      `
+        SELECT column_name, data_type, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'proveedores'
+      `
+    );
+
+    const providerMetaByColumn = providerColumnsMeta.rows.reduce((acc, row) => {
+      acc[row.column_name] = row;
+      return acc;
+    }, {});
+
+    const results = { created: [], errors: [] };
+    const encounteredRucs = new Set();
+
+    const parsePercentageValue = (value) => {
+      const raw = String(value || '').replace(/%/g, '').trim();
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    await client.query('BEGIN');
+
+    for (let idx = 0; idx < providers.length; idx += 1) {
+      const payload = providers[idx] || {};
+      const rowIndex = idx + 1;
+
+      try {
+        const nombre = String(payload.nombre || '').trim();
+        const razonSocial = String(payload.razon_social || payload.nombre || '').trim();
+        const direccion = String(payload.direccion || '').trim();
+        const distrito = String(payload.distrito || '').trim();
+        const ruc = String(payload.ruc || '').trim();
+        const correo = String(payload.correo || payload.email || '').trim();
+        const personaResponsable = String(payload.persona_responsable || payload.contacto || '').trim();
+        const telefono = String(payload.telefono || '').trim();
+        const condicionesPago = String(payload.condiciones_pago || '').trim();
+        const banco = String(payload.banco || '').trim();
+        const numeroCuenta = String(payload.numero_cuenta || '').trim();
+        const cci = String(payload.cci || '').trim();
+        const categoria = String(payload.categoria || '').trim();
+        const tipo = normalize(payload.tipo || 'BIEN');
+        const tipoRetencion = normalize(payload.tipo_retencion || 'RETENCION');
+
+        let idMoneda = null;
+        if (payload.id_moneda !== undefined && payload.id_moneda !== null && String(payload.id_moneda).trim() !== '') {
+          const rawMoneda = String(payload.id_moneda).trim();
+          const idParsed = Number(rawMoneda);
+          if (Number.isInteger(idParsed) && idParsed > 0) {
+            idMoneda = idParsed;
+          } else {
+            const monedaRow = await client.query(
+              `SELECT id FROM monedas WHERE upper(trim(nombre)) = $1 OR upper(trim(simbolo)) = $1 LIMIT 1`,
+              [rawMoneda.toUpperCase()]
+            );
+            if (monedaRow.rows.length > 0) {
+              idMoneda = monedaRow.rows[0].id;
+            }
+          }
+        }
+
+        let idAreaDestino = null;
+        if (payload.id_area_destino !== undefined && payload.id_area_destino !== null && String(payload.id_area_destino).trim() !== '') {
+          const rawArea = String(payload.id_area_destino).trim();
+          const idParsed = Number(rawArea);
+          if (Number.isInteger(idParsed) && idParsed > 0) {
+            idAreaDestino = idParsed;
+          } else {
+            const areaRow = await client.query(
+              `SELECT id FROM areas WHERE upper(trim(nombre)) = $1 LIMIT 1`,
+              [rawArea.toUpperCase()]
+            );
+            if (areaRow.rows.length > 0) {
+              idAreaDestino = areaRow.rows[0].id;
+            }
+          }
+        }
+
+        const rawDescuento = payload.descuento ?? payload.descuento_pct ?? payload.retencion_porcentaje ?? payload.retencion_pct ?? '';
+        let descuento = parsePercentageValue(rawDescuento);
+        if (descuento === null) descuento = 0;
+
+        const rawRetencionValue = String(payload.retencion ?? '').trim();
+        let retencion = 'NO';
+        if (rawRetencionValue !== '') {
+          const normalizedRetencion = normalize(rawRetencionValue);
+          if (['SI', 'S', 'TRUE', 'T', 'YES', 'Y'].includes(normalizedRetencion)) {
+            retencion = 'SI';
+          } else if (['NO', 'N', 'FALSE', 'F'].includes(normalizedRetencion)) {
+            retencion = 'NO';
+          } else {
+            const parsedPct = parsePercentageValue(rawRetencionValue);
+            if (parsedPct !== null) {
+              descuento = parsedPct;
+              retencion = 'NO';
+            } else {
+              throw new Error('retencion no es válido');
+            }
+          }
+        }
+
+        if (!nombre) {
+          throw new Error('Falta nombre');
+        }
+        if (!ruc) {
+          throw new Error('Falta RUC');
+        }
+        if (!idMoneda || !Number.isInteger(idMoneda) || idMoneda <= 0) {
+          throw new Error('id_moneda es obligatorio y debe ser válido');
+        }
+
+        if (encounteredRucs.has(ruc)) {
+          throw new Error('RUC duplicado en el archivo');
+        }
+        encounteredRucs.add(ruc);
+
+        const rucCheck = await client.query(
+          "SELECT id FROM proveedores WHERE trim(COALESCE(ruc::text, '')) = $1 LIMIT 1",
+          [ruc]
+        );
+        if (rucCheck.rows.length > 0) {
+          throw new Error('RUC ya existe en la BD');
+        }
+
+        if (descuento < 0 || descuento > 100) {
+          throw new Error('Descuento debe estar entre 0 y 100');
+        }
+
+        if (tipo && !['BIEN', 'SERVICIO'].includes(tipo)) {
+          throw new Error('Tipo solo puede ser BIEN o SERVICIO');
+        }
+
+        if (tipoRetencion && !['RETENCION', 'DETRACCION'].includes(tipoRetencion)) {
+          throw new Error('tipo_retencion solo puede ser RETENCION o DETRACCION');
+        }
+
+        const monedaExists = await client.query('SELECT id FROM monedas WHERE id = $1 LIMIT 1', [idMoneda]);
+        if (monedaExists.rows.length === 0) {
+          throw new Error('id_moneda no existe en la tabla monedas');
+        }
+
+        if (idAreaDestino && (!Number.isInteger(idAreaDestino) || idAreaDestino <= 0)) {
+          throw new Error('id_area_destino debe ser válido o NULL');
+        }
+
+        if (idAreaDestino) {
+          const areaExists = await client.query('SELECT id FROM areas WHERE id = $1 LIMIT 1', [idAreaDestino]);
+          if (areaExists.rows.length === 0) {
+            throw new Error('id_area_destino no existe en la tabla areas');
+          }
+        }
+
+        const retencionType = String(providerMetaByColumn.retencion?.data_type || providerMetaByColumn.retencion?.udt_name || '').toLowerCase();
+        const retencionParam = retencionType.includes('boolean')
+          ? (retencion === 'SI')
+          : retencion;
+
+        const result = await client.query(
+          `
+            INSERT INTO proveedores (
+              nombre,
+              razon_social,
+              direccion,
+              distrito,
+              ruc,
+              correo,
+              persona_responsable,
+              telefono,
+              condiciones_pago,
+              banco,
+              id_moneda,
+              id_area_destino,
+              numero_cuenta,
+              cci,
+              descripcion,
+              retencion,
+              categoria,
+              descuento,
+              tipo,
+              tipo_retencion
+            )
+            VALUES (
+              $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
+            )
+            RETURNING id
+          `,
+          [
+            nombre,
+            razonSocial,
+            direccion,
+            distrito,
+            ruc || null,
+            correo || null,
+            personaResponsable || null,
+            telefono || null,
+            condicionesPago || null,
+            banco || null,
+            idMoneda,
+            idAreaDestino,
+            numeroCuenta || null,
+            cci || null,
+            payload.descripcion || null,
+            retencionParam,
+            categoria || null,
+            descuento,
+            tipo || 'BIEN',
+            tipoRetencion || 'RETENCION',
+          ]
+        );
+
+        results.created.push({
+          rowIndex,
+          id: result.rows[0].id,
+          nombre,
+          ruc,
+        });
+      } catch (rowError) {
+        results.errors.push({
+          rowIndex,
+          error: rowError.message,
+          nombre: String(payload.nombre || '').trim(),
+          ruc: String(payload.ruc || '').trim(),
+        });
+      }
+    }
+
+    if (results.errors.length > 0 && !skipInvalidRows) {
+      await client.query('ROLLBACK');
+      return res.status(400).json(results);
+    }
+
+    await client.query('COMMIT');
+    res.json(results);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.put('/api/proveedores/:id', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
   try {
     const { id } = req.params;
