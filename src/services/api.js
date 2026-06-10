@@ -492,6 +492,27 @@ export const createProveedor = async (payload) => {
   return response.json();
 };
 
+export const bulkImportProveedores = async (providers = [], skipInvalidRows = false) => {
+  const response = await fetch(`${API_BASE_URL}/proveedores/bulk-import`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify({ providers, skipInvalidRows }),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (data && Array.isArray(data.errors)) {
+      return data;
+    }
+
+    let msg = 'Error al importar proveedores';
+    if (data?.error) msg = data.error;
+    throw new Error(msg);
+  }
+
+  return data;
+};
+
 export const updateProveedor = async (id, payload) => {
   const response = await fetch(`${API_BASE_URL}/proveedores/${id}`, {
     method: 'PUT',
