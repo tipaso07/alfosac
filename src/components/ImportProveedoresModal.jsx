@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import * as XLSX from 'xlsx/dist/xlsx.full.min.js'
+import * as XLSX from 'xlsx'
 import { bulkImportProveedores, fetchMonedas, fetchAreas } from '../services/api'
 import '../styles/ImportProveedoresModal.css'
 
