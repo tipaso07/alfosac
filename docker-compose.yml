@@ -65,6 +65,12 @@ services:
       - "${BACKEND_PORT:-5000}:5000"
     volumes:
       - ./backend/uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http=require('http');http.get('http://localhost:5000/api/health',res=>{process.exit(res.statusCode===200?0:1)}).on('error',()=>process.exit(1));"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   frontend:
     build:
