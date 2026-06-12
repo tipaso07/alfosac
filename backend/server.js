@@ -20,6 +20,14 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
+  app.get('/api/health', (_req, res) => {
+    try {
+      res.status(200).json({ status: 'ok' });
+    } catch (err) {
+      res.status(500).json({ status: 'error', error: String(err && err.message ? err.message : err) });
+    }
+  });
+
 const companyBlueLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-azul.png');
 const companyWhiteLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-blanco.png');
 
