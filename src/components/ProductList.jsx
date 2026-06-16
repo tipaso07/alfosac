@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import '../styles/ProductList.css'
 import ProductItem from './ProductItem'
+import { fetchProveedores } from '../services/api'
 
 export default function ProductList({
   materials,
@@ -29,6 +30,11 @@ export default function ProductList({
   const [createSaving, setCreateSaving] = useState(false)
   const [createUploadingImage, setCreateUploadingImage] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [proveedorSearch, setProveedorSearch] = useState('')
+  const [proveedorResults, setProveedorResults] = useState([])
+  const [proveedorSearchOpen, setProveedorSearchOpen] = useState(false)
+  const [proveedorSearchLoading, setProveedorSearchLoading] = useState(false)
+  const debounceRef = useRef(null)
   const [createForm, setCreateForm] = useState({
     nombre: '',
     descripcion: '',
@@ -225,6 +231,9 @@ export default function ProductList({
       imagen: '',
     })
     setShowCreateModal(true)
+    setProveedorSearch('')
+    setProveedorResults([])
+    setProveedorSearchOpen(false)
   }
 
   const closeCreateModal = () => {
@@ -233,6 +242,25 @@ export default function ProductList({
     setCreateError('')
     setCreateUploadingImage(false)
   }
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!proveedorSearch.trim()) {
+      setProveedorResults([])
+      return
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        setProveedorSearchLoading(true)
+        const data = await fetchProveedores(proveedorSearch)
+        setProveedorResults(Array.isArray(data) ? data : [])
+      } catch {
+        setProveedorResults([])
+      } finally {
+        setProveedorSearchLoading(false)
+      }
+    }, 300)
+  }, [proveedorSearch])
 
   const handleCreateImageUpload = async (file) => {
     if (!file) return
@@ -497,18 +525,39 @@ export default function ProductList({
               </label>
               <label>
                 Proveedor *
-                <select
-                  value={createForm.id_proveedor}
-                  onChange={(event) => setCreateForm((prev) => ({ ...prev, id_proveedor: event.target.value }))}
-                  disabled={createSaving}
-                >
-                  <option value="">Selecciona proveedor</option>
-                  {proveedores.map((proveedor) => (
-                    <option key={proveedor.id} value={proveedor.id}>
-                      {proveedor.razon_social || proveedor.nombre || `Proveedor ${proveedor.id}`}
-                    </option>
-                  ))}
-                </select>
+                <div className="proveedor-autocomplete">
+                  <input
+                    type="text"
+                    value={proveedorSearch}
+                    onChange={(e) => {
+                      setProveedorSearch(e.target.value)
+                      setProveedorSearchOpen(true)
+                    }}
+                    onFocus={() => proveedorSearch.trim() && setProveedorSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setProveedorSearchOpen(false), 200)}
+                    placeholder="Escribe para buscar proveedor..."
+                    disabled={createSaving}
+                  />
+                  {proveedorSearchLoading && <span className="autocomplete-loading">Buscando...</span>}
+                  {proveedorSearchOpen && proveedorResults.length > 0 && (
+                    <ul className="autocomplete-results">
+                      {proveedorResults.map((p) => (
+                        <li
+                          key={p.id}
+                          className={Number(createForm.id_proveedor) === Number(p.id) ? 'selected' : ''}
+                          onMouseDown={() => {
+                            setCreateForm((prev) => ({ ...prev, id_proveedor: p.id }))
+                            setProveedorSearch(p.razon_social || p.nombre || `Proveedor ${p.id}`)
+                            setProveedorSearchOpen(false)
+                          }}
+                        >
+                          {p.razon_social || p.nombre || `Proveedor ${p.id}`}
+                          {p.ruc ? ` - ${p.ruc}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </label>
               <label>
                 Stock *
