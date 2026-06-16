@@ -3296,7 +3296,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       const estimatedPairHeight = Math.max(
         estimateBlockHeight(leftBlock?.rows || []),
         rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
-      );
+      ) + 10;
 
       ensureSpace(estimatedPairHeight);
       cursorY = Math.max(cursorY, doc.y);
@@ -3326,6 +3326,10 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     }
   };
 
+  const HEADER_INFO_Y = 82;
+  const HEADER_LINE_Y = 106;
+  const HEADER_CONTENT_Y = 108;
+
   const drawHeader = () => {
     const logoPath = getCompanyLogoPath('dark');
 
@@ -3340,11 +3344,14 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     }
 
     doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE COMPRA', left, 32, { width: usableWidth - 14, align: 'right' });
-    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
-    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
-    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
-    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
-    doc.y = 124;
+
+    doc.rect(left, HEADER_INFO_Y, usableWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, PDF_BRAND_COLORS.line);
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
+    doc.text(`Dirección: ${companyAddress}`, left + 8, HEADER_INFO_Y + 3, { width: usableWidth - 16, align: 'center' });
+    doc.text(`RUC: ${companyRuc}  |  ${companyWeb}`, left + 8, HEADER_INFO_Y + 13, { width: usableWidth - 16, align: 'center' });
+
+    doc.moveTo(left, HEADER_LINE_Y).lineTo(pageWidth - right, HEADER_LINE_Y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = HEADER_CONTENT_Y;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
@@ -3352,7 +3359,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
 
   doc.on('pageAdded', () => {
-    doc.y = 124;
+    doc.y = HEADER_CONTENT_Y;
   });
 
   drawHeader();
@@ -3393,43 +3400,21 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     : null;
 
   writeSectionTitle('Resumen');
-  ensureSpace(98);
-  const resumenTop = doc.y;
-  const resumenRows = [
-    ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
-    ['Fecha', String(formatPetDateTime(compra.fecha_creacion || currentPetDateTime()) || '').split(' ')[0]],
-    ['Proveedor', compra.proveedor || compra.razon_social],
-    ['Área destino', compra.area_final],
-  ];
-  const resumenRowHeight = 20;
-  const resumenLabelWidth = 160;
+  ensureSpace(50);
 
-  doc.rect(left, resumenTop, usableWidth, 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('Datos de la orden', left + 10, resumenTop + 6, {
-    width: usableWidth - 20,
-    align: 'left',
+  const resumenBottom = drawInfoBlock({
+    title: 'Datos de la orden',
+    rows: [
+      ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
+      ['Fecha', String(formatPetDateTime(compra.fecha_creacion || currentPetDateTime()) || '').split(' ')[0]],
+      ['Proveedor', compra.proveedor || compra.razon_social],
+      ['Área destino', compra.area_final],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
   });
-
-  let resumenY = resumenTop + 20;
-  resumenRows.forEach(([label, value], index) => {
-    const isAlternate = index % 2 === 0;
-    const valueHeight = doc.heightOfString(safeText(value), {
-      width: usableWidth - resumenLabelWidth - 20,
-      align: 'left',
-    });
-    const rowHeight = Math.max(resumenRowHeight, valueHeight + 12);
-    doc.rect(left, resumenY, usableWidth, rowHeight).fillAndStroke(isAlternate ? '#f8fafc' : '#ffffff', '#e2e8f0');
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 10, resumenY + 6, {
-      width: resumenLabelWidth,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(safeText(value), left + 10 + resumenLabelWidth, resumenY + 6, {
-      width: usableWidth - resumenLabelWidth - 20,
-      align: 'left',
-    });
-    resumenY += rowHeight;
-  });
-  doc.y = resumenY + 2;
+  doc.y = resumenBottom + 2;
 
   renderTwoColumnBlocks([
     {
@@ -3452,29 +3437,43 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         ['Condiciones de pago', compra.condiciones_pago],
       ],
     },
-    {
-      title: 'Detalle financiero',
-      rows: [
-        ['Subtotal', money(subtotal, compra.moneda)],
-        ['IGV', money(igv, compra.moneda)],
-        ['Costo envío', money(costoEnvio, compra.moneda)],
-        ['Otros costos', money(otrosCostos, compra.moneda)],
-        ['Total base', money(totalBase, compra.moneda)],
-        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
-        ['Monto retenido', money(montoRetenido, compra.moneda)],
-      ],
-    },
+  ]);
+
+  const financialBottom = drawInfoBlock({
+    title: 'Detalle financiero',
+    rows: [
+      ['Subtotal', money(subtotal, compra.moneda)],
+      ['IGV', money(igv, compra.moneda)],
+      ['Costo envío', money(costoEnvio, compra.moneda)],
+      ['Otros costos', money(otrosCostos, compra.moneda)],
+      ['Total base', money(totalBase, compra.moneda)],
+      ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
+      ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+      ['Monto retenido', money(montoRetenido, compra.moneda)],
+      ['Total final', money(totalFinal, compra.moneda)],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
+  });
+  doc.y = financialBottom + 6;
+
+  renderTwoColumnBlocks([
     {
       title: 'Contacto y observaciones',
       rows: [
         ['Correo', compra.correo || compra.contacto_proveedor],
         ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
         ['Teléfono', compra.telefono],
-        ['Aprobaciones', approversSummary || 'Sin aprobaciones registradas'],
         ...(String(compra.comentarios || '').trim()
           ? [['Comentarios', compra.comentarios]]
           : []),
+      ],
+    },
+    {
+      title: 'Aprobaciones',
+      rows: [
+        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
       ],
     },
   ]);
@@ -3579,31 +3578,29 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       rowY = doc.y;
     }
     const resumenTotalY = rowY;
-    doc.rect(left, resumenTotalY, usableWidth - 130, 22)
-      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-
-    doc.rect(left + usableWidth - 130, resumenTotalY, 130, 22)
+    doc.rect(left, resumenTotalY, usableWidth, 22)
       .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
 
     doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
       .text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
-        width: usableWidth - 146,
+        width: usableWidth - 150,
         align: 'right',
       });
 
-    doc.text(money(totalFinal || 0, compra.moneda), left + usableWidth - 124, resumenTotalY + 7, {
-      width: 118,
-      align: 'center',
-    });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
+      .text(money(totalFinal || 0, compra.moneda), left + usableWidth - 142, resumenTotalY + 7, {
+        width: 134,
+        align: 'center',
+      });
 
-    doc.y = resumenTotalY + 2;
+    doc.y = resumenTotalY + 4;
   } 
 
-  doc.moveDown(1);
+  doc.moveDown(0.5);
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
-    bottomLimit - 24,
+    doc.y,
     { width: usableWidth, align: 'center' }
   );
 
@@ -3644,7 +3641,13 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   };
 
   const estimateBlockHeight = (rows = []) => {
-    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
+    const rowGap = 4;
+    const paddingY = 4;
+    const titleHeight = 16;
+    const labelWidth = Math.max(98, Math.floor((usableWidth / 2 - 20) * 0.38));
+    const valueWidth = usableWidth / 2 - 20 - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
       const textLabel = `${safeText(label)}:`;
       const textValue = safeText(value);
       doc.font('Helvetica-Bold').fontSize(8.5);
@@ -3654,17 +3657,15 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       return Math.max(18, Math.max(labelHeight, valueHeight));
     };
 
-    let total = 24;
-    const labelWidth = 98;
-    const valueWidth = 136;
+    let total = titleHeight + (paddingY * 2);
     rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value, labelWidth, valueWidth) + 6;
+      total += measureRowHeight(label, value) + rowGap;
     });
-    return total + 6;
+    return total;
   };
 
   const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 5;
+    const rowGap = 6;
     const paddingX = 10;
     const paddingY = 6;
     const titleHeight = 18;
@@ -3706,9 +3707,20 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
         width: labelWidth,
       });
-      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-        width: valueWidth,
-      });
+
+      const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
+        || String(label || '').toLowerCase().includes('total final')
+        || String(label || '').toLowerCase().includes('totalfinal');
+
+      if (isTotalFinal) {
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      } else {
+        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      }
 
       rowY += rowHeight + rowGap;
     });
@@ -3757,6 +3769,10 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     }
   };
 
+  const HEADER_INFO_Y = 82;
+  const HEADER_LINE_Y = 106;
+  const HEADER_CONTENT_Y = 108;
+
   const drawHeader = () => {
     const logoPath = getCompanyLogoPath('dark');
 
@@ -3771,11 +3787,14 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     }
 
     doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE SERVICIO', left, 32, { width: usableWidth - 14, align: 'right' });
-    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
-    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
-    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
-    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
-    doc.y = 140;
+
+    doc.rect(left, HEADER_INFO_Y, usableWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, PDF_BRAND_COLORS.line);
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
+    doc.text(`Dirección: ${companyAddress}`, left + 8, HEADER_INFO_Y + 3, { width: usableWidth - 16, align: 'center' });
+    doc.text(`RUC: ${companyRuc}  |  ${companyWeb}`, left + 8, HEADER_INFO_Y + 13, { width: usableWidth - 16, align: 'center' });
+
+    doc.moveTo(left, HEADER_LINE_Y).lineTo(pageWidth - right, HEADER_LINE_Y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = HEADER_CONTENT_Y;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
@@ -3783,7 +3802,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
 
   doc.on('pageAdded', () => {
-    doc.y = 140;
+    doc.y = HEADER_CONTENT_Y;
   });
 
   drawHeader();
@@ -3888,33 +3907,43 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
         ['Condiciones de pago', servicio.proveedor_condiciones_pago],
       ],
     },
-    {
-      title: 'Detalle financiero',
-      rows: [
-        ['Subtotal', money(subtotal)],
-        ['IGV', money(igv)],
-        ['Costo envío', money(costoEnvio)],
-        ['Otros costos', money(otrosCostos)],
-        ['Total base', money(totalBase)],
-        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
-        ['Monto retenido', money(montoRetenido)],
-        ['Total final', money(totalFinal)],
-      ],
-    },
-    {
-      title: 'Aprobaciones',
-      rows: [
-        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
-      ],
-    },
   ]);
 
-  doc.moveDown(0.2);
+  const financialBottom = drawInfoBlock({
+    title: 'Detalle financiero',
+    rows: [
+      ['Subtotal', money(subtotal)],
+      ['IGV', money(igv)],
+      ['Costo envío', money(costoEnvio)],
+      ['Otros costos', money(otrosCostos)],
+      ['Total base', money(totalBase)],
+      ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
+      ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+      ['Monto retenido', money(montoRetenido)],
+      ['Total final', money(totalFinal)],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
+  });
+  doc.y = financialBottom + 6;
+
+  const approbacionesBottom = drawInfoBlock({
+    title: 'Aprobaciones',
+    rows: [
+      ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
+  });
+  doc.y = approbacionesBottom + 4;
+
+  doc.moveDown(0.5);
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
-    bottomLimit - 24,
+    doc.y,
     { width: usableWidth, align: 'center' }
   );
 
@@ -7674,12 +7703,6 @@ app.post('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVE
       return res.status(400).json({ error: 'id_moneda es obligatorio y debe ser valido' });
     }
 
-    if (ruc) {
-      const rucCheck = await pool.query("SELECT id FROM proveedores WHERE trim(COALESCE(ruc::text, '')) = $1 LIMIT 1", [ruc]);
-      if (rucCheck.rows.length > 0) {
-        return res.status(400).json({ error: 'ruc ya existe en proveedores' });
-      }
-    }
 
     if (descuento < 0) {
       return res.status(400).json({ error: 'descuento debe ser >= 0' });
@@ -7907,18 +7930,7 @@ app.post('/api/proveedores/bulk-import', authMiddleware, requirePermissions('GES
           throw new Error('id_moneda es obligatorio y debe ser válido');
         }
 
-        if (encounteredRucs.has(ruc)) {
-          throw new Error('RUC duplicado en el archivo');
-        }
-        encounteredRucs.add(ruc);
-
-        const rucCheck = await client.query(
-          "SELECT id FROM proveedores WHERE trim(COALESCE(ruc::text, '')) = $1 LIMIT 1",
-          [ruc]
-        );
-        if (rucCheck.rows.length > 0) {
-          throw new Error('RUC ya existe en la BD');
-        }
+       
 
         if (descuento < 0 || descuento > 100) {
           throw new Error('Descuento debe estar entre 0 y 100');
@@ -8193,19 +8205,7 @@ app.put('/api/proveedores/:id', authMiddleware, requirePermissions('GESTIONAR_PR
       }
     }
 
-    const duplicateRuc = await pool.query(
-      `
-        SELECT id
-        FROM proveedores
-        WHERE trim(COALESCE(ruc::text, '')) = $1
-          AND id <> $2
-        LIMIT 1
-      `,
-      [ruc, providerId]
-    );
-    if (duplicateRuc.rows.length > 0) {
-      return res.status(400).json({ error: 'ruc ya existe en proveedores' });
-    }
+   
 
     await pool.query(
       `
@@ -13010,4 +13010,3 @@ startServer().catch((error) => {
   console.error('Error iniciando servidor:', error.message);
   process.exit(1);
 });
-
