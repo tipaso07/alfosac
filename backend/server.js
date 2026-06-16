@@ -7162,7 +7162,7 @@ app.get('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVEE
   try {
     const userId = Number(req.user?.id || 0);
     const term = String(req.query.query || '').trim();
-    const limit = term ? 20 : 100;
+    const limit = term ? 50 : 100;
     const likeTerm = `%${term}%`;
 
     const selectExprs = buildProveedorSelectExpressions();
