@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS proveedores (
   contacto VARCHAR(255),
   direccion VARCHAR(255),
   distrito VARCHAR(100),
-  ruc VARCHAR(11) UNIQUE,
+  ruc VARCHAR(11),
   email VARCHAR(100),
   correo VARCHAR(100),
   persona_responsable VARCHAR(100),
