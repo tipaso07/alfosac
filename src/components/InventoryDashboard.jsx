@@ -999,12 +999,12 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               currentUserArea={currentUserArea}
             />
           )}
-           {activeTab === 'direct-purchases' && allowedTabs.includes('direct-purchases') && (
+            {activeTab === 'direct-purchases' && allowedTabs.includes('direct-purchases') && (
             <ComprasDirectasList
               comprasDirectas={comprasDirectas}
               currentUserPermissions={currentUserPermissions}
+              currentUserAreaId={currentUserAreaId}
               onRefresh={loadData}
-
             />
           )}
         </main>
