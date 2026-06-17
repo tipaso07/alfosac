@@ -130,6 +130,7 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
                 <th>Proveedor</th>
                 <th>Área</th>
                 <th>Total</th>
+                <th>Moneda</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -141,6 +142,7 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
                   <td>{c.proveedor_texto || '-'}</td>
                   <td>{c.area_nombre || '-'}</td>
                   <td>{Number(c.total || 0).toFixed(2)}</td>
+                  <td>{c.id_moneda === 2 ? 'USD' : 'PEN'}</td>
                   <td className="cd-actions">
                     <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
                   </td>
