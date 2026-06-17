@@ -4580,7 +4580,6 @@ const seedInventoryDemoData = async () => {
           ('VER_AJUSTES', 'Puede ver ajustes'),
           ('VER_DASHBOARD', 'Puede ver dashboard'),
           ('VER_MOVIMIENTOS', 'Puede ver movimientos'),
-          ('VER_INVENTARIO', 'Puede ver inventario'),
           ('VER_NOTIFICACIONES_PROVEEDOR', 'Puede ver notificaciones de proveedores'),
           ('VER_HISTORIAL_SERVICIOS', 'Puede ver historial de servicios'),
           ('APROBAR_JEFE_AREA', 'Puede aprobar como jefe de area'),
