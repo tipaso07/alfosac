@@ -11224,7 +11224,7 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
   }
 });
 
-app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('GESTIONAR_COMPRA_DIRECTA'), async (req, res) => {
+app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
   const client = await pool.connect();
   try {
     const id = Number(req.params.id || 0);
@@ -11309,7 +11309,7 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('GESTION
   }
 });
 
-app.delete('/api/compras-directas/:id', authMiddleware, requirePermissions('GESTIONAR_COMPRA_DIRECTA'), async (req, res) => {
+app.delete('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
   try {
     const id = Number(req.params.id || 0);
     if (!Number.isInteger(id) || id <= 0) {
