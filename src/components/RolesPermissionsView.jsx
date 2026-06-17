@@ -44,6 +44,7 @@ const PERMISSION_SECTIONS = [
     title: 'Solicitar compra',
     permissions: [
       { name: 'CREAR_SOLICITUD_COMPRA', label: 'Crear solicitud de compra', description: 'Permite registrar solicitudes para adquirir materiales.' },
+      { name: 'GESTIONAR_COMPRA_DIRECTA', label: 'Gestionar compras directas', description: 'Permite acceder al módulo de compras directas.' },
     ],
   },
   {
