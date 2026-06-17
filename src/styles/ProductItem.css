@@ -113,3 +113,12 @@
   font-size: 12px;
   font-weight: 600;
 }
+.editing-name-cell {
+  min-width: 220px;
+}
+.editing-description-cell {
+  min-width: 220px;
+}
+.editing-provider-cell {
+  min-width: 300px;
+}
