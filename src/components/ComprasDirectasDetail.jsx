@@ -33,6 +33,7 @@ export default function ComprasDirectasDetail({ idCompra, onBack, onEdit }) {
         <div><strong>Área:</strong> {compra.area_nombre || '-'}</div>
         <div><strong>Fecha:</strong> {compra.fecha_compra ? compra.fecha_compra.slice(0, 10) : '-'}</div>
         <div><strong>Estado:</strong> {compra.estado}</div>
+        <div><strong>Moneda:</strong> {compra.id_moneda === 2 ? 'USD' : 'PEN'}</div>
         <div><strong>Usuario:</strong> {compra.usuario_nombre || '-'}</div>
         <div className="cd-detail-full">
           <strong>Observaciones:</strong> {compra.observaciones || '-'}
