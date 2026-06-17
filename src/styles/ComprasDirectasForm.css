@@ -1,0 +1,97 @@
+.cd-form {
+  padding: 1.5rem;
+}
+
+.cd-form h2 {
+  margin: 0 0 1rem;
+  font-size: 1.3rem;
+  color: #1e293b;
+}
+
+.cd-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.cd-form-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: #475569;
+  gap: 0.25rem;
+}
+
+.cd-full-width {
+  grid-column: 1 / -1;
+}
+
+.cd-form-grid input,
+.cd-form-grid select,
+.cd-form-grid textarea {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.cd-form h3 {
+  font-size: 1rem;
+  color: #1e293b;
+  margin: 0 0 0.5rem;
+}
+
+.cd-form-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.5rem;
+}
+
+.cd-form-table th,
+.cd-form-table td {
+  padding: 0.4rem;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+}
+
+.cd-form-table th {
+  background: #f1f5f9;
+  font-weight: 600;
+  color: #475569;
+}
+
+.cd-form-table input,
+.cd-form-table select {
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  box-sizing: border-box;
+}
+
+.cd-subtotal,
+.cd-total-value {
+  text-align: right;
+  font-weight: 600;
+}
+
+.cd-total-label {
+  text-align: right;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.cd-total-value {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.cd-form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  justify-content: flex-end;
+}
