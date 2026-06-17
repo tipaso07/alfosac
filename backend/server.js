@@ -4296,7 +4296,10 @@ const ensureComprasColumns = async () => {
   for (const statement of compraColumnStatements) {
     await pool.query(statement);
   }
-
+  await pool.query(`
+    ALTER TABLE compras_directas
+    ADD COLUMN IF NOT EXISTS id_moneda INTEGER REFERENCES monedas(id);
+  `);
   await pool.query(`
     ALTER TABLE materiales
     ADD COLUMN IF NOT EXISTS id_moneda INTEGER;
@@ -11071,7 +11074,8 @@ app.get('/api/compras-directas', authMiddleware, async (req, res) => {
         cd.estado,
         cd.observaciones,
         cd.foto,
-        cd.fecha_creacion,
+        cd.fecha_creacion, 
+        cd.id_moneda,
         COALESCE(a.nombre, '') AS area_nombre,
         COALESCE(u.nombre, '') AS usuario_nombre,
         COALESCE(
@@ -11113,6 +11117,7 @@ app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
         cd.fecha_compra,
         cd.fecha_creacion,
         cd.fecha_actualizacion,
+        cd.id_moneda,
         COALESCE(a.nombre, '') AS area_nombre,
         COALESCE(u.nombre, '') AS usuario_nombre
       FROM compras_directas cd
@@ -11160,6 +11165,7 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
       fecha_compra,
       foto,
       observaciones,
+      id_moneda,    
       detalle = [],
     } = req.body;
 
@@ -11170,8 +11176,8 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
     await client.query('BEGIN');
 
     const headerInsert = await client.query(`
-      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, foto, observaciones, estado)
-      VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETADO')
+      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, foto, observaciones, estado, id_moneda)
+      VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETADO', $7)
       RETURNING id
     `, [
       req.user.id,
@@ -11243,6 +11249,7 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_C
       fecha_compra,
       foto,
       observaciones,
+      id_moneda,
       detalle = [],
     } = req.body;
 
@@ -11255,14 +11262,16 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_C
           fecha_compra = $3,
           foto = $4,
           observaciones = $5,
+          id_moneda = $6,
           fecha_actualizacion = ${PET_SQL_NOW}
-      WHERE id = $6
+      WHERE id = $7
     `, [
       proveedor_texto || null,
       Number.isInteger(id_area) && id_area > 0 ? id_area : null,
       fecha_compra || null,
       foto || null,
       observaciones || null,
+      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
       id,
     ]);
 
