@@ -133,7 +133,8 @@ export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   ) {
     allowedModules.push(16)
   }
-   if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRA_DIRECTA')) allowedModules.push(18)
+  if (hasPermission(effectivePermissions, 'CREAR_COMPRA_DIRECTA')
+    || hasPermission(effectivePermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) allowedModules.push(18)
 
   return [...new Set(allowedModules)]
 }
