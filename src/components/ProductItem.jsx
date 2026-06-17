@@ -1,3 +1,5 @@
+import { useState, useEffect, useRef } from 'react'
+import { fetchProveedores } from '../services/api'
 import '../styles/ProductItem.css'
 
 export default function ProductItem({
@@ -28,6 +30,11 @@ export default function ProductItem({
   const proveedorId = isEditing ? String(draft?.id_proveedor || '') : String(material.id_proveedor || '')
   const unidadId = isEditing ? String(draft?.id_unidad || '') : String(material.id_unidad || '')
   const monedaId = isEditing ? String(draft?.id_moneda || '') : String(material.moneda_id || '')
+  const [editProveedorSearch, setEditProveedorSearch] = useState('')
+  const [editProveedorResults, setEditProveedorResults] = useState([])
+  const [editProveedorSearchOpen, setEditProveedorSearchOpen] = useState(false)
+  const [editProveedorSearchLoading, setEditProveedorSearchLoading] = useState(false)
+  const editDebounceRef = useRef(null)
   const almacenId = isEditing ? String(draft?.id_almacen || '') : String(material.id_almacen || '')
   const imagePreview = isEditing ? String(draft?.imagen || '').trim() : String(material.imagen || '').trim()
   const monedaIdValue = String(material.moneda_id || material.id_moneda || monedaId || '').trim()
@@ -70,6 +77,44 @@ export default function ProductItem({
   const resolveCategoryLabel = (item) => String(item?.nombre || item?.categoria || '').trim() || `Categoria ${item?.id || ''}`
   const resolveMonedaLabel = (item) => String(item?.nombre || item?.moneda || '').trim() || `Moneda ${item?.id || ''}`
   const resolveAlmacenLabel = (item) => String(item?.nombre || item?.almacen || '').trim() || `Almacen ${item?.id || ''}`
+
+   const prevIsEditing = useRef(isEditing)
+
+  useEffect(() => {
+    if (isEditing && !prevIsEditing.current) {
+      if (draft?.id_proveedor) {
+        const provider = proveedores.find(p => String(p.id) === String(draft.id_proveedor))
+        if (provider) {
+          setEditProveedorSearch(provider.razon_social || provider.nombre || '')
+        }
+      }
+    }
+    if (!isEditing) {
+      setEditProveedorSearch('')
+      setEditProveedorResults([])
+      setEditProveedorSearchOpen(false)
+    }
+    prevIsEditing.current = isEditing
+  }, [isEditing])
+
+  useEffect(() => {
+    if (editDebounceRef.current) clearTimeout(editDebounceRef.current)
+    if (!editProveedorSearch.trim()) {
+      setEditProveedorResults([])
+      return
+    }
+    editDebounceRef.current = setTimeout(async () => {
+      try {
+        setEditProveedorSearchLoading(true)
+        const data = await fetchProveedores(editProveedorSearch)
+        setEditProveedorResults(Array.isArray(data) ? data : [])
+      } catch {
+        setEditProveedorResults([])
+      } finally {
+        setEditProveedorSearchLoading(false)
+      }
+    }, 300)
+  }, [editProveedorSearch])
 
   return (
     <tr className={`product-item ${isEditing ? 'editing' : ''} ${saving ? 'saving' : ''}`}>
@@ -136,20 +181,40 @@ export default function ProductItem({
           unitLabel
         )}
       </td>
-      <td>
+        <td>
         {isEditing ? (
-          <select
-            className="edit-select"
-            value={proveedorId}
-            onChange={(event) => onDraftChange?.('id_proveedor', event.target.value)}
-          >
-            <option value="">Selecciona proveedor</option>
-            {proveedores.map((proveedor) => (
-              <option key={proveedor.id} value={proveedor.id}>
-                {resolveProveedorLabel(proveedor)}
-              </option>
-            ))}
-          </select>
+          <div className="proveedor-autocomplete">
+            <input
+              type="text"
+              value={editProveedorSearch}
+              onChange={(e) => {
+                setEditProveedorSearch(e.target.value)
+                setEditProveedorSearchOpen(true)
+              }}
+              onFocus={() => editProveedorSearch.trim() && setEditProveedorSearchOpen(true)}
+              onBlur={() => setTimeout(() => setEditProveedorSearchOpen(false), 200)}
+              placeholder="Escribe para buscar proveedor..."
+            />
+            {editProveedorSearchLoading && <span className="autocomplete-loading">Buscando...</span>}
+            {editProveedorSearchOpen && editProveedorResults.length > 0 && (
+              <ul className="autocomplete-results">
+                {editProveedorResults.map((p) => (
+                  <li
+                    key={p.id}
+                    className={Number(draft?.id_proveedor) === Number(p.id) ? 'selected' : ''}
+                    onMouseDown={() => {
+                      onDraftChange?.('id_proveedor', p.id)
+                      setEditProveedorSearch(p.razon_social || p.nombre || `Proveedor ${p.id}`)
+                      setEditProveedorSearchOpen(false)
+                    }}
+                  >
+                    {p.razon_social || p.nombre || `Proveedor ${p.id}`}
+                    {p.ruc ? ` - ${p.ruc}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         ) : (
           <span className="product-provider-text" title={providerLabel}>{providerLabel}</span>
         )}
