@@ -253,8 +253,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         loadOptionalData(fetchProveedores, []),
         loadOptionalData(fetchUnidades, []),
         loadOptionalData(fetchAlmacenes, []),
-        (hasPermission(runtimePermissions, 'CREAR_COMPRA_DIRECTA')
-          || hasPermission(runtimePermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS'))
+        hasPermission(runtimePermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')
           ? loadOptionalData(fetchComprasDirectas, [])
           : Promise.resolve([]),
       ])
