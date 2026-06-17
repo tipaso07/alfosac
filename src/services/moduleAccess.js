@@ -46,6 +46,7 @@ export const modules = [
   { id: 15, name: 'Roles y Permisos', path: '/roles-permisos' },
   { id: 17, name: 'Gestionar Cuentas', path: '/gestionar-cuentas' },
   { id: 16, name: 'Calificar materiales', path: '/calificar-productos' },
+  { id: 18, name: 'Compras Directas', path: '/compras-directas' },
 ]
 
 export const TAB_BY_MODULE_ID = {
@@ -65,6 +66,7 @@ export const TAB_BY_MODULE_ID = {
   15: 'roles-permissions',
   17: 'manage-accounts',
   16: 'rate-products',
+  18: 'direct-purchases',
 }
 
 export const MODULE_ID_BY_PATH = {
@@ -90,6 +92,7 @@ export const MODULE_ID_BY_PATH = {
   '/roles-permisos': 15,
   '/gestionar-cuentas': 17,
   '/calificar-productos': 16,
+  '/compras-directas': 18,
 }
 
 export const buildAllowedTabs = (rolId, sourcePermissions = []) => {
@@ -130,6 +133,7 @@ export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   ) {
     allowedModules.push(16)
   }
+   if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRA_DIRECTA')) allowedModules.push(18)
 
   return [...new Set(allowedModules)]
 }
