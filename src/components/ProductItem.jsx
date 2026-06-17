@@ -30,11 +30,13 @@ export default function ProductItem({
   const proveedorId = isEditing ? String(draft?.id_proveedor || '') : String(material.id_proveedor || '')
   const unidadId = isEditing ? String(draft?.id_unidad || '') : String(material.id_unidad || '')
   const monedaId = isEditing ? String(draft?.id_moneda || '') : String(material.moneda_id || '')
-  const [editProveedorSearch, setEditProveedorSearch] = useState('')
+   const [editProveedorSearch, setEditProveedorSearch] = useState('')
   const [editProveedorResults, setEditProveedorResults] = useState([])
   const [editProveedorSearchOpen, setEditProveedorSearchOpen] = useState(false)
   const [editProveedorSearchLoading, setEditProveedorSearchLoading] = useState(false)
   const editDebounceRef = useRef(null)
+  const proveedorInputRef = useRef(null)
+  const [dropdownFixedStyle, setDropdownFixedStyle] = useState({})
   const almacenId = isEditing ? String(draft?.id_almacen || '') : String(material.id_almacen || '')
   const imagePreview = isEditing ? String(draft?.imagen || '').trim() : String(material.imagen || '').trim()
   const monedaIdValue = String(material.moneda_id || material.id_moneda || monedaId || '').trim()
@@ -93,6 +95,7 @@ export default function ProductItem({
       setEditProveedorSearch('')
       setEditProveedorResults([])
       setEditProveedorSearchOpen(false)
+      setDropdownFixedStyle({})
     }
     prevIsEditing.current = isEditing
   }, [isEditing])
@@ -116,11 +119,24 @@ export default function ProductItem({
     }, 300)
   }, [editProveedorSearch])
 
+  useEffect(() => {
+    if (editProveedorSearchOpen && editProveedorResults.length > 0 && proveedorInputRef.current) {
+      const rect = proveedorInputRef.current.getBoundingClientRect()
+      setDropdownFixedStyle({
+        position: 'fixed',
+        top: `${rect.bottom}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        zIndex: 9999,
+      })
+    }
+  }, [editProveedorSearchOpen, editProveedorResults])
+
   return (
     <tr className={`product-item ${isEditing ? 'editing' : ''} ${saving ? 'saving' : ''}`}>
       <td className="product-name">{material.id_material}</td>
-      <td className={`product-name ${isBelowSafetyStock ? 'product-name-critical' : ''}`}>
-        {isEditing ? (
+      <td className={`${isEditing ? 'editing-name-cell' : ''} product-name ${isBelowSafetyStock ? 'product-name-critical' : ''}`}>
+          {isEditing ? (
           <input
             className="edit-input"
             type="text"
@@ -131,7 +147,7 @@ export default function ProductItem({
           material.nombre_producto || material.nombre || '-'
         )}
       </td>
-      <td className="product-description-cell">
+       <td className={`product-description-cell ${isEditing ? 'editing-description-cell' : ''}`}>
         {isEditing ? (
           <input
             className="edit-input"
@@ -181,23 +197,38 @@ export default function ProductItem({
           unitLabel
         )}
       </td>
-        <td>
+         <td className={isEditing ? 'editing-provider-cell' : ''}>
         {isEditing ? (
           <div className="proveedor-autocomplete">
             <input
+              ref={proveedorInputRef}
               type="text"
               value={editProveedorSearch}
               onChange={(e) => {
                 setEditProveedorSearch(e.target.value)
                 setEditProveedorSearchOpen(true)
               }}
-              onFocus={() => editProveedorSearch.trim() && setEditProveedorSearchOpen(true)}
+              onFocus={() => {
+                if (editProveedorSearch.trim() && editProveedorResults.length > 0) {
+                  if (proveedorInputRef.current) {
+                    const rect = proveedorInputRef.current.getBoundingClientRect()
+                    setDropdownFixedStyle({
+                      position: 'fixed',
+                      top: `${rect.bottom}px`,
+                      left: `${rect.left}px`,
+                      width: `${rect.width}px`,
+                      zIndex: 9999,
+                    })
+                  }
+                  setEditProveedorSearchOpen(true)
+                }
+              }}
               onBlur={() => setTimeout(() => setEditProveedorSearchOpen(false), 200)}
               placeholder="Escribe para buscar proveedor..."
             />
             {editProveedorSearchLoading && <span className="autocomplete-loading">Buscando...</span>}
             {editProveedorSearchOpen && editProveedorResults.length > 0 && (
-              <ul className="autocomplete-results">
+              <ul className="autocomplete-results" style={dropdownFixedStyle}>
                 {editProveedorResults.map((p) => (
                   <li
                     key={p.id}
