@@ -11186,6 +11186,8 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
       fecha_compra || new Date().toISOString().slice(0, 10),
       foto || null,
       observaciones || null,
+      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
+
     ]);
 
     const idCompraDirecta = headerInsert.rows[0].id;
