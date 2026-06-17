@@ -1486,3 +1486,69 @@ export const clearAuthSession = () => {
   // Clear cached API responses if you have any
   // This ensures fresh data on next login
 };
+export const fetchComprasDirectas = async (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.desde) params.set('desde', filters.desde);
+  if (filters.hasta) params.set('hasta', filters.hasta);
+  if (filters.id_area) params.set('id_area', filters.id_area);
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE_URL}/compras-directas${qs ? `?${qs}` : ''}`, {
+    headers: buildHeaders(),
+  });
+  if (!response.ok) throw new Error('Error al obtener compras directas');
+  return response.json();
+};
+
+export const fetchCompraDirecta = async (id) => {
+  const response = await fetch(`${API_BASE_URL}/compras-directas/${id}`, {
+    headers: buildHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response.status);
+    let msg = 'Error al obtener compra directa';
+    try { const data = await response.json(); if (data?.error) msg = data.error; } catch {}
+    throw new Error(msg);
+  }
+  return response.json();
+};
+
+export const createCompraDirecta = async (payload) => {
+  const response = await fetch(`${API_BASE_URL}/compras-directas`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let msg = 'Error al crear compra directa';
+    try { const data = await response.json(); if (data?.error) msg = data.error; } catch {}
+    throw new Error(msg);
+  }
+  return response.json();
+};
+
+export const updateCompraDirecta = async (id, payload) => {
+  const response = await fetch(`${API_BASE_URL}/compras-directas/${id}`, {
+    method: 'PUT',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let msg = 'Error al actualizar compra directa';
+    try { const data = await response.json(); if (data?.error) msg = data.error; } catch {}
+    throw new Error(msg);
+  }
+  return response.json();
+};
+
+export const deleteCompraDirecta = async (id) => {
+  const response = await fetch(`${API_BASE_URL}/compras-directas/${id}`, {
+    method: 'DELETE',
+    headers: buildHeaders(),
+  });
+  if (!response.ok) {
+    let msg = 'Error al eliminar compra directa';
+    try { const data = await response.json(); if (data?.error) msg = data.error; } catch {}
+    throw new Error(msg);
+  }
+  return response.json();
+};
