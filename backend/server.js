@@ -4456,7 +4456,8 @@ const seedInventoryDemoData = async () => {
           ('CALIFICAR_COMPRA', 'Puede calificar compras'),
           ('CALIFICAR_REQUERIMIENTO', 'Puede calificar requerimientos'),
           ('CALIFICAR_SERVICIO', 'Puede calificar servicios'),
-          ('GESTIONAR_COMPRA_DIRECTA', 'Puede gestionar compras directas')
+          ('CREAR_COMPRA_DIRECTA', 'Puede crear compras directas'),
+          ('VER_HISTORIAL_COMPRAS_DIRECTAS', 'Puede ver historial de compras directas')
         ON CONFLICT (nombre) DO NOTHING
       `
     );
@@ -11035,7 +11036,10 @@ app.get('/api/compras/:id/receptores', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/compras-directas', authMiddleware, requirePermissions('GESTIONAR_COMPRA_DIRECTA'), async (req, res) => {
+app.get('/api/compras-directas', authMiddleware, async (req, res) => {
+   if (!tienePermiso(req.user, 'CREAR_COMPRA_DIRECTA') && !tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   try {
     const desde = String(req.query.desde || '').trim();
     const hasta = String(req.query.hasta || '').trim();
@@ -11087,7 +11091,10 @@ app.get('/api/compras-directas', authMiddleware, requirePermissions('GESTIONAR_C
   }
 });
 
-app.get('/api/compras-directas/:id', authMiddleware, requirePermissions('GESTIONAR_COMPRA_DIRECTA'), async (req, res) => {
+app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
+  if (!tienePermiso(req.user, 'CREAR_COMPRA_DIRECTA') && !tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   try {
     const id = Number(req.params.id || 0);
     if (!Number.isInteger(id) || id <= 0) {
