@@ -16,6 +16,7 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
   const [proveedorTexto, setProveedorTexto] = useState(compra?.proveedor_texto || '')
   const [idArea, setIdArea] = useState(compra?.id_area || currentUserAreaId || '')
   const fechaCompra = new Date().toISOString().slice(0, 10)
+  const [idMoneda, setIdMoneda] = useState(compra?.id_moneda || 1)
   const [observaciones, setObservaciones] = useState(compra?.observaciones || '')
   const [foto, setFoto] = useState(compra?.foto || '')
   const [fotoFile, setFotoFile] = useState(null)
@@ -60,6 +61,7 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
         fecha_compra: fechaCompra,
         foto: foto || null,
         observaciones,
+        id_moneda: idMoneda,
         detalle: detalle.map(r => ({
           id_material: r.id_material || null,
           nombre_material: r.nombre_material,
@@ -98,6 +100,13 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
             Área:
              <input value={areas.find(a => a.id == idArea)?.nombre || ''} disabled />
           </label>
+          <label>
+            Moneda:
+            <select value={idMoneda} onChange={e => setIdMoneda(Number(e.target.value))}>
+                <option value={1}>Soles (PEN)</option>
+                <option value={2}>Dólares (USD)</option>
+            </select>
+            </label>
            <label>
             Foto:
             <input type="file" accept="image/*" onChange={e => setFotoFile(e.target.files[0] || null)} />
