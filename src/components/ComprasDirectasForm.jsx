@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { createCompraDirecta, updateCompraDirecta, fetchAreas, fetchUnidades } from '../services/api'
 import '../styles/ComprasDirectasForm.css'
+import { uploadMaterialImage } from '../services/api'
 
 const emptyRow = () => ({
   id_material: '',
@@ -17,6 +18,7 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel }) {
   const [fechaCompra, setFechaCompra] = useState(compra?.fecha_compra ? compra.fecha_compra.slice(0, 10) : new Date().toISOString().slice(0, 10))
   const [observaciones, setObservaciones] = useState(compra?.observaciones || '')
   const [foto, setFoto] = useState(compra?.foto || '')
+  const [fotoFile, setFotoFile] = useState(null)
   const [areas, setAreas] = useState([])
   const [unidades, setUnidades] = useState([])
   const [detalle, setDetalle] = useState(
@@ -66,6 +68,10 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel }) {
           id_unidad: r.id_unidad || null,
         })),
       }
+      if (fotoFile) {
+        const uploaded = await uploadMaterialImage(fotoFile)
+        payload.foto = uploaded.filePath || uploaded.url || uploaded.id
+      }
       if (isEdit) {
         await updateCompraDirecta(compra.id, payload)
       } else {
@@ -99,9 +105,9 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel }) {
             Fecha:
             <input type="date" value={fechaCompra} onChange={e => setFechaCompra(e.target.value)} />
           </label>
-          <label>
-            Foto (URL):
-            <input value={foto} onChange={e => setFoto(e.target.value)} placeholder="URL o base64" />
+           <label>
+            Foto:
+            <input type="file" accept="image/*" onChange={e => setFotoFile(e.target.files[0] || null)} />
           </label>
           <label className="cd-full-width">
             Observaciones:
