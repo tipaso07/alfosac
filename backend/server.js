@@ -11037,7 +11037,7 @@ app.get('/api/compras/:id/receptores', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/compras-directas', authMiddleware, async (req, res) => {
-   if (!tienePermiso(req.user, 'CREAR_COMPRA_DIRECTA') && !tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
     return res.status(403).json({ error: 'No autorizado' });
   }
   try {
@@ -11092,7 +11092,7 @@ app.get('/api/compras-directas', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
-  if (!tienePermiso(req.user, 'CREAR_COMPRA_DIRECTA') && !tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
     return res.status(403).json({ error: 'No autorizado' });
   }
   try {
