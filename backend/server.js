@@ -482,15 +482,8 @@ const parseBooleanFlag = (value, defaultValue = false) => {
 const tienePermiso = (usuario, permiso) => {
   const normalizedPermission = normalizePermissionName(permiso);
   if (!normalizedPermission) return false;
-
-  const roleId = Number(usuario?.id_role || usuario?.rol_id || 0);
   const directPermissions = Array.isArray(usuario?.permisos) ? usuario.permisos : [];
-  const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
-    ? getPermissionsByRoleId(roleId)
-    : [];
-  const permissions = [...new Set([...directPermissions, ...fallbackPermissions])];
-
-  return permissions.some((item) => normalizePermissionName(item) === normalizedPermission);
+  return directPermissions.some((item) => normalizePermissionName(item) === normalizedPermission);
 };
 
 const getRequiredApprovalPermissionByRoleId = (roleId) => {
@@ -4576,41 +4569,49 @@ const seedInventoryDemoData = async () => {
         INSERT INTO permisos (nombre, descripcion)
         VALUES
           ('VER_INVENTARIO', 'Puede ver inventario'),
-          ('EDITAR_MATERIAL', 'Puede editar materiales'),
-          ('GESTIONAR_COMPRAS', 'Puede gestionar compras'),
-          ('APROBAR_REQUERIMIENTO', 'Puede aprobar requerimientos'),
-          ('COMPLETAR_REQUERIMIENTO', 'Puede completar requerimientos')
+          ('EDITAR_INVENTARIO', 'Puede editar materiales en inventario'),
+          ('AGREGAR_INVENTARIO_MANUAL', 'Puede agregar material manual'),
+          ('CREAR_REQUERIMIENTO', 'Puede crear requerimientos'),
+          ('CREAR_SOLICITUD_COMPRA', 'Puede crear solicitudes de compra'),
+          ('CREAR_SOLICITUD_SERVICIO', 'Puede crear solicitudes de servicio'),
+          ('CAMBIAR_ESTADO_SERVICIO', 'Puede cambiar estado de servicio'),
+          ('GESTIONAR_COMPRAS', 'Puede gestionar ordenes de compra'),
+          ('GESTIONAR_ORDENES_COMPRA', 'Puede gestionar ordenes de compra'),
+          ('GESTIONAR_PROVEEDORES', 'Puede gestionar proveedores'),
+          ('GESTIONAR_ENTREGAS', 'Puede gestionar entregas'),
+          ('GESTIONAR_SOLICITUDES', 'Puede gestionar solicitudes'),
+          ('GESTIONAR_CUENTAS', 'Puede gestionar cuentas de usuario'),
+          ('GESTIONAR_ROLES', 'Puede gestionar roles y permisos'),
+          ('VER_AJUSTES', 'Puede ver ajustes'),
+          ('VER_DASHBOARD', 'Puede ver dashboard'),
+          ('VER_MOVIMIENTOS', 'Puede ver movimientos'),
+          ('VER_INVENTARIO', 'Puede ver inventario'),
+          ('VER_NOTIFICACIONES_PROVEEDOR', 'Puede ver notificaciones de proveedores'),
+          ('VER_HISTORIAL_SERVICIOS', 'Puede ver historial de servicios'),
+          ('APROBAR_JEFE_AREA', 'Puede aprobar como jefe de area'),
+          ('APROBAR_GERENCIA_AREA', 'Puede aprobar como gerencia de area'),
+          ('APROBAR_FINANZAS', 'Puede aprobar como finanzas'),
+          ('APROBAR_ADMIN', 'Puede aprobar como admin'),
+          ('CALIFICAR_COMPRA', 'Puede calificar compras'),
+          ('CALIFICAR_REQUERIMIENTO', 'Puede calificar requerimientos'),
+          ('CALIFICAR_SERVICIO', 'Puede calificar servicios')
         ON CONFLICT (nombre) DO NOTHING
       `
     );
 
     console.log('[SEED] permisos listos');
 
+    // Asignar TODOS los permisos al rol Admin
     await client.query(
       `
         INSERT INTO rol_permiso (id_rol, id_permiso)
-        SELECT $1, p.id
-        FROM permisos p
-        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'EDITAR_MATERIAL', 'GESTIONAR_COMPRAS', 'APROBAR_REQUERIMIENTO', 'COMPLETAR_REQUERIMIENTO')
+        SELECT $1, p.id FROM permisos p
         ON CONFLICT (id_rol, id_permiso) DO NOTHING
       `,
       [idAdminRole]
     );
 
     console.log('[SEED] permisos admin listos');
-
-    await client.query(
-      `
-        INSERT INTO rol_permiso (id_rol, id_permiso)
-        SELECT $1, p.id
-        FROM permisos p
-        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'GESTIONAR_COMPRAS')
-        ON CONFLICT (id_rol, id_permiso) DO NOTHING
-      `,
-      [idComprasRole]
-    );
-
-    console.log('[SEED] permisos compras listos');
 
     const providerResult = await client.query(
       `
@@ -5017,55 +5018,16 @@ const requireRoleAdminOrCompras = (req, res, next) => {
   return res.status(403).json({ error: 'No autorizado' });
 };
 
-const BASE_PERMISSION_NAMES = [
-  'VER_INVENTARIO',
-  'CREAR_REQUERIMIENTO',
-  'CREAR_SOLICITUD_COMPRA',
-  'VER_AJUSTES',
-];
 
-const ROLE_PERMISSION_NAMES_BY_ID = new Map([
-  [4, [...BASE_PERMISSION_NAMES, 'CREAR_SOLICITUD_SERVICIO', 'CAMBIAR_ESTADO_SERVICIO']],
-  [5, [...BASE_PERMISSION_NAMES, 'APROBAR_JEFE_AREA']],
-  [6, [...BASE_PERMISSION_NAMES, 'APROBAR_GERENCIA_AREA', 'CALIFICAR_COMPRA', 'CALIFICAR_REQUERIMIENTO']],
-  [7, [...BASE_PERMISSION_NAMES, 'APROBAR_FINANZAS']],
-  [8, [
-    ...BASE_PERMISSION_NAMES,
-    'APROBAR_JEFE_AREA',
-    'APROBAR_GERENCIA_AREA',
-    'APROBAR_FINANZAS',
-    'APROBAR_ADMIN',
-    'GESTIONAR_ROLES',
-    'CALIFICAR_COMPRA',
-    'CALIFICAR_REQUERIMIENTO',
-    'CALIFICAR_SERVICIO',
-    'GESTIONAR_ORDENES_COMPRA',
-    'GESTIONAR_PROVEEDORES',
-    'EDITAR_INVENTARIO',
-    'AGREGAR_INVENTARIO_MANUAL',
-    'VER_NOTIFICACIONES_PROVEEDOR',
-    'GESTIONAR_ENTREGAS',
-    'CREAR_SOLICITUD_SERVICIO',
-    'CAMBIAR_ESTADO_SERVICIO',
-    'VER_HISTORIAL_SERVICIOS',
-  ]],
-  [9, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ORDENES_COMPRA', 'GESTIONAR_PROVEEDORES', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL', 'VER_NOTIFICACIONES_PROVEEDOR', 'VER_HISTORIAL_SERVICIOS']],
-  [10, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ENTREGAS']],
-  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS', 'CALIFICAR_SERVICIO']],
-]);
-
-const getPermissionsByRoleId = (roleId) => {
-  const numericRoleId = Number(roleId || 0);
-  if (ROLE_PERMISSION_NAMES_BY_ID.has(numericRoleId)) {
-    return [...new Set(ROLE_PERMISSION_NAMES_BY_ID.get(numericRoleId))];
+const requirePermissions = (...permissions) => async (req, res, next) => {
+  if (!req.user?.permisos) {
+    try {
+      req.user.permisos = await fetchPermissionNamesByUserId(pool, req.user?.id || 0);
+    } catch {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
   }
-
-  return [...BASE_PERMISSION_NAMES];
-};
-
-const requirePermissions = (...permissions) => (req, res, next) => {
-  const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
-  const userPermissions = new Set((req.user?.permisos || getPermissionsByRoleId(roleId))
+  const userPermissions = new Set((req.user?.permisos || [])
     .map((perm) => normalizePermissionName(perm))
     .filter(Boolean));
   const normalizedPermissions = permissions
