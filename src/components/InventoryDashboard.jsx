@@ -23,6 +23,8 @@ import GestionarUsuariosView from './GestionarUsuariosView'
 import CalificarMaterialesView from './CalificarMaterialesView'
 import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
 import { hasAnyPermission, hasPermission } from '../services/permissions'
+import ComprasDirectasList from './ComprasDirectasList'
+import { fetchComprasDirectas, fetchAreas } from '../services/api'
 import {
   createMaterial,
   fetchMateriales,
@@ -82,6 +84,7 @@ const TAB_ROUTES = {
   'roles-permissions': '/roles-permisos',
   'manage-accounts': '/gestionar-cuentas',
   'rate-products': '/calificar-productos',
+  'direct-purchases': '/compras-directas',
 }
 
 const getDefaultAdminDashboardRange = () => {
@@ -134,6 +137,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [adminDashboardLoading, setAdminDashboardLoading] = useState(false)
   const initialAdminDashboardRange = useMemo(() => getDefaultAdminDashboardRange(), [])
   const [adminDashboardDateRange, setAdminDashboardDateRange] = useState(initialAdminDashboardRange)
+  const [comprasDirectas, setComprasDirectas] = useState([])
 
   const isUnauthorizedError = useCallback((err) => Number(err?.status || 0) === 401, [])
   const isForbiddenError = useCallback((err) => Number(err?.status || 0) === 403, [])
@@ -224,7 +228,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         proveedoresData,
         unidadesData,
         almacenesData,
+        comprasDirectasData,
       ] = await Promise.all([
+        hasPermission(runtimePermissions, 'GESTIONAR_COMPRA_DIRECTA')
+          ? loadOptionalData(fetchComprasDirectas, [])
+          : Promise.resolve([]),
         hasPermission(runtimePermissions, 'VER_INVENTARIO')
           ? loadOptionalData(fetchMateriales, [])
           : Promise.resolve([]),
@@ -989,6 +997,15 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
               currentUserPermissions={currentUserPermissions}
               currentUserRoleId={currentUserRoleId}
               currentUserArea={currentUserArea}
+            />
+          )}
+           {activeTab === 'direct-purchases' && allowedTabs.includes('direct-purchases') && (
+            <ComprasDirectasList
+              comprasDirectas={comprasDirectas}
+              currentUser={currentUserProfile}
+              currentUserName={currentUserName}
+              currentUserAreaId={currentUserAreaId}
+              onRefresh={loadData}
             />
           )}
         </main>
