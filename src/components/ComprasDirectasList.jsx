@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import ComprasDirectasForm from './ComprasDirectasForm'
 import ComprasDirectasDetail from './ComprasDirectasDetail'
 import { fetchComprasDirectas, deleteCompraDirecta, fetchAreas } from '../services/api'
+import { hasPermission } from '../services/moduleAccess'
 import '../styles/ComprasDirectasList.css'
 
-export default function ComprasDirectasList({ comprasDirectas: initialData, onRefresh }) {
+export default function ComprasDirectasList({ comprasDirectas: initialData, currentUserPermissions = [], onRefresh }) {
   const [view, setView] = useState('list')
   const [compras, setCompras] = useState(Array.isArray(initialData) ? initialData : [])
   const [selectedId, setSelectedId] = useState(null)
@@ -15,7 +16,7 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, onRe
   const [hasta, setHasta] = useState('')
   const [idArea, setIdArea] = useState('')
   const [areas, setAreas] = useState([])
-
+    const canCreate = hasPermission(currentUserPermissions, 'CREAR_COMPRA_DIRECTA')
   useEffect(() => {
     setCompras(Array.isArray(initialData) ? initialData : [])
   }, [initialData])
@@ -95,9 +96,11 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, onRe
     <div className="cd-list">
       <div className="cd-list-header">
         <h2>Compras Directas</h2>
-        <button className="cd-btn cd-btn-primary" onClick={handleNew}>
-          + Nueva Compra Directa
-        </button>
+         {canCreate && (
+          <button className="cd-btn cd-btn-primary" onClick={handleNew}>
+            + Nueva Compra Directa
+          </button>
+        )}
       </div>
 
       <div className="cd-filters">
@@ -143,9 +146,13 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, onRe
               <td>{c.area_nombre || '-'}</td>
               <td>{Number(c.total || 0).toFixed(2)}</td>
               <td className="cd-actions">
-                <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
-                <button className="cd-btn cd-btn-sm cd-btn-warning" onClick={() => handleEdit(c)}>Editar</button>
-                <button className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => handleDelete(c.id)}>Eliminar</button>
+                 <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
+                {canCreate && (
+                  <button className="cd-btn cd-btn-sm cd-btn-warning" onClick={() => handleEdit(c)}>Editar</button>
+                )}
+                {canCreate && (
+                  <button className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => handleDelete(c.id)}>Eliminar</button>
+                )}
               </td>
             </tr>
           ))}
