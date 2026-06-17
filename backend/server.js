@@ -11151,7 +11151,7 @@ app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/compras-directas', authMiddleware, requirePermissions('GESTIONAR_COMPRA_DIRECTA'), async (req, res) => {
+app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
   const client = await pool.connect();
   try {
     const {
