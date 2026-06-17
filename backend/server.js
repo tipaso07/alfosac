@@ -612,13 +612,7 @@ const isPendingApprovalState = (state) => {
   return normalizedState === 'PENDIENTE' || normalizedState.startsWith('PENDIENTE_');
 };
 
-const getApprovalStagePermissionForUser = (usuario) => {
-  if (tienePermiso(usuario, 'APROBAR_ADMIN')) return 'APROBAR_ADMIN';
-  if (tienePermiso(usuario, 'APROBAR_FINANZAS')) return 'APROBAR_FINANZAS';
-  if (tienePermiso(usuario, 'APROBAR_GERENCIA_AREA')) return 'APROBAR_GERENCIA_AREA';
-  if (tienePermiso(usuario, 'APROBAR_JEFE_AREA')) return 'APROBAR_JEFE_AREA';
-  return '';
-};
+
 
 const getApprovalStageRoleIdForUser = (usuario) => {
   const roleId = resolveApprovalRoleId(usuario);
@@ -943,13 +937,14 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       }
     }
 
-    await client.query('COMMIT');
-
+   await client.query('COMMIT');
+   await registrarAprobacion(pool, usuario, normalizedTipo === 'COMPRA' ? 'compra' : 'servicio', referenceId, estadoAnterior);
     return {
       ok: true,
       estado_anterior: estadoAnterior,
       estado_nuevo: estadoNuevo,
     };
+    
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -1805,134 +1800,7 @@ const fetchFirstApprovalReferenceIdsByRole = async (client, {
   return new Set(result.rows.map((row) => Number(row.referencia_id)).filter((value) => Number.isInteger(value) && value > 0));
 };
 
-const applyApprovalDecision = async (client, {
-  tipo,
-  referenciaId,
-  roleId,
-  userId,
-  user,
-  decision,
-}) => {
-  const tableExists = await hasAprobacionesTable(client);
-  if (!tableExists) {
-    return {
-      usesApprovalTable: false,
-      finalApproved: normalize(decision) === 'APROBADO',
-      rejected: normalize(decision) === 'RECHAZADO',
-      hasPendingApprovals: false,
-    };
-  }
 
-  const normalizedTipo = normalizeApprovalTipo(tipo);
-  const reference = Number(referenciaId || 0);
-  const role = Number(roleId || 0);
-  const actor = Number(userId || 0);
-  const normalizedDecision = normalize(decision);
-  const requiredPermission = getRequiredApprovalPermissionByRoleId(role);
-
-  if (!['APROBADO', 'RECHAZADO'].includes(normalizedDecision)) {
-    throw new Error('decision de aprobacion invalida');
-  }
-
-  if (!requiredPermission) {
-    throw new Error('No existe un permiso de aprobacion configurado para este rol');
-  }
-
-  if (!tienePermiso(user, requiredPermission)) {
-    throw new Error(`No tienes permiso para aprobar en este nivel (${requiredPermission})`);
-  }
-
-  const stageRowsResult = await client.query(
-    `
-      SELECT id, orden, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
-      FROM aprobaciones
-      WHERE upper(trim(tipo)) = $1
-        AND referencia_id = $2
-        AND rol_aprobador = $3
-      ORDER BY orden ASC
-      FOR UPDATE
-    `,
-    [normalizedTipo, reference, role]
-  );
-
-  if (stageRowsResult.rows.length === 0) {
-    throw new Error('No existe etapa de aprobacion configurada para este nivel y registro');
-  }
-
-  const pendingRows = stageRowsResult.rows.filter((row) => normalize(row.estado) === 'PENDIENTE');
-  if (pendingRows.length === 0) {
-    const managedState = normalize(stageRowsResult.rows[0]?.estado || 'GESTIONADO');
-    const stageName = getApprovalStageKeyByRoleId(role) || `ROL_${role}`;
-    throw new Error(`La etapa ${stageName} ya fue gestionada (${managedState})`);
-  }
-
-  if (pendingRows.length > 1) {
-    throw new Error('Inconsistencia de flujo: existe mas de una etapa pendiente para el mismo nivel');
-  }
-
-  const targetApproval = pendingRows[0];
-
-  const blockedByPrevious = await client.query(
-    `
-      SELECT 1
-      FROM aprobaciones prev
-      WHERE upper(trim(prev.tipo)) = $1
-        AND prev.referencia_id = $2
-        AND prev.orden < $3
-        AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
-      LIMIT 1
-    `,
-    [normalizedTipo, reference, Number(targetApproval.orden || 0)]
-  );
-
-  if (blockedByPrevious.rows.length > 0) {
-    throw new Error('Aun hay niveles anteriores sin aprobar');
-  }
-
-  const updateDecision = await client.query(
-    `
-      UPDATE aprobaciones
-      SET estado = $1,
-          usuario_id = $2,
-          fecha = ${PET_SQL_NOW}
-      WHERE id = $3
-        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
-             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
-      RETURNING id
-    `,
-    [normalizedDecision, actor || null, Number(targetApproval.id)]
-  );
-
-  if (updateDecision.rows.length === 0) {
-    const stageName = getApprovalStageKeyByRoleId(role) || `ROL_${role}`;
-    throw new Error(`La etapa ${stageName} ya fue gestionada por otro usuario`);
-  }
-
-  if (normalizedDecision === 'APROBADO') {
-    await registrarAprobacion(client, usuario, normalizedTipo === 'COMPRA' ? 'compra' : 'servicio', referenceId, estadoAnterior);
-  }
-
-  const remainingPending = await client.query(
-    `
-      SELECT COUNT(*) AS total
-      FROM aprobaciones
-      WHERE upper(trim(tipo)) = $1
-        AND referencia_id = $2
-        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
-             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
-    `,
-    [normalizedTipo, reference]
-  );
-
-  const pendingCount = Number(remainingPending.rows[0]?.total || 0);
-
-  return {
-    usesApprovalTable: true,
-    finalApproved: normalizedDecision === 'APROBADO' && pendingCount === 0,
-    rejected: normalizedDecision === 'RECHAZADO',
-    hasPendingApprovals: pendingCount > 0,
-  };
-};
 
 const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) => {
   const tableExists = await hasAprobacionesTable(client);
@@ -9833,11 +9701,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
-        tipo: 'COMPRA',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'COMPRA', referenciaId: id });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'La compra aun no tiene aprobacion final de gerencia de finanzas' });
@@ -10122,11 +9986,7 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(client, {
-        tipo: 'COMPRA',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(client, { tipo: 'COMPRA', referenciaId: id });
 
       if (!hasFinalApproval) {
         await client.query('ROLLBACK');
@@ -11856,11 +11716,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
-        tipo: 'SERVICIO',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12038,11 +11894,7 @@ app.post('/api/servicios/:id/generar-orden', authMiddleware, async (req, res) =>
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
-        tipo: 'SERVICIO',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12133,11 +11985,7 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
-        tipo: 'SERVICIO',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12201,11 +12049,7 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
-        tipo: 'COMPRA',
-        referenciaId: id,
-        roleId: 7,
-      });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'COMPRA', referenciaId: id });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'La compra aun no tiene aprobacion final de gerencia de finanzas' });
