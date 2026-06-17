@@ -6,17 +6,17 @@ import { hasPermission } from '../services/moduleAccess'
 import '../styles/ComprasDirectasList.css'
 
 export default function ComprasDirectasList({ comprasDirectas: initialData, currentUserPermissions = [], onRefresh }) {
-  const [view, setView] = useState('list')
+  const [view, setView] = useState(!canViewHistory && canCreate ? 'form' : 'list')
   const [compras, setCompras] = useState(Array.isArray(initialData) ? initialData : [])
   const [selectedId, setSelectedId] = useState(null)
   const [editCompra, setEditCompra] = useState(null)
-
   // Filtros
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [idArea, setIdArea] = useState('')
   const [areas, setAreas] = useState([])
-    const canCreate = hasPermission(currentUserPermissions, 'CREAR_COMPRA_DIRECTA')
+  const canCreate = hasPermission(currentUserPermissions, 'CREAR_COMPRA_DIRECTA')
+  const canViewHistory = hasPermission(currentUserPermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')
   useEffect(() => {
     setCompras(Array.isArray(initialData) ? initialData : [])
   }, [initialData])
@@ -103,64 +103,68 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
         )}
       </div>
 
-      <div className="cd-filters">
-        <label>
-          Desde:
-          <input type="date" value={desde} onChange={e => setDesde(e.target.value)} />
-        </label>
-        <label>
-          Hasta:
-          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} />
-        </label>
-        <label>
-          Área:
-          <select value={idArea} onChange={e => setIdArea(e.target.value)}>
-            <option value="">Todas</option>
-            {areas.map(a => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
-            ))}
-          </select>
-        </label>
-        <button className="cd-btn cd-btn-secondary" onClick={handleApplyFilters}>
-          Filtrar
-        </button>
-      </div>
+     {canViewHistory && (
+        <>
+          <div className="cd-filters">
+            <label>
+              Desde:
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} />
+            </label>
+            <label>
+              Hasta:
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} />
+            </label>
+            <label>
+              Área:
+              <select value={idArea} onChange={e => setIdArea(e.target.value)}>
+                <option value="">Todas</option>
+                {areas.map(a => (
+                  <option key={a.id} value={a.id}>{a.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <button className="cd-btn cd-btn-secondary" onClick={handleApplyFilters}>
+              Filtrar
+            </button>
+          </div>
 
-      <table className="cd-table">
-        <thead>
-          <tr>
-            <th>N°</th>
-            <th>Fecha</th>
-            <th>Proveedor</th>
-            <th>Área</th>
-            <th>Total</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {compras.map(c => (
-            <tr key={c.id}>
-              <td>{c.id}</td>
-              <td>{c.fecha_compra ? c.fecha_compra.slice(0, 10) : '-'}</td>
-              <td>{c.proveedor_texto || '-'}</td>
-              <td>{c.area_nombre || '-'}</td>
-              <td>{Number(c.total || 0).toFixed(2)}</td>
-              <td className="cd-actions">
-                 <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
-                {canCreate && (
-                  <button className="cd-btn cd-btn-sm cd-btn-warning" onClick={() => handleEdit(c)}>Editar</button>
-                )}
-                {canCreate && (
-                  <button className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => handleDelete(c.id)}>Eliminar</button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {compras.length === 0 && (
-            <tr><td colSpan={6} className="cd-empty">Sin registros</td></tr>
-          )}
-        </tbody>
-      </table>
+          <table className="cd-table">
+            <thead>
+              <tr>
+                <th>N°</th>
+                <th>Fecha</th>
+                <th>Proveedor</th>
+                <th>Área</th>
+                <th>Total</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {compras.map(c => (
+                <tr key={c.id}>
+                  <td>{c.id}</td>
+                  <td>{c.fecha_compra ? c.fecha_compra.slice(0, 10) : '-'}</td>
+                  <td>{c.proveedor_texto || '-'}</td>
+                  <td>{c.area_nombre || '-'}</td>
+                  <td>{Number(c.total || 0).toFixed(2)}</td>
+                  <td className="cd-actions">
+                    <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
+                    {canCreate && (
+                      <button className="cd-btn cd-btn-sm cd-btn-warning" onClick={() => handleEdit(c)}>Editar</button>
+                    )}
+                    {canCreate && (
+                      <button className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => handleDelete(c.id)}>Eliminar</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {compras.length === 0 && (
+                <tr><td colSpan={6} className="cd-empty">Sin registros</td></tr>
+              )}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   )
 }
