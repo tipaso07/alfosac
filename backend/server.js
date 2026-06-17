@@ -959,8 +959,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
 };
 
 const resolveApprovalRoleIdByPermissions = (user) => {
-  const directPermissions = Array.isArray(user?.permisos) ? user.permisos : [];
-  const permissionSet = new Set(directPermissions
+  const permissionSet = new Set((Array.isArray(user?.permisos) ? user.permisos : [])
     .map((perm) => String(perm || '').trim().toUpperCase())
     .filter(Boolean));
 
