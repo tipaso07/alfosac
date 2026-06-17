@@ -5,21 +5,32 @@ import { fetchComprasDirectas, deleteCompraDirecta, fetchAreas } from '../servic
 import { hasPermission } from '../services/moduleAccess'
 import '../styles/ComprasDirectasList.css'
 
-export default function ComprasDirectasList({ comprasDirectas: initialData, currentUserPermissions = [], onRefresh }) {
-  const [view, setView] = useState(!canViewHistory && canCreate ? 'form' : 'list')
+export default function ComprasDirectasList({ comprasDirectas: initialData, currentUserPermissions = [], currentUserAreaId = null, onRefresh }) {
+  const [view, setView] = useState('list')
   const [compras, setCompras] = useState(Array.isArray(initialData) ? initialData : [])
   const [selectedId, setSelectedId] = useState(null)
-  const [editCompra, setEditCompra] = useState(null)
-  // Filtros
+
+  const canCreate = hasPermission(currentUserPermissions, 'CREAR_COMPRA_DIRECTA')
+  const canViewHistory = hasPermission(currentUserPermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')
+
+  useEffect(() => {
+    if (canCreate && !canViewHistory) {
+      setView('form')
+    } else {
+      setView('list')
+    }
+  }, [canCreate, canViewHistory])
+
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [idArea, setIdArea] = useState('')
   const [areas, setAreas] = useState([])
-  const canCreate = hasPermission(currentUserPermissions, 'CREAR_COMPRA_DIRECTA')
-  const canViewHistory = hasPermission(currentUserPermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')
+
   useEffect(() => {
-    setCompras(Array.isArray(initialData) ? initialData : [])
-  }, [initialData])
+  if (canViewHistory) {
+    fetchComprasDirectas().then(data => setCompras(data)).catch(() => {})
+  }
+}, [canViewHistory])
 
   useEffect(() => {
     fetchAreas().then(setAreas).catch(() => {})
@@ -38,19 +49,7 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
     }
   }, [desde, hasta, idArea])
 
-  const handleDelete = useCallback(async (id) => {
-    if (!window.confirm('Eliminar compra directa?')) return
-    await deleteCompraDirecta(id)
-    onRefresh()
-  }, [onRefresh])
-
   const handleNew = () => {
-    setEditCompra(null)
-    setView('form')
-  }
-
-  const handleEdit = (compra) => {
-    setEditCompra(compra)
     setView('form')
   }
 
@@ -66,16 +65,15 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
 
   const handleCancel = () => {
     setView('list')
-    setEditCompra(null)
   }
 
   if (view === 'form') {
     return (
       <ComprasDirectasForm
-        compra={editCompra}
         onSave={handleSave}
         onCancel={handleCancel}
-      />
+        currentUserAreaId={currentUserAreaId}
+        />
     )
   }
 
@@ -84,10 +82,6 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
       <ComprasDirectasDetail
         idCompra={selectedId}
         onBack={() => setView('list')}
-        onEdit={() => {
-          const c = compras.find(x => x.id === selectedId)
-          if (c) handleEdit(c)
-        }}
       />
     )
   }
@@ -96,14 +90,14 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
     <div className="cd-list">
       <div className="cd-list-header">
         <h2>Compras Directas</h2>
-         {canCreate && (
+        {canCreate && (
           <button className="cd-btn cd-btn-primary" onClick={handleNew}>
             + Nueva Compra Directa
           </button>
         )}
       </div>
 
-     {canViewHistory && (
+      {canViewHistory && (
         <>
           <div className="cd-filters">
             <label>
@@ -149,12 +143,6 @@ export default function ComprasDirectasList({ comprasDirectas: initialData, curr
                   <td>{Number(c.total || 0).toFixed(2)}</td>
                   <td className="cd-actions">
                     <button className="cd-btn cd-btn-sm" onClick={() => handleView(c.id)}>Ver</button>
-                    {canCreate && (
-                      <button className="cd-btn cd-btn-sm cd-btn-warning" onClick={() => handleEdit(c)}>Editar</button>
-                    )}
-                    {canCreate && (
-                      <button className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => handleDelete(c.id)}>Eliminar</button>
-                    )}
                   </td>
                 </tr>
               ))}
