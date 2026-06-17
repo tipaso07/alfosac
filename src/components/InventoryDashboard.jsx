@@ -230,9 +230,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         almacenesData,
         comprasDirectasData,
       ] = await Promise.all([
-        hasPermission(runtimePermissions, 'GESTIONAR_COMPRA_DIRECTA')
-          ? loadOptionalData(fetchComprasDirectas, [])
-          : Promise.resolve([]),
         hasPermission(runtimePermissions, 'VER_INVENTARIO')
           ? loadOptionalData(fetchMateriales, [])
           : Promise.resolve([]),
@@ -256,6 +253,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         loadOptionalData(fetchProveedores, []),
         loadOptionalData(fetchUnidades, []),
         loadOptionalData(fetchAlmacenes, []),
+        hasPermission(runtimePermissions, 'GESTIONAR_COMPRA_DIRECTA')
+          ? loadOptionalData(fetchComprasDirectas, [])
+          : Promise.resolve([]),
       ])
       setMaterials(materialsData)
       setRequerimientos(reqsData)
