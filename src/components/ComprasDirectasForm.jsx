@@ -11,11 +11,11 @@ const emptyRow = () => ({
   id_unidad: '',
 })
 
-export default function ComprasDirectasForm({ compra, onSave, onCancel }) {
+export default function ComprasDirectasForm({ compra, onSave, onCancel, currentUserAreaId = null }) {
   const isEdit = Boolean(compra?.id)
   const [proveedorTexto, setProveedorTexto] = useState(compra?.proveedor_texto || '')
-  const [idArea, setIdArea] = useState(compra?.id_area || '')
-  const [fechaCompra, setFechaCompra] = useState(compra?.fecha_compra ? compra.fecha_compra.slice(0, 10) : new Date().toISOString().slice(0, 10))
+  const [idArea, setIdArea] = useState(compra?.id_area || currentUserAreaId || '')
+  const fechaCompra = new Date().toISOString().slice(0, 10)
   const [observaciones, setObservaciones] = useState(compra?.observaciones || '')
   const [foto, setFoto] = useState(compra?.foto || '')
   const [fotoFile, setFotoFile] = useState(null)
@@ -96,14 +96,7 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel }) {
           </label>
           <label>
             Área:
-            <select value={idArea} onChange={e => setIdArea(e.target.value)}>
-              <option value="">Seleccionar</option>
-              {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-            </select>
-          </label>
-          <label>
-            Fecha:
-            <input type="date" value={fechaCompra} onChange={e => setFechaCompra(e.target.value)} />
+             <input value={areas.find(a => a.id == idArea)?.nombre || ''} disabled />
           </label>
            <label>
             Foto:
