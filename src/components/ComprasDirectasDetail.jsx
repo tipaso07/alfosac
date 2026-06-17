@@ -24,7 +24,6 @@ export default function ComprasDirectasDetail({ idCompra, onBack, onEdit }) {
       <div className="cd-detail-header">
         <h2>Compra Directa #{compra.id}</h2>
         <div>
-          <button className="cd-btn cd-btn-warning" onClick={onEdit}>Editar</button>
           <button className="cd-btn cd-btn-secondary" onClick={onBack}>Volver</button>
         </div>
       </div>
