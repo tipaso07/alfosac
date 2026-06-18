@@ -549,11 +549,17 @@ useEffect(() => {
   const consumptionRows = useMemo(() => {
     const areaMap = new Map()
     const ensure = (area) => {
-      if (!areaMap.has(area)) {
-     areaMap.set(area, { area, compras: 0, requerimientos: 0, servicios: 0, compraCount: 0, reqCount: 0, servCount: 0, compraDirectaCount: 0, total: 0 })
-    }
+    if (!areaMap.has(area)) {
+      areaMap.set(area, {
+        area, compras: 0, requerimientos: 0, servicios: 0,
+        comprasDirectas: 0,
+        compraCount: 0, reqCount: 0, servCount: 0,
+        compraDirectaCount: 0, total: 0,
+      })
+      }
       return areaMap.get(area)
     }
+    
 
     comprasPorAreaRaw.forEach((item) => {
       const area = normalizeArea(item.area)
