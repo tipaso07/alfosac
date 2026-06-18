@@ -12698,16 +12698,22 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               ${comprasDirectasWhere}
             ) AS total_compras_directas,
             (
-              SELECT COALESCE(SUM(
-                CASE 
-                  WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                    THEN NULLIF(to_jsonb(cd)->>'total', '')::numeric * ${USD_TO_PEN_RATE}
-                  ELSE NULLIF(to_jsonb(cd)->>'total', '')::numeric
-                END
-              ), 0)
-              FROM compras_directas cd
-              ${comprasDirectasWhere}
-            ) AS monto_total_compras_directas,
+               
+                SELECT COALESCE(SUM(
+                  CASE 
+                    WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
+                      THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
+                    ELSE COALESCE(d.total_monto, 0)
+                  END
+                ), 0)
+                FROM compras_directas cd
+                LEFT JOIN (
+                  SELECT id_compra_directa, SUM(subtotal) AS total_monto
+                  FROM detalle_compras_directas
+                  GROUP BY id_compra_directa
+                ) d ON d.id_compra_directa = cd.id
+                ${comprasDirectasWhere}
+              ) AS monto_total_compras_directas,
             COALESCE((
               SELECT SUM(
                 CASE 
@@ -12736,16 +12742,21 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
                 AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) <= '${fechaFin}'::date` : '1=1'})
             ), 0) +
             COALESCE((
-              SELECT COALESCE(SUM(
-                CASE 
-                  WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                    THEN NULLIF(to_jsonb(cd)->>'total', '')::numeric * ${USD_TO_PEN_RATE}
-                  ELSE NULLIF(to_jsonb(cd)->>'total', '')::numeric
-                END
-              ), 0)
-              FROM compras_directas cd
-              ${comprasDirectasWhere}
-            ), 0) AS monto_total_consumo,
+                SELECT COALESCE(SUM(
+                  CASE 
+                    WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
+                      THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
+                    ELSE COALESCE(d.total_monto, 0)
+                  END
+                ), 0)
+                FROM compras_directas cd
+                LEFT JOIN (
+                  SELECT id_compra_directa, SUM(subtotal) AS total_monto
+                  FROM detalle_compras_directas
+                  GROUP BY id_compra_directa
+                ) d ON d.id_compra_directa = cd.id
+                ${comprasDirectasWhere}
+              ), 0) AS monto_total_consumo,
             (
               SELECT COALESCE(SUM(
                 COALESCE(md.cantidad, 0)::numeric
@@ -12985,21 +12996,26 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       pool.query(
         `
           SELECT
-            COALESCE(a.nombre, 'Sin area') AS area,
-            COUNT(*)::int AS total,
-            COALESCE(SUM(
-              CASE 
-                WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                  THEN NULLIF(to_jsonb(cd)->>'total', '')::numeric * ${USD_TO_PEN_RATE}
-                ELSE NULLIF(to_jsonb(cd)->>'total', '')::numeric
-              END
-            ), 0) AS monto_total
-          FROM compras_directas cd
-          LEFT JOIN areas a ON a.id = NULLIF(to_jsonb(cd)->>'id_area', '')::int
-          ${comprasDirectasWhere}
-          GROUP BY COALESCE(a.nombre, 'Sin area')
-          ORDER BY COUNT(*) DESC, monto_total DESC
-          LIMIT 8
+              COALESCE(a.nombre, 'Sin area') AS area,
+              COUNT(*)::int AS total,
+              COALESCE(SUM(
+                CASE 
+                  WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
+                    THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
+                  ELSE COALESCE(d.total_monto, 0)
+                END
+              ), 0) AS monto_total
+            FROM compras_directas cd
+            LEFT JOIN areas a ON a.id = NULLIF(to_jsonb(cd)->>'id_area', '')::int
+            LEFT JOIN (
+              SELECT id_compra_directa, SUM(subtotal) AS total_monto
+              FROM detalle_compras_directas
+              GROUP BY id_compra_directa
+            ) d ON d.id_compra_directa = cd.id
+            ${comprasDirectasWhere}
+            GROUP BY COALESCE(a.nombre, 'Sin area')
+            ORDER BY COUNT(*) DESC, monto_total DESC
+            LIMIT 8
         `,
         params
       )
