@@ -3154,7 +3154,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       ) + 10;
 
       ensureSpace(estimatedPairHeight);
-      cursorY = Math.max(cursorY, doc.y);
+      cursorY = doc.y;
 
       const leftBottom = drawInfoBlock({
         title: leftBlock.title,
@@ -3448,7 +3448,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         align: 'center',
       });
 
-    doc.y = resumenTotalY + 4;
+    doc.y = resumenTotalY + 26;
   } 
 
   doc.moveDown(0.5);
@@ -3597,7 +3597,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       ) + 10;
 
       ensureSpace(estimatedPairHeight);
-      cursorY = Math.max(cursorY, doc.y);
+      cursorY = doc.y;
 
       const leftBottom = drawInfoBlock({
         title: leftBlock.title,
@@ -9870,14 +9870,6 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       tipo_retencion: tipoRetencionNorm,
     };
 
-    const missingProviderFields = Object.entries(requiredProviderValues)
-      .filter(([, value]) => !String(value || '').trim())
-      .map(([key]) => key);
-
-    if (missingProviderFields.length > 0) {
-      return res.status(400).json({ error: `Proveedor seleccionado con datos incompletos: ${missingProviderFields.join(', ')}` });
-    }
-
     await pool.query(
       `
         UPDATE compras
@@ -10009,15 +10001,6 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
 
     const missing = [];
     if (!String(compra.proveedor || '').trim()) missing.push('proveedor');
-    if (!contactoProveedor) missing.push('contacto_proveedor');
-    if (!String(compra.banco || '').trim()) missing.push('banco');
-    if (!cuentaProveedor) missing.push('cuenta');
-    if (!String(compra.cci || '').trim()) missing.push('cci');
-    if (!String(compra.condiciones_pago || '').trim()) missing.push('condiciones_pago');
-    if (!compra.subtotal && compra.subtotal !== 0) missing.push('subtotal');
-    if (!compra.igv && compra.igv !== 0) missing.push('igv');
-    if (!compra.total && compra.total !== 0) missing.push('total');
-    if (!compra.id_area_final) missing.push('id_area_final');
 
     if (missing.length > 0) {
       await client.query('ROLLBACK');
