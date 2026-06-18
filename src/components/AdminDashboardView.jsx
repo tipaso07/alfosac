@@ -88,8 +88,8 @@ const itemWidth = Math.max(18, (groupWidth - 16) / 3)
 
                 return (
                   <g key={row.area}>
-                    <rect x={comprasX} y={baseY - comprasHeight} width={itemWidth} height={comprasHeight} fill="var(--warning-color)" opacity="0.92" />
-                    <rect x={servX} y={baseY - servHeight} width={itemWidth} height={servHeight} fill="var(--success-color)" opacity="0.92" />
+                    <rect x={comprasX} y={baseY - comprasHeight} width={itemWidth} height={comprasHeight} fill="#256ca6" opacity="0.92" />
+                    <rect x={servX} y={baseY - servHeight} width={itemWidth} height={servHeight} fill="#10b981" opacity="0.92" />
 
                     <text x={comprasX + itemWidth / 2} y={baseY - comprasHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
                       {combinedValue > 0 ? formatMoney(combinedValue) : ''}
@@ -101,7 +101,7 @@ const itemWidth = Math.max(18, (groupWidth - 16) / 3)
                     <text x={groupX + groupWidth / 2} y={height - padding + 18} textAnchor="middle" fontSize="11" fill="#475569">
                       {row.area.length > 10 ? row.area.substring(0, 8) + '..' : row.area}
                     </text>
-                    <rect x={cdX} y={baseY - cdHeight} width={itemWidth} height={cdHeight} fill="var(--primary-color)" opacity="0.92" />
+                    <rect x={cdX} y={baseY - cdHeight} width={itemWidth} height={cdHeight} fill="#329ad6" opacity="0.92" />
                     <text x={cdX + itemWidth / 2} y={baseY - cdHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
                       {cdValue > 0 ? formatMoney(cdValue) : ''}
                     </text>
