@@ -12470,10 +12470,18 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               AND ($2::date IS NULL OR COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= $2::date)
             
             UNION
-            
+
             SELECT DISTINCT
               NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int AS area_id
             FROM servicios s
+
+            UNION
+
+            SELECT DISTINCT
+              NULLIF(to_jsonb(cd)->>'id_area', '')::int AS area_id
+            FROM compras_directas cd
+            WHERE ($1::date IS NULL OR NULLIF(to_jsonb(cd)->>'fecha_creacion', '')::date >= $1::date)
+              AND ($2::date IS NULL OR NULLIF(to_jsonb(cd)->>'fecha_creacion', '')::date <= $2::date)
           )
           SELECT area_id
           FROM areas_activas
@@ -12515,6 +12523,9 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           distribucion_salida_por_area: [],
           gasto_salida_por_area: [],
           cantidad_materiales_recibidos_por_area: [],
+          total_compras_directas: 0,
+          monto_total_compras_directas: 0,
+          compras_directas_por_area: [],
         });
       }
     }
@@ -12525,6 +12536,9 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       : '';
     const reqWhere = areaIds && areaIds.length > 0
       ? `WHERE COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])`
+      : '';
+    const comprasDirectasWhere = areaIds && areaIds.length > 0
+      ? `WHERE NULLIF(to_jsonb(cd)->>'id_area', '')::int = ANY($1::int[])`
       : '';
     const servWhere = areaIds && areaIds.length > 0
       ? `WHERE NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])`
@@ -12603,7 +12617,9 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             (
               SELECT COUNT(*)
               FROM compras c
-              ${comprasWhere}
+              WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
+                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
+                ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
             ) AS total_compras,
             (
               SELECT COUNT(*)
@@ -12671,6 +12687,22 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), ''))) = 'REALIZADO'
               ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
             ) AS total_servicios_realizados,
+             (
+              SELECT COUNT(*)
+              FROM compras_directas cd
+              ${comprasDirectasWhere}
+            ) AS total_compras_directas,
+            (
+              SELECT COALESCE(SUM(
+                CASE 
+                  WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
+                    THEN NULLIF(to_jsonb(cd)->>'total', '')::numeric * ${USD_TO_PEN_RATE}
+                  ELSE NULLIF(to_jsonb(cd)->>'total', '')::numeric
+                END
+              ), 0)
+              FROM compras_directas cd
+              ${comprasDirectasWhere}
+            ) AS monto_total_compras_directas,
             COALESCE((
               SELECT SUM(
                 CASE 
