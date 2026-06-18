@@ -591,7 +591,7 @@ useEffect(() => {
       .map((row) => ({ ...row, total: row.compras + row.requerimientos + row.servicios + row.comprasDirectas }))
       .filter((row) => !isAlmacenArea(row.area))
       .sort((a, b) => b.total - a.total)
-  }, [comprasPorAreaRaw, gastoSalidaPorAreaRaw, servPorAreaRaw])
+  }, [comprasPorAreaRaw, gastoSalidaPorAreaRaw, servPorAreaRaw, comprasDirectasPorAreaRaw])
 
   const prevMonth = monthlySeries[0] || {}
   const currMonth = monthlySeries[1] || {}
