@@ -12789,6 +12789,9 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
             AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
             ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+             GROUP BY COALESCE(a.nombre, 'Sin area')
+    ORDER BY COUNT(*) DESC, monto_total DESC
+    LIMIT 8
         `,
         params
       ),
