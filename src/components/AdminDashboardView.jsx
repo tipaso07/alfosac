@@ -219,6 +219,7 @@ function LineTrendCard({ title, subtitle, points = [], lines = [] }) {
     return `${x},${y}`
   }
 
+
   return (
     <article className="erp-card erp-trend-card">
       <header>
@@ -522,6 +523,12 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
       active = false
     }
   }, [fechaInicio, fechaFin])
+useEffect(() => {
+    const interval = setInterval(() => {
+      onRefresh({ fecha_inicio: fechaInicio, fecha_fin: fechaFin, auto: true })
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [fechaInicio, fechaFin, onRefresh])
 
 
   const consumptionRows = useMemo(() => {
