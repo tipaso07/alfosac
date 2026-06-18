@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
+import { fetchProveedores, guardarCalificacionProveedor } from '../services/api'
 import '../styles/MisOrdenesServiciosView.css'
-import { guardarCalificacionProveedor } from '../services/api'
 import { hasPermission } from '../services/permissions'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -64,7 +64,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
-    ? Number((totalBase * (retencionPct / 100)).toFixed(2))
+    ? Number((totalBase * (retencionPct)).toFixed(2))
     : 0
   const totalFinal = aplicaRetencion
     ? Number((totalBase - montoRetencion).toFixed(2))
@@ -93,6 +93,8 @@ export default function MisOrdenesServiciosView({
   const [activeSection, setActiveSection] = useState('aprobados')
   const [expandedId, setExpandedId] = useState(null)
   const [queryByService, setQueryByService] = useState({})
+  const [supplierOptionsByService, setSupplierOptionsByService] = useState({})
+  const [supplierLoadingByService, setSupplierLoadingByService] = useState({})
   const [draftByService, setDraftByService] = useState({})
   const [error, setError] = useState('')
   const [realizadosAreaFilter, setRealizadosAreaFilter] = useState('TODAS')
@@ -234,32 +236,53 @@ export default function MisOrdenesServiciosView({
     }))
   }
 
-  const getProviderOptions = (serviceId) => {
-    const term = String(queryByService[serviceId] || '').trim().toLowerCase()
-    if (!term) return []
+  const getProviderOptions = (serviceId) => supplierOptionsByService[serviceId] || []
 
-    return serviceProviders
-      .map((provider) => {
-        const razonSocial = String(provider.razon_social || provider.nombre || '').trim()
-        const razonLower = razonSocial.toLowerCase()
-        const ruc = String(provider.ruc || '').trim()
-        const rucLower = ruc.toLowerCase()
-        let score = 0
+  const searchProveedor = async (serviceId, rawValue) => {
+      const value = String(rawValue || '')
+      setQueryByService((prev) => ({ ...prev, [serviceId]: value }))
 
-        if (razonLower.startsWith(term)) score += 80
-        else if (razonLower.includes(term)) score += 55
+      if (!value.trim()) {
+        setSupplierOptionsByService((prev) => ({ ...prev, [serviceId]: [] }))
+        return
+      }
 
-        if (rucLower.startsWith(term)) score += 70
-        else if (rucLower.includes(term)) score += 45
+      try {
+        setSupplierLoadingByService((prev) => ({ ...prev, [serviceId]: true }))
+        const options = await fetchProveedores(value.trim())
+        setSupplierOptionsByService((prev) => ({ ...prev, [serviceId]: options }))
 
-        if (String(provider.moneda_nombre || provider.moneda || '').toLowerCase().includes(term)) score += 10
-        return { provider, score, razonSocial, ruc }
-      })
-      .filter(({ score }) => score > 0)
-      .sort((left, right) => right.score - left.score || left.razonSocial.localeCompare(right.razonSocial))
-      .slice(0, 8)
-      .map(({ provider }) => provider)
+        const byExactRuc = options.find(
+          (provider) => String(provider.ruc || '').trim() === value.trim()
+        )
+        if (byExactRuc) {
+          applyProveedor(serviceId, byExactRuc)
+        }
+      } catch (err) {
+        setError(err.message || 'Error al buscar proveedores')
+      } finally {
+        setSupplierLoadingByService((prev) => ({ ...prev, [serviceId]: false }))
+      }
+    }
+
+  const applyProveedor = (servicio, provider) => {
+    const providerCurrency = provider.moneda_nombre || provider.moneda || ''
+    const currentDraft = getDraft(servicio)
+
+    setDraft(servicio.id, {
+      ...currentDraft,
+      proveedor_id: Number(provider.id),
+      tipo_cambio: isUsdCurrency(providerCurrency) ? '3.4' : (currentDraft.tipo_cambio || ''),
+    })
+
+    setQueryByService((prev) => ({
+      ...prev,
+      [servicio.id]: String(provider.razon_social || provider.nombre || ''),
+    }))
+
+    setSupplierOptionsByService((prev) => ({ ...prev, [servicio.id]: [] }))
   }
+
 
   const getSelectedProvider = (servicio) => {
     const draft = getDraft(servicio)
@@ -579,34 +602,30 @@ export default function MisOrdenesServiciosView({
               <input
                 type="text"
                 value={queryByService[servicio.id] || ''}
-                onChange={(event) => setQueryByService((prev) => ({ ...prev, [servicio.id]: event.target.value }))}
-                placeholder="Escribe para ver proveedores recomendados"
+                onChange={(e) => searchProveedor(servicio.id, e.target.value)}
+                placeholder="Escribe razon social o RUC"
               />
-              {String(queryByService[servicio.id] || '').trim() ? (
+              {supplierLoadingByService[servicio.id] && <small>Buscando proveedores...</small>}
+              {providerOptions.length > 0 && (
                 <ul className="supplier-options">
                   {providerOptions.map((provider) => (
                     <li key={`service-provider-${servicio.id}-${provider.id}`}>
                       <button
                         type="button"
-                        onClick={() => {
-                          const providerCurrency = provider.moneda_nombre || provider.moneda || ''
-                          const currentDraft = getDraft(servicio)
-                          setDraft(servicio.id, {
-                            ...currentDraft,
-                            proveedor_id: Number(provider.id),
-                            tipo_cambio: isUsdCurrency(providerCurrency) ? '3.4' : (currentDraft.tipo_cambio || ''),
-                          })
-                          setQueryByService((prev) => ({ ...prev, [servicio.id]: String(provider.razon_social || provider.nombre || '') }))
-                        }}
+                        onClick={() => applyProveedor(servicio, provider)}
                       >
                         <span>{provider.razon_social || provider.nombre}</span>
                         <small>{provider.ruc ? `RUC ${provider.ruc}` : ''}</small>
                       </button>
                     </li>
                   ))}
-                  {providerOptions.length === 0 && <li className="supplier-empty">Sin coincidencias</li>}
                 </ul>
-              ) : null}
+              )}
+              {providerOptions.length === 0 && String(queryByService[servicio.id] || '').trim() && !supplierLoadingByService[servicio.id] && (
+                <ul className="supplier-options">
+                  <li className="supplier-empty">Sin coincidencias</li>
+                </ul>
+              )}
             </label>
 
             {renderProviderDetails(selectedProvider)}
@@ -695,7 +714,7 @@ export default function MisOrdenesServiciosView({
               {providerIsUsd && <p><strong>Tasa de cambio:</strong> {Number(draft.tipo_cambio || 0) > 0 ? Number(draft.tipo_cambio).toFixed(2) : '3.40'}</p>}
               <p><strong>Total base:</strong> {formatMoney(retentionData.totalBase)}</p>
               <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
-              {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
+              {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> { (retencionPct * 100).toFixed(2)}%</p>}
               {retentionData.aplicaRetencion && <p><strong>Monto retenido:</strong> {retentionData.montoRetencion.toFixed(2)}</p>}
               <p><strong>TOTAL FINAL:</strong> {retentionData.totalFinal.toFixed(2)}</p>
               {!retencionFlag && <p><strong>Tipo retención:</strong> -</p>}
