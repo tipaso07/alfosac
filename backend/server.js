@@ -3226,7 +3226,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
   const aplicaRetencion = Boolean(compra.aplica_retencion);
   const porcentajeRetencion = Number(compra.descuento || 0);
-  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
+  const montoRetenido = aplicaRetencion ? Number((totalBase * porcentajeRetencion).toFixed(2)) : 0;
   const totalFinal = Number(compra.importe_final || compra.total || totalBase);
   const approverEntries = buildPdfApprovalEntries({
     approvals: compra.aprobadores,
@@ -3773,7 +3773,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
       ['Otros costos', money(otrosCostos)],
       ['Total base', money(totalBase)],
       ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-      ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+      ['Porcentaje', `${(porcentajeRetencion * 100).toFixed(2)}%`],
       ['Monto retenido', money(montoRetenido)],
       ['Total final', money(totalFinal)],
     ],
@@ -9830,7 +9830,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalEnSoles > 700);
     const aplicaRetencion = providerRetencionFlag && descuentoNum > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
-      ? Number((totalBase * (descuentoNum / 100)).toFixed(2))
+      ? Number((totalBase * descuentoNum).toFixed(2))
       : 0;
     const importeFinalCalc = aplicaRetencion
       ? Number((totalBase - montoRetencion).toFixed(2))
@@ -9932,7 +9932,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         tipoRetencionNorm,
         importeFinalCalc,
         (providerData?.condiciones_pago || payload.condiciones_pago || null),
-        totalBase,
+        subtotal,
         costoEnvio,
         otrosCostos,
         igvCalc,
@@ -12064,7 +12064,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalBaseSoles > 700);
     const aplicaRetencion = providerRetencionFlag && retencionPct > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
-      ? Number((totalBase * (retencionPct / 100)).toFixed(2))
+      ? Number((totalBase * (retencionPct)).toFixed(2))
       : 0;
     const totalFinal = aplicaRetencion
       ? Number((totalBase - montoRetencion).toFixed(2))
