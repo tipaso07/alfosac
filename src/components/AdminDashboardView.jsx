@@ -52,8 +52,7 @@ function StackedConsumptionChart({ rows = [] }) {
   const padding = 40
   const barSpacing = (width - padding * 2) / Math.max(rows.length, 1)
   const groupWidth = Math.max(70, Math.min(140, barSpacing * 0.85))
-  const itemWidth = Math.max(24, (groupWidth - 10) / 2)
-
+const itemWidth = Math.max(18, (groupWidth - 16) / 3)
   return (
     <article className="erp-card erp-consumo-main">
       <header>
@@ -79,6 +78,9 @@ function StackedConsumptionChart({ rows = [] }) {
                 const servCount = Number(row.servCount || 0)
                 const comprasHeight = maxTotal > 0 ? (combinedValue / maxTotal) * (height - padding * 2) : 0
                 const servHeight = maxTotal > 0 ? (serv / maxTotal) * (height - padding * 2) : 0
+                const cdValue = Number(row.comprasDirectas || 0)
+                const cdHeight = maxTotal > 0 ? (cdValue / maxTotal) * (height - padding * 2) : 0
+                const cdX = groupX + (itemWidth + 8) * 2
                 const groupX = padding + idx * barSpacing + (barSpacing - groupWidth) / 2
                 const comprasX = groupX
                 const servX = groupX + itemWidth + 8
@@ -99,6 +101,10 @@ function StackedConsumptionChart({ rows = [] }) {
                     <text x={groupX + groupWidth / 2} y={height - padding + 18} textAnchor="middle" fontSize="11" fill="#475569">
                       {row.area.length > 10 ? row.area.substring(0, 8) + '..' : row.area}
                     </text>
+                    <rect x={cdX} y={baseY - cdHeight} width={itemWidth} height={cdHeight} fill="var(--primary-color)" opacity="0.92" />
+                    <text x={cdX + itemWidth / 2} y={baseY - cdHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
+                      {cdValue > 0 ? formatMoney(cdValue) : ''}
+                    </text>
                   </g>
                 )
               })}
@@ -112,6 +118,10 @@ function StackedConsumptionChart({ rows = [] }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '12px', height: '12px', background: 'var(--success-color)', borderRadius: '2px' }} />
               <span>Servicios</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '12px', background: 'var(--primary-color)', borderRadius: '2px' }} />
+              <span>Compras Directas</span>
             </div>
           </div>
         </div>
@@ -142,6 +152,7 @@ function RankingTable({ rows = [] }) {
                 <th>%</th>
                 <th>Req</th>
                 <th>Compras</th>
+                <th>CD</th>
                 <th>Serv</th>
               </tr>
             </thead>
@@ -461,7 +472,10 @@ export default function AdminDashboardView({ data, loading = false, onRefresh, s
     () => (Array.isArray(data?.proveedores_worst_rated) ? data.proveedores_worst_rated : []),
     [data?.proveedores_worst_rated]
   )
-
+const comprasDirectasPorAreaRaw = useMemo(
+  () => (Array.isArray(data?.compras_directas_por_area) ? data.compras_directas_por_area : []),
+  [data?.compras_directas_por_area]
+)
   const reqPendientes = Number(stats?.pendientes || 0)
   const reqCompletados = Number(stats?.completados || 0)
 
@@ -559,9 +573,15 @@ useEffect(() => {
       row.servCount += Number(item.total || 0)
       row.servicios += Number(item.monto_total || 0)
     })
+    comprasDirectasPorAreaRaw.forEach((item) => {
+  const area = normalizeArea(item.area)
+  const row = ensure(area)
+  row.compraDirectaCount += Number(item.total || 0)
+  row.comprasDirectas += Number(item.monto_total || 0)
+})
 
     return Array.from(areaMap.values())
-      .map((row) => ({ ...row, total: row.compras + row.requerimientos + row.servicios }))
+      .map((row) => ({ ...row, total: row.compras + row.requerimientos + row.servicios + row.comprasDirectas }))
       .filter((row) => !isAlmacenArea(row.area))
       .sort((a, b) => b.total - a.total)
   }, [comprasPorAreaRaw, gastoSalidaPorAreaRaw, servPorAreaRaw])
@@ -647,6 +667,7 @@ useEffect(() => {
         <KpiCard title="Total requerimientos" value={formatNumber(resumen.total_requerimientos)} icon="REQ" tone="warn" />
         <KpiCard title="Total compras" value={formatNumber(resumen.total_compras)} icon="OC" tone="ok" />
         <KpiCard title="Total servicios" value={formatNumber(resumen.total_servicios)} icon="SRV" tone="info" />
+        <KpiCard title="Total compras directas" value={formatNumber(resumen.total_compras_directas)} icon="CD" tone="secondary" />
       </div>
 
       <div className="erp-grid one-col">
