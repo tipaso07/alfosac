@@ -117,15 +117,6 @@ const emptyForm = {
 
 const requiredProviderFields = [
   'proveedor',
-  'ruc',
-  'direccion',
-  'correo',
-  'persona_responsable',
-  'telefono',
-  'condiciones_pago',
-  'banco',
-  'numero_cuenta',
-  'cci',
 ]
 
 const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, retencionFlag, retencionPct, tipoCambio }) => {
@@ -139,8 +130,8 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
-    ? Number((totalBase * (retencionPct / 100)).toFixed(2))
-    : 0
+  ? Number((totalBase * retencionPct).toFixed(2))
+  : 0
   const totalFinal = aplicaRetencion
     ? Number((totalBase - montoRetencion).toFixed(2))
     : totalBase
@@ -351,7 +342,6 @@ export default function MisOrdenesCompraView({
   const updateForm = (compraId, patch) => {
     const previous = formsByCompra[compraId] || emptyForm
     const merged = {
-      ...emptyForm,
       ...previous,
       ...patch,
     }
@@ -450,35 +440,11 @@ export default function MisOrdenesCompraView({
   }
 
   const validateProviderData = (data) => {
-    if (!data.id_proveedor) {
-      return 'Debes seleccionar un proveedor existente de la lista.'
-    }
-
-    const missing = requiredProviderFields.filter((field) => !String(data[field] || '').trim())
-    if (missing.length > 0) {
-      return `Faltan datos del proveedor seleccionado: ${missing.join(', ')}`
-    }
-
-    if (!Number(data.id_moneda)) {
-      return 'Debes seleccionar una moneda valida de la lista.'
-    }
-
-    const retencionNum = Number(data.descuento)
-    if (!Number.isFinite(retencionNum) || retencionNum < 0) {
-      return 'Retencion (%) debe ser numerica y mayor o igual a 0.'
-    }
-
-    const tipoRetencionNorm = normalize(data.tipo_retencion)
-    if (!['RETENCION', 'DETRACCION'].includes(tipoRetencionNorm)) {
-      return 'Tipo de retencion solo puede ser RETENCION o DETRACCION.'
-    }
-
-    if (Number(data.importe_final) < 0) {
-      return 'Importe final no puede ser negativo.'
-    }
-
-    return ''
+  if (!data.id_proveedor) {
+    return 'Debes seleccionar un proveedor existente de la lista.'
   }
+  return ''
+}
 
   const saveDatos = async (compra) => {
     setError('')
@@ -578,7 +544,7 @@ export default function MisOrdenesCompraView({
             setFormsByCompra((prevForms) => ({
               ...prevForms,
               [compraId]: {
-                ...(prevForms[compraId] || emptyForm),
+                ...(prevForms[compraId]),
                 itemsUnits: initialUnits,
               },
             }))
@@ -800,7 +766,7 @@ export default function MisOrdenesCompraView({
           <p><strong>Estado proveedor:</strong> {ratingState.averageLabel}</p>
           <p className="my-po-provider-state-row"><span className={`my-po-provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span></p>
           <p><strong>Retencion:</strong> {isRetentionEnabled(form.retencion) ? 'SI' : 'NO'}</p>
-          <p><strong>Porcentaje:</strong> {Number(form.descuento || 0).toFixed(2)}%</p>
+          <p><strong>Porcentaje:</strong> {(Number(form.descuento || 0) * 100).toFixed(2)}%</p>
           <p><strong>Tipo:</strong> {isRetentionEnabled(form.retencion) ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
           {ratingState.showLowAlert && <p className="my-po-alert-warning"><strong>Alerta:</strong> Se recomienda evaluar cambio de proveedor</p>}
           {canSeeCriticalAlert && ratingState.showCriticalAlert && <p className="my-po-alert-critical"><strong>Alerta critica:</strong> Proveedor con calificacion critica, se recomienda contactar</p>}
