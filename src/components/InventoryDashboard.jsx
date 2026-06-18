@@ -787,6 +787,17 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setError(null)
     }
   }
+  // Polling cada 30s para mantener datos actualizados
+useEffect(() => {
+  const interval = setInterval(() => {
+    loadData()
+  }, 30000)
+  return () => clearInterval(interval)
+}, [loadData])
+useEffect(() => {
+    loadData()
+  }, [loadData])
+
 
   return (
     <div className="dashboard">
