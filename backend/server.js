@@ -1666,12 +1666,14 @@ const createApprovalRowsForEntity = async (client, {
   }
 
   if (roleChain.length === 0) {
-    if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
+      if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
       return { usesApprovalTable: true, autoApproved: true };
     }
-
+    if (normalizedTipo === 'SERVICIO' && Number(creatorRoleId || 0) > 0) {
+      return { usesApprovalTable: true, autoApproved: true };
+    }
     throw new Error(`No se pudo resolver la cadena de aprobaciones para tipo ${normalizedTipo}`);
-  }
+}
 
   await client.query('DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2', [normalizedTipo, reference]);
 
@@ -3303,7 +3305,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       ['Otros costos', money(otrosCostos, compra.moneda)],
       ['Total base', money(totalBase, compra.moneda)],
       ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-      ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+      ['Porcentaje', `${(porcentajeRetencion * 100).toFixed(2)}%`],
       ['Monto retenido', money(montoRetenido, compra.moneda)],
       ['Total final', money(totalFinal, compra.moneda)],
     ],
@@ -3320,9 +3322,6 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
         ['Correo', compra.correo || compra.contacto_proveedor],
         ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
         ['Teléfono', compra.telefono],
-        ...(String(compra.comentarios || '').trim()
-          ? [['Comentarios', compra.comentarios]]
-          : []),
       ],
     },
     {
@@ -3689,7 +3688,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   const exceedsThreshold = (isPenCurrency && totalBase > 700) || (isUsdCurrency && totalBaseSoles > 700);
   const providerAllowsRetention = normalize(servicio.proveedor_retencion) === 'SI' && porcentajeRetencion > 0;
   const aplicaRetencion = Boolean(servicio.aplica_retencion) || (providerAllowsRetention && exceedsThreshold);
-  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
+  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion)).toFixed(2)) : 0;
   let totalFinal = parseAmount(servicio.total || totalBase);
   if (aplicaRetencion) {
     totalFinal = Number((totalBase - montoRetenido).toFixed(2));
@@ -11722,16 +11721,11 @@ app.post('/api/servicios', authMiddleware, requirePermissions('CREAR_SOLICITUD_S
     });
 
     if (approvalSetup.autoApproved) {
-      await client.query(
-        `
-          UPDATE servicios
-          SET ${quoteIdentifier(approvalColumn)} = 'APROBADO',
-              ${quoteIdentifier(statusColumn)} = NULL
-          WHERE id = $1
-        `,
+    await client.query(
+        `UPDATE servicios SET ${quoteIdentifier(approvalColumn)} = 'APROBADO', ${quoteIdentifier(statusColumn)} = 'APROBADO' WHERE id = $1`,
         [servicioId]
-      );
-    }
+    );
+}
 
     await client.query('COMMIT');
     txStarted = false;
