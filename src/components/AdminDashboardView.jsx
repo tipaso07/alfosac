@@ -80,8 +80,8 @@ const itemWidth = Math.max(18, (groupWidth - 16) / 3)
                 const servHeight = maxTotal > 0 ? (serv / maxTotal) * (height - padding * 2) : 0
                 const cdValue = Number(row.comprasDirectas || 0)
                 const cdHeight = maxTotal > 0 ? (cdValue / maxTotal) * (height - padding * 2) : 0
-                const cdX = groupX + (itemWidth + 8) * 2
                 const groupX = padding + idx * barSpacing + (barSpacing - groupWidth) / 2
+                const cdX = groupX + (itemWidth + 8) * 2
                 const comprasX = groupX
                 const servX = groupX + itemWidth + 8
                 const baseY = height - padding
@@ -169,6 +169,7 @@ function RankingTable({ rows = [] }) {
                     <td><span className={`erp-badge ${tone}`}>{pct.toFixed(1)}%</span></td>
                     <td>{formatNumber(row.reqCount)}</td>
                     <td>{formatNumber(row.compraCount)}</td>
+                    <td>{formatNumber(row.compraDirectaCount)}</td>
                     <td>{formatNumber(row.servCount)}</td>
                   </tr>
                 )
@@ -549,8 +550,8 @@ useEffect(() => {
     const areaMap = new Map()
     const ensure = (area) => {
       if (!areaMap.has(area)) {
-        areaMap.set(area, { area, compras: 0, requerimientos: 0, servicios: 0, compraCount: 0, reqCount: 0, servCount: 0, total: 0 })
-      }
+     areaMap.set(area, { area, compras: 0, requerimientos: 0, servicios: 0, compraCount: 0, reqCount: 0, servCount: 0, compraDirectaCount: 0, total: 0 })
+    }
       return areaMap.get(area)
     }
 
