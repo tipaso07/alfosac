@@ -333,16 +333,15 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   }
 
   if (normalizedTipo === 'SERVICIO') {
-    // Regla especial: servicios creados por rol 11 van directo a Finanzas.
-    if (creatorRole === 11) {
-      return skipCreatorAndEarlier(dentroPlan ? [7] : [7, 8]);
+    const serviceChain = dentroPlan
+      ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
+      : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN;
+
+    if (creatorRole > 0 && isApprovalHierarchyRoleId(creatorRole) && !serviceChain.includes(creatorRole)) {
+      return [];
     }
 
-    return skipCreatorAndEarlier(
-      dentroPlan
-        ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
-        : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN
-    );
+    return skipCreatorAndEarlier(serviceChain);
   }
 
   return [];
