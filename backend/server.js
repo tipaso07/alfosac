@@ -3982,6 +3982,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         COALESCE(a.nombre, 'Sin area') AS area,
         COALESCE(mo.nombre, '') AS moneda,
         COALESCE(u.nombre, 'Sin usuario') AS usuario,
+        u.telefono AS usuario_telefono,
         (csr.puntuacion IS NOT NULL) AS calificacion_servicio_existe,
         csr.puntuacion AS calificacion_servicio_puntuacion,
         COALESCE(csr.comentario, '') AS calificacion_servicio_comentario,
@@ -5582,7 +5583,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
 app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { nombre, email, dni, id_role, id_area, estado, password, foto } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, password, foto, telefono} = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     if (!nombre || !String(nombre).trim()) {
@@ -5667,7 +5668,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, email, dni, id_role, id_area, estado, foto } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, foto, telefono } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     const userId = Number(id);
