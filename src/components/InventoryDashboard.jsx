@@ -991,7 +991,7 @@ useEffect(() => {
             />
           )}
           {activeTab === 'settings' && allowedTabs.includes('settings') && (
-            <AjustesView currentUser={currentUserProfile} onUpdatePhoto={handleUpdateMyPhoto} />
+            <AjustesView currentUser={currentUserProfile} onUpdatePhoto={handleUpdateMyPhoto} onRefreshUser={loadData} />
           )}
           {activeTab === 'notifications' && allowedTabs.includes('notifications') && (
             <NotificationsView currentUser={currentUserProfile} onAuthExpired={onAuthExpired} />
