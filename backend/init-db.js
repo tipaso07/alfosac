@@ -80,7 +80,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id_area INTEGER REFERENCES areas(id),
   estado VARCHAR(20) DEFAULT 'ACTIVO',
   created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
-  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
+  updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
+  telefono VARCHAR(50) NOT NULL DEFAULT '',
+
 );
 
 CREATE TABLE IF NOT EXISTS proveedores (
@@ -588,10 +590,10 @@ async function initDatabase() {
     const adminRole = await client.query('SELECT id FROM roles WHERE nombre = $1', ['ADMIN']);
     if (adminRole.rows.length > 0) {
       await client.query(
-        `INSERT INTO usuarios (email, password_hash, nombre, id_role, estado) 
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO usuarios (email, password_hash, nombre, id_role, estado, telefono) 
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (email) DO NOTHING`,
-        ['admin@alfosac.pe', 'admin', 'Administrador', adminRole.rows[0].id, 'ACTIVO']
+        ['admin@alfosac.pe', 'admin', 'Administrador', adminRole.rows[0].id, 'ACTIVO', '999999999']
       );
       console.log('✓ Usuario administrador verificado');
     }
