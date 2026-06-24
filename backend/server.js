@@ -3019,7 +3019,7 @@ const buildPurchaseComment = ({ comentarios = '', recibidoPor = '', itemCategori
   return text;
 };
 
-const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
+const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
   const chunks = [];
 
@@ -3450,7 +3450,6 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   } 
 
   doc.moveDown(0.5);
-  const creatorPhone = compra.usuario_telefono || '+51 978772509';
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
     left,
@@ -3461,7 +3460,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   doc.end();
 });
 
-const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
+const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
   const chunks = [];
 
@@ -3794,7 +3793,6 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.y = approbacionesBottom + 4;
 
   doc.moveDown(0.5);
-  const creatorPhone = servicio.usuario_telefono || '+51 978772509';
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
     `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
     left,
@@ -10083,7 +10081,7 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
       tipo: 'COMPRA',
       referenciaId: finalCompra.id,
     });
-    const pdfBase64 = await buildCompraPdfBase64(finalCompra);
+    const pdfBase64 = await buildCompraPdfBase64(finalCompra, req.user.telefono || '+51 000000000');  
 
     res.json({
       compra: finalCompra,
@@ -12285,7 +12283,7 @@ app.post('/api/servicios/:id/generar-orden', authMiddleware, async (req, res) =>
       referenciaId: refreshedServicio.id,
     });
 
-    const pdfBase64 = await buildServicioPdfBase64(refreshedServicio);
+    const pdfBase64 = await buildServicioPdfBase64(refreshedServicio, req.user.telefono || '+51 000000000');
 
     res.json({
       id: refreshedServicio.id,
@@ -12356,7 +12354,7 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
       referenciaId: servicio.id,
     });
 
-    const pdfBase64 = await buildServicioPdfBase64(servicio);
+    const pdfBase64 = await buildServicioPdfBase64(servicio, req.user.telefono || '+51 000000000');
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -12402,7 +12400,7 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
       referenciaId: compra.id,
     });
 
-    const pdfBase64 = await buildCompraPdfBase64(compra);
+    const pdfBase64 = await buildCompraPdfBase64(compra, req.user.telefono || '+51 000000000');
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
     res.setHeader('Content-Type', 'application/pdf');
