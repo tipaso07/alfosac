@@ -5785,7 +5785,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
         UPDATE usuarios
         SET ${updates.join(', ')}
         WHERE id = $${paramCount}
-        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
+        RETURNING id, nombre, email, dni, telefono, ${userRoleColumn} AS id_role, id_area, estado, imagen
       `,
       values
     );
