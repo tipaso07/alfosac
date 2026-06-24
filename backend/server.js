@@ -3450,8 +3450,9 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   } 
 
   doc.moveDown(0.5);
+  const creatorPhone = compra.usuario_telefono || '+51 978772509';
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
-    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
+    `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
     left,
     doc.y,
     { width: usableWidth, align: 'center' }
@@ -3793,8 +3794,9 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.y = approbacionesBottom + 4;
 
   doc.moveDown(0.5);
+  const creatorPhone = servicio.usuario_telefono || '+51 978772509';
   doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
-    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
+    `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
     left,
     doc.y,
     { width: usableWidth, align: 'center' }
@@ -3848,6 +3850,8 @@ const getUserPasswordExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'password_hash', to_jsonb(${tableAlias})->>'contraseña', to_jsonb(${tableAlias})->>'contrasena', ''), '')`;
 const getUserEstadoExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'estado', ''), '')`;
+const getUserTelefonoExpr = (tableAlias) =>
+  `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'telefono', ''), '')`;
 const getRequerimientoDescripcionExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'comentario', to_jsonb(${tableAlias})->>'descripcion', to_jsonb(${tableAlias})->>'observaciones', ''), '')`;
 const getRequerimientoDescripcionColumn = () =>
@@ -5557,6 +5561,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
           usuarios.nombre,
           ${userEmailExpr} AS email,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'dni', '')), ''), '') AS dni,
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'telefono', '')), ''), '') AS telefono,
           ${userRoleExpr} AS id_role,
           usuarios.id_area,
           COALESCE(${userEstadoExpr}, 'ACTIVO') AS estado,
@@ -5591,6 +5596,11 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
     if (!dni || !String(dni).trim()) {
       return res.status(400).json({ error: 'DNI es requerido' });
     }
+
+    if (!telefono || !String(telefono).trim()) {
+      return res.status(400).json({ error: 'Teléfono es requerido' });
+    }
+
 
     const providedPassword = password && String(password).trim();
     const rawPassword = providedPassword || 'admin';
@@ -5631,9 +5641,9 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
     const result = await pool.query(
       `
-        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado, imagen)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
+        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado, imagen, telefono)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen, telefono
       `,
       [
         String(nombre).trim(),
@@ -5643,7 +5653,8 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
         Number(id_role),
         id_area ? Number(id_area) : null,
         estado || 'ACTIVO',
-        fotoBase64
+        fotoBase64,
+        String(telefono).trim()
       ]
     );
 
@@ -5690,6 +5701,16 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
     if (dni !== undefined && !String(dni).trim()) {
       return res.status(400).json({ error: 'DNI no puede estar vacio' });
     }
+     if (telefono !== undefined && !String(telefono).trim()) {
+      return res.status(400).json({ error: 'Teléfono no puede estar vacío' });
+    }
+ if (telefono !== undefined) {
+      updates.push(`telefono = $${paramCount}`);
+      values.push(String(telefono).trim());
+      paramCount += 1;
+    }
+
+
 
     if (id_role) {
       const roleCheck = await pool.query('SELECT id FROM roles WHERE id = $1', [id_role]);
@@ -5912,6 +5933,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
           ${getUserRoleIdExpr('u')} AS id_role,
           COALESCE(r.nombre, '') AS rol,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'dni', '')), ''), '') AS dni,
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'telefono', '')), ''), '') AS telefono,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'foto', '')), ''), '') AS foto,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'imagen', '')), ''), '') AS imagen
         FROM usuarios u
@@ -5932,7 +5954,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     const canAccessManageRequests = await canAccessManageRequestsModule(req.user, dbPermissions);
     dbPermissions = await filterUserPermissions(dbPermissions, req.user);
 
-    // If the user is part of a real approval flow, expose the hidden module permission.
     if (canAccessManageRequests && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
       dbPermissions.push('GESTIONAR_SOLICITUDES');
     }
@@ -5948,7 +5969,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
       id_role: profile.id_role,
       rol: profile.rol || req.user.rol || '',
       dni: profile.dni,
-      // Expose only `imagen` for the current user to avoid stale `foto` shadowing.
+      telefono: profile.telefono || '',
       imagen: profile.imagen,
       permisos: dbPermissions,
     });
@@ -5956,7 +5977,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 app.patch('/api/me/foto', authMiddleware, async (req, res) => {
   try {
     // Prefer `imagen` column. Accept `imagen` or `foto` in body for compatibility.
@@ -5996,6 +6016,41 @@ app.patch('/api/me/foto', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+app.patch('/api/me', authMiddleware, async (req, res) => {
+  try {
+    const { telefono } = req.body;
+
+    if (telefono === undefined) {
+      return res.status(400).json({ error: 'No hay campos para actualizar' });
+    }
+
+    if (!String(telefono).trim()) {
+      return res.status(400).json({ error: 'Teléfono no puede estar vacío' });
+    }
+
+    const updated = await pool.query(
+      `
+        UPDATE usuarios
+        SET telefono = $1
+        WHERE id = $2
+        RETURNING id, nombre, telefono
+      `,
+      [String(telefono).trim(), req.user.id]
+    );
+
+    if (updated.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Teléfono actualizado correctamente',
+      telefono: updated.rows[0].telefono,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -8959,6 +9014,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         NULLIF(to_jsonb(c)->>'id_usuario', '')::int AS id_usuario,
         NULLIF(to_jsonb(c)->>'id_proveedor', '')::int AS id_proveedor,
         u.nombre AS usuario,
+        u.telefono AS usuario_telefono,
         NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int AS id_area_solicitante,
         COALESCE(a_sol.nombre, 'Sin area') AS area_solicitante,
         NULLIF(to_jsonb(c)->>'id_area_final', '')::int AS id_area_final,
