@@ -5705,11 +5705,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
      if (telefono !== undefined && !String(telefono).trim()) {
       return res.status(400).json({ error: 'Teléfono no puede estar vacío' });
     }
- if (telefono !== undefined) {
-      updates.push(`telefono = $${paramCount}`);
-      values.push(String(telefono).trim());
-      paramCount += 1;
-    }
+   
 
 
 
@@ -5748,7 +5744,11 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
       values.push(String(dni).trim());
       paramCount += 1;
     }
-
+    if (telefono !== undefined) {
+      updates.push(`telefono = $${paramCount}`);
+      values.push(String(telefono).trim());
+      paramCount += 1;
+    }
     if (id_role) {
       updates.push(`${userRoleColumn} = $${paramCount}`);
       values.push(Number(id_role));
