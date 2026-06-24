@@ -1,8 +1,8 @@
 .settings-section {
-  background: #ffffff;
-  border-radius: 14px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
   padding: 24px;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-header h1 {
@@ -24,9 +24,14 @@
 
 .settings-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--surface);
+  transition: all var(--transition-base);
+}
+
+.settings-card:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-card h2 {
@@ -43,14 +48,14 @@
 .settings-field {
   display: grid;
   gap: 3px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   padding: 10px;
-  background: #f8fafc;
+  background: var(--surface-soft);
 }
 
 .settings-field-label {
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -58,19 +63,19 @@
 }
 
 .settings-field-value {
-  font-size: 14px;
+  font-size: var(--font-base);
   color: var(--text-primary);
   font-weight: 600;
 }
 
 .settings-photo-box {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px;
   display: grid;
   justify-items: center;
   gap: 10px;
-  background: #f8fafc;
+  background: var(--surface-soft);
 }
 
 .settings-photo {
@@ -78,17 +83,17 @@
   height: 132px;
   border-radius: 999px;
   object-fit: cover;
-  border: 1px solid #d1d5db;
+  border: 2px solid var(--border);
 }
 
 .settings-photo-placeholder {
   width: 132px;
   height: 132px;
   border-radius: 999px;
-  border: 1px dashed #94a3b8;
+  border: 2px dashed #94a3b8;
   display: grid;
   place-items: center;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 13px;
   text-align: center;
   padding: 12px;
@@ -115,16 +120,28 @@
   border: 1px solid var(--primary-color);
   background: var(--primary-color);
   color: #fff;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 9px 12px;
   font-weight: 700;
   cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-btn:hover {
+  background: var(--secondary-color);
+  border-color: var(--secondary-color);
+  transform: translateY(-1px);
 }
 
 .settings-btn.secondary {
   border-color: var(--border);
   background: #fff;
   color: var(--text-primary);
+}
+
+.settings-btn.secondary:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .settings-editor {
@@ -144,16 +161,23 @@
 }
 
 .settings-file-name {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
 .settings-editor textarea {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px;
   resize: vertical;
   font-size: 13px;
+  transition: all var(--transition-fast);
+}
+
+.settings-editor textarea:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(50, 154, 214, 0.15);
+  outline: none;
 }
 
 .settings-actions {
@@ -169,10 +193,10 @@
 
 .settings-password-editor {
   margin-top: 0;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 12px;
-  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--surface-soft);
   display: grid;
   gap: 10px;
   max-width: 520px;
@@ -188,15 +212,22 @@
 
 .settings-password-editor input {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 9px 10px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
+  transition: all var(--transition-fast);
+}
+
+.settings-password-editor input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(50, 154, 214, 0.15);
+  outline: none;
 }
 
 .settings-password-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
@@ -216,11 +247,14 @@
   background: transparent;
   border: 1px solid var(--border);
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-/* modal styles removed to keep inline editor only */
+.password-toggle:hover {
+  border-color: var(--primary-color);
+}
 
 .settings-password-hint.good {
   color: #065f46;
@@ -248,4 +282,42 @@
   .settings-grid {
     grid-template-columns: 1fr;
   }
+}
+.settings-field-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-edit-icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s;
+}
+
+.settings-edit-icon:hover {
+  background: #e5e7eb;
+  color: var(--primary-color);
+  border-color: #d1d5db;
+}
+
+.settings-field-input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  width: 100%;
+  background: #fff;
+}
+
+.settings-field-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
