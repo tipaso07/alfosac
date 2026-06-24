@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import '../styles/AjustesView.css'
-import { changePassword } from '../services/api'
+import { changePassword, API_BASE_URL } from '../services/api'
 
 const isValidBase64Image = (value) => {
   const trimmed = String(value || '').trim()
@@ -57,8 +57,8 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
 
   try {
     setSavingPhone(true)
-    const token = localStorage.getItem('token')
-    const res = await fetch(`${API_BASE_URL.replace(/\/api\/?$/, '')}/api/me`, {
+    const token = localStorage.getItem('authToken')
+    const res = await fetch(`${API_BASE_URL}/me`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ telefono: String(phoneValue).trim() }),
@@ -67,7 +67,6 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
     if (!res.ok) throw new Error(data.error || 'Error al actualizar teléfono')
     setPhoneSuccess('Teléfono actualizado correctamente')
     setIsEditingPhone(false)
-    if (onUpdatePhoto) onUpdatePhoto(photoBase64) // trigger refresh
   } catch (err) {
     setPhoneError(err.message || 'No se pudo actualizar el teléfono')
   } finally {
@@ -111,8 +110,6 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
       { label: 'Rol', value: currentUser?.rol || 'N/D' },
       { label: 'Area', value: currentUser?.area || 'N/D' },
       { label: 'DNI', value: currentUser?.dni || 'N/D' },
-      { label: 'Teléfono', value: currentUser?.telefono || 'N/D' },
-
     ]
   }, [currentUser])
 
@@ -291,14 +288,62 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
         <div className="settings-grid">
           <article className="settings-card">
             <h2>Perfil</h2>
-            <div className="settings-field-list">
+             <div className="settings-field-list">
               {userFields.map((field) => (
                 <div className="settings-field" key={field.label}>
                   <span className="settings-field-label">{field.label}</span>
                   <span className="settings-field-value">{field.value}</span>
                 </div>
               ))}
+              <div className="settings-field">
+                <span className="settings-field-label">Teléfono</span>
+                {isEditingPhone ? (
+                  <input
+                    type="text"
+                    value={phoneValue}
+                    onChange={(e) => setPhoneValue(e.target.value)}
+                    className="settings-field-input"
+                    placeholder="Ingresa tu teléfono"
+                  />
+                ) : (
+                  <span className="settings-field-value">
+                    {currentUser?.telefono || 'N/D'}
+                    <button
+                      type="button"
+                      className="settings-edit-icon"
+                      onClick={() => {
+                        setPhoneValue(currentUser?.telefono || '');
+                        setIsEditingPhone(true);
+                        setPhoneError('');
+                        setPhoneSuccess('');
+                      }}
+                      title="Editar teléfono"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  </span>
+                )}
+              </div>
             </div>
+
+            {isEditingPhone && (
+              <div className="settings-editor">
+                <div className="settings-actions">
+                  <button type="button" className="settings-btn" onClick={handleSavePhone} disabled={savingPhone}>
+                    {savingPhone ? 'Guardando...' : 'Guardar'}
+                  </button>
+                  <button type="button" className="settings-btn secondary" onClick={() => setIsEditingPhone(false)} disabled={savingPhone}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phoneError && <p className="settings-message error">{phoneError}</p>}
+            {phoneSuccess && <p className="settings-message success">{phoneSuccess}</p>}
           </article>
 
           <article className="settings-card">
@@ -355,46 +400,7 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
             {successMessage && <p className="settings-message success">{successMessage}</p>}
           </article>
 
-           <article className="settings-card">
-            <h2>Teléfono</h2>
-            <div className="settings-field-list">
-              <div className="settings-field">
-                <span className="settings-field-label">Teléfono actual</span>
-                <span className="settings-field-value">{currentUser?.telefono || 'N/D'}</span>
-              </div>
-            </div>
-
-            {!isEditingPhone ? (
-              <button type="button" className="settings-btn" onClick={() => {
-                setPhoneValue(currentUser?.telefono || '');
-                setIsEditingPhone(true);
-                setPhoneError('');
-                setPhoneSuccess('');
-              }}>
-                Cambiar teléfono
-              </button>
-            ) : (
-              <div className="settings-editor">
-                <input
-                  type="text"
-                  value={phoneValue}
-                  onChange={(e) => setPhoneValue(e.target.value)}
-                  placeholder="Ingresa tu teléfono"
-                />
-                <div className="settings-actions">
-                  <button type="button" className="settings-btn" onClick={handleSavePhone} disabled={savingPhone}>
-                    {savingPhone ? 'Guardando...' : 'Guardar cambios'}
-                  </button>
-                  <button type="button" className="settings-btn secondary" onClick={() => setIsEditingPhone(false)} disabled={savingPhone}>
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {phoneError && <p className="settings-message error">{phoneError}</p>}
-            {phoneSuccess && <p className="settings-message success">{phoneSuccess}</p>}
-          </article>
+          
         
           <article className="settings-card">
             <h2>Seguridad</h2>
