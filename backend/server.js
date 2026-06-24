@@ -3044,414 +3044,234 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     }
   };
 
-  const writeSectionTitle = (title) => {
-    ensureSpace(28);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
-    doc.moveDown(0.2);
-    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
-    doc.moveDown(0.5);
+  const drawSectionBar = (title, x, y, width, height = 18) => {
+    doc.rect(x, y, width, height).fill(PDF_BRAND_COLORS.sectionHeader);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(title, x + 6, y + 5, { width: width - 12 });
+    return y + height;
   };
 
-  const estimateBlockHeight = (rows = []) => {
-    const rowGap = 4;
-    const paddingY = 4;
-    const titleHeight = 16;
-    const labelWidth = Math.max(98, Math.floor((usableWidth / 2 - 20) * 0.38));
-    const valueWidth = usableWidth / 2 - 20 - labelWidth - 8;
-
-    const measureRowHeight = (label, value) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      doc.font('Helvetica').fontSize(8.5);
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      return Math.max(18, Math.max(labelHeight, valueHeight));
-    };
-
-    let total = titleHeight + (paddingY * 2);
-    rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value) + rowGap;
-    });
-    return total;
+  const writeSimpleLabel = (label, value, x, y, labelWidth, valueWidth) => {
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, x, y, { width: labelWidth });
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(value, x + labelWidth, y, { width: valueWidth });
+    const h = Math.max(doc.heightOfString(label, { width: labelWidth }), doc.heightOfString(value, { width: valueWidth }));
+    return y + h + 3;
   };
-
-  const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 6;
-    const paddingX = 10;
-    const paddingY = 6;
-    const titleHeight = 18;
-    const labelWidth = Math.max(98, Math.floor(width * 0.38));
-    const valueWidth = width - (paddingX * 2) - labelWidth - 8;
-
-    const measureRowHeight = (label, value) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      doc.font('Helvetica').fontSize(8.5);
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      return {
-        textLabel,
-        textValue,
-        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
-      };
-    };
-
-    let contentHeight = 0;
-    rows.forEach(([label, value]) => {
-      const measured = measureRowHeight(label, value);
-      contentHeight += measured.rowHeight + rowGap;
-    });
-
-    const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
-
-    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
-    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
-      width: width - (paddingX * 2),
-    });
-
-    let rowY = y + titleHeight + paddingY;
-    rows.forEach(([label, value]) => {
-      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
-
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
-        width: labelWidth,
-      });
-
-      // Make the TOTAL FINAL value bold
-      const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
-        || String(label || '').toLowerCase().includes('total final')
-        || String(label || '').toLowerCase().includes('totalfinal');
-
-      if (isTotalFinal) {
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-          width: valueWidth,
-        });
-      } else {
-        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-          width: valueWidth,
-        });
-      }
-
-      rowY += rowHeight + rowGap;
-    });
-
-    return y + blockHeight;
-  };
-
-  const renderTwoColumnBlocks = (blocks) => {
-    const colGap = 12;
-    const colWidth = (usableWidth - colGap) / 2;
-    let cursorY = doc.y;
-
-    for (let i = 0; i < blocks.length; i += 2) {
-      const leftBlock = blocks[i];
-      const rightBlock = blocks[i + 1] || null;
-      const estimatedPairHeight = Math.max(
-        estimateBlockHeight(leftBlock?.rows || []),
-        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
-      ) + 10;
-
-      ensureSpace(estimatedPairHeight);
-      cursorY = doc.y;
-
-      const leftBottom = drawInfoBlock({
-        title: leftBlock.title,
-        rows: leftBlock.rows,
-        x: left,
-        y: cursorY,
-        width: colWidth,
-      });
-
-      let pairBottom = leftBottom;
-      if (rightBlock) {
-        const rightBottom = drawInfoBlock({
-          title: rightBlock.title,
-          rows: rightBlock.rows,
-          x: left + colWidth + colGap,
-          y: cursorY,
-          width: colWidth,
-        });
-        pairBottom = Math.max(leftBottom, rightBottom);
-      }
-
-      cursorY = pairBottom + 1;
-      doc.y = cursorY;
-    }
-  };
-
-  const HEADER_INFO_Y = 82;
-  const HEADER_LINE_Y = 106;
-  const HEADER_CONTENT_Y = 108;
 
   const drawHeader = () => {
     const logoPath = getCompanyLogoPath('dark');
 
-    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
+    doc.rect(left, 18, usableWidth, 85).fill('#f8fafc');
 
     if (logoPath) {
-      doc.image(logoPath, left + 12, 24, {
-        fit: [84, 50],
-        align: 'left',
-        valign: 'center',
-      });
+      doc.image(logoPath, left + 12, 24, { fit: [84, 50], align: 'left', valign: 'center' });
     }
 
-    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE COMPRA', left, 32, { width: usableWidth - 14, align: 'right' });
-
-    doc.rect(left, HEADER_INFO_Y, usableWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, PDF_BRAND_COLORS.line);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
+    let infoX = left + 100;
+    doc.text('ALFOSAC SAC', infoX, 24, { width: 200 });
     doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(`Dirección: ${companyAddress}`, left + 8, HEADER_INFO_Y + 3, { width: usableWidth - 16, align: 'center' });
-    doc.text(`RUC: ${companyRuc}  |  ${companyWeb}`, left + 8, HEADER_INFO_Y + 13, { width: usableWidth - 16, align: 'center' });
+    doc.text(companyAddress, infoX, doc.y + 2, { width: 200 });
+    doc.text(`RUC: ${companyRuc}`, infoX, doc.y + 2, { width: 200 });
+    doc.text(companyWeb, infoX, doc.y + 2, { width: 200 });
 
-    doc.moveTo(left, HEADER_LINE_Y).lineTo(pageWidth - right, HEADER_LINE_Y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
-    doc.y = HEADER_CONTENT_Y;
+    doc.font('Helvetica-Bold').fontSize(18).fillColor(PDF_BRAND_COLORS.primaryDark);
+    doc.text('ORDEN DE COMPRA', left + usableWidth - 220, 24, { width: 220, align: 'right' });
+
+    const boxX = left + usableWidth - 200;
+    const boxY = 64;
+    doc.rect(boxX, boxY, 200, 30).fillAndStroke('#eef2f7', '#cbd5e1');
+    doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
+    doc.text(`Fecha: ${String(formatPetDateTime(compra.fecha_creacion) || '').split(' ')[0] || 'N/D'}`, boxX + 6, boxY + 4, { width: 188 });
+    doc.text(`OC: ${compra.numero_orden || `OC-${compra.id}`}`, boxX + 6, boxY + 14, { width: 188 });
+    doc.text(`Codigo: INT-${String(compra.id).padStart(6, '0')}`, boxX + 6, boxY + 22, { width: 188 });
+
+    doc.moveTo(left, 106).lineTo(pageWidth - right, 106).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
+    doc.y = 110;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
   doc.on('error', reject);
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-
-  doc.on('pageAdded', () => {
-    doc.y = HEADER_CONTENT_Y;
-  });
+  doc.on('pageAdded', () => { doc.y = 110; });
 
   drawHeader();
 
+  const colGap = 12;
+  const halfWidth = (usableWidth - colGap) / 2;
+
+  // --- VENDEDOR + ENVIE A ---
+  ensureSpace(60);
+  let blockY = doc.y;
+
+  doc.rect(left, blockY, halfWidth, 80).fillAndStroke('#ffffff', '#e2e8f0');
+  drawSectionBar('VENDEDOR', left, blockY, halfWidth);
+  let rowY = blockY + 20;
+  rowY = writeSimpleLabel('Razon social:', safeText(compra.proveedor || compra.razon_social), left + 6, rowY, 72, halfWidth - 84);
+  rowY = writeSimpleLabel('Direccion:', safeText(compra.direccion), left + 6, rowY, 72, halfWidth - 84);
+  rowY = writeSimpleLabel('Ciudad:', safeText(compra.distrito), left + 6, rowY, 72, halfWidth - 84);
+  rowY = writeSimpleLabel('RUC:', safeText(compra.ruc), left + 6, rowY, 72, halfWidth - 84);
+
+  const envieX = left + halfWidth + colGap;
+  doc.rect(envieX, blockY, halfWidth, 80).fillAndStroke('#ffffff', '#e2e8f0');
+  drawSectionBar('ENVIE A', envieX, blockY, halfWidth);
+  rowY = blockY + 20;
+  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('ALMACENES FORWARDER SAC', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 14;
+  doc.text('AV. NESTOR GAMBETA N° 4783 - CALLAO', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 14;
+  doc.text('CALLAO, CALLAO', envieX + 6, rowY, { width: halfWidth - 12 });
+
+  doc.y = blockY + 80 + 6;
+
+  // --- TABLA PRINCIPAL ---
+  const items = Array.isArray(compra.items) ? compra.items : [];
+  if (items.length > 0) {
+    ensureSpace(30);
+    const colWidths = [36, 290, 46, 64, 78];
+    const colHeaders = ['#', 'DESCRIPCION', 'CANT', 'P/U', 'TOTAL'];
+    let tableX = left;
+    let headerY = doc.y;
+
+    doc.rect(tableX, headerY, usableWidth, 18).fill(PDF_BRAND_COLORS.sectionHeader);
+    let hx = tableX;
+    colHeaders.forEach((h, i) => {
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
+      doc.text(h, hx + 3, headerY + 5, { width: colWidths[i] - 6, align: i === 0 ? 'center' : i === 1 ? 'left' : 'right' });
+      hx += colWidths[i];
+    });
+
+    let rowY2 = headerY + 18;
+    items.forEach((item, idx) => {
+      const desc = safeText(item.material || item.descripcion || item.nombre);
+      const qty = Number(item.cantidad || 0);
+      const pUnit = item.precio_unitario || (qty > 0 ? item.subtotal / qty : 0);
+      const totalItem = Number(item.subtotal || pUnit * qty);
+      const descH = doc.heightOfString(desc, { width: colWidths[1] - 8 });
+      const rowH = Math.max(18, descH + 6);
+
+      if (rowY2 + rowH > bottomLimit - 20) {
+        doc.addPage();
+        drawHeader();
+        headerY = doc.y;
+        doc.rect(tableX, headerY, usableWidth, 18).fill(PDF_BRAND_COLORS.sectionHeader);
+        hx = tableX;
+        colHeaders.forEach((h, i) => {
+          doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
+          doc.text(h, hx + 3, headerY + 5, { width: colWidths[i] - 6, align: i === 0 ? 'center' : i === 1 ? 'left' : 'right' });
+          hx += colWidths[i];
+        });
+        rowY2 = headerY + 18;
+      }
+
+      doc.rect(tableX, rowY2, usableWidth, rowH).fillAndStroke('#ffffff', '#e2e8f0');
+      let cx = tableX;
+      const cellValues = [
+        String(idx + 1),
+        desc,
+        String(qty),
+        money(pUnit, compra.moneda),
+        money(totalItem, compra.moneda),
+      ];
+      cellValues.forEach((cv, ci) => {
+        doc.font(ci === 1 ? 'Helvetica' : 'Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(cv, cx + 3, rowY2 + 3, {
+          width: colWidths[ci] - 6,
+          align: ci === 0 ? 'center' : ci === 1 ? 'left' : 'right',
+        });
+        cx += colWidths[ci];
+      });
+      rowY2 += rowH;
+    });
+
+    doc.y = rowY2 + 6;
+  }
+
+  // --- RESUMEN MONETARIO (derecha) ---
+  ensureSpace(50);
+  const summaryWidth = 220;
+  const summaryX = left + usableWidth - summaryWidth;
   const subtotal = Number(compra.subtotal || 0);
   const igv = Number(compra.igv || 0);
   const costoEnvio = Number(compra.costo_envio || 0);
   const otrosCostos = Number(compra.otros_costos || 0);
-  const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
+  const totalFinal = Number(compra.importe_final || compra.total || (subtotal + igv + costoEnvio + otrosCostos));
+
+  let sumY = doc.y;
+  const sumRows = [
+    ['SUBTOTAL', money(subtotal, compra.moneda)],
+    ['IGV', money(igv, compra.moneda)],
+    ['ENVIO', money(costoEnvio, compra.moneda)],
+    ['OTRO', money(otrosCostos, compra.moneda)],
+  ];
+  sumRows.forEach(([label, val]) => {
+    doc.rect(summaryX, sumY, summaryWidth, 16).fillAndStroke('#ffffff', '#e2e8f0');
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
+    doc.text(label, summaryX + 6, sumY + 4, { width: 100 });
+    doc.text(val, summaryX + 106, sumY + 4, { width: 108, align: 'right' });
+    sumY += 16;
+  });
+
+  doc.rect(summaryX, sumY, summaryWidth, 22).fillAndStroke('#dbeafe', '#93c5fd');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.primaryDark);
+  doc.text('TOTAL', summaryX + 6, sumY + 6, { width: 100 });
+  doc.text(money(totalFinal, compra.moneda), summaryX + 106, sumY + 6, { width: 108, align: 'right' });
+  doc.y = sumY + 26;
+
+  // --- COMENTARIOS E INSTRUCCIONES ESPECIALES ---
+  ensureSpace(80);
+  const commentsWidth = usableWidth;
+  const commentsX = left;
+
+  doc.rect(commentsX, doc.y, commentsWidth, 2).fill(PDF_BRAND_COLORS.primaryDark);
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.primaryDark).text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, doc.y + 4, { width: commentsWidth - 4 });
+  doc.moveDown(0.8);
+
   const aplicaRetencion = Boolean(compra.aplica_retencion);
-  const porcentajeRetencion = Number(compra.descuento || 0);
-  const montoRetenido = aplicaRetencion ? Number((totalBase * porcentajeRetencion).toFixed(2)) : 0;
-  const totalFinal = Number(compra.importe_final || compra.total || totalBase);
-  const approverEntries = buildPdfApprovalEntries({
-    approvals: compra.aprobadores,
-    creatorUserId: compra.id_usuario,
-    creatorRoleId: compra.usuario_rol_id,
-    creatorName: compra.usuario,
+  const commentFields = [
+    ['Retencion/Detraccion:', aplicaRetencion ? 'SI' : 'NO'],
+    ['Correo:', safeText(compra.correo || compra.contacto_proveedor)],
+    ['Persona Responsable:', safeText(compra.persona_responsable || compra.contacto_proveedor)],
+    ['Telefono:', safeText(compra.telefono)],
+    ['Condiciones de Pago:', safeText(compra.condiciones_pago)],
+    ['Banco:', safeText(compra.banco)],
+    ['Moneda:', currencyLabel],
+    ['N de Cuenta:', safeText(compra.numero_cuenta || compra.cuenta)],
+    ['CCI:', safeText(compra.cci)],
+  ];
+
+  const leftColW = 160;
+  const rightColW = commentsWidth - leftColW - 20;
+  let cfY = doc.y;
+  const importeLabel = 'Importe:';
+  const importeVal = money(totalFinal, compra.moneda);
+
+  commentFields.forEach(([label, val]) => {
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: leftColW });
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + leftColW, cfY, { width: rightColW });
+    cfY += 16;
   });
-  const approversSummary = approverEntries
-    .filter((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
-      const rolLabel = String(row.rol || '').trim().toUpperCase()
-      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
-      return !isRequesterRow || approverEntries.length === 1
-    })
-    .map((row) => {
-      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
-      const aprobadorNombre = safeText(row.aprobador || 'Pendiente')
-      return `${aprobadorNombre} (${fallbackRoleLabel})`
-    })
-    .join('\n');
-  const entregaInfo = compra.entrega_area && compra.entrega_area.entregado === true
-    ? {
-      ...compra.entrega_area,
-      ...parseReceiptInfo(compra.recibido_por),
-    }
-    : null;
 
-  writeSectionTitle('Resumen');
-  ensureSpace(50);
+  const importeY = cfY;
+  doc.rect(commentsX + 4, importeY, 260, 26).fillAndStroke('#dbeafe', '#93c5fd');
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(PDF_BRAND_COLORS.primaryDark);
+  doc.text(importeLabel, commentsX + 10, importeY + 6, { width: 80 });
+  doc.text(importeVal, commentsX + 90, importeY + 6, { width: 164, align: 'right' });
 
-  const resumenBottom = drawInfoBlock({
-    title: 'Datos de la orden',
-    rows: [
-      ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
-      ['Fecha', String(formatPetDateTime(compra.fecha_creacion || currentPetDateTime()) || '').split(' ')[0]],
-      ['Proveedor', compra.proveedor || compra.razon_social],
-      ['Área destino', compra.area_final],
-    ],
-    x: left,
-    y: doc.y,
-    width: usableWidth,
-  });
-  doc.y = resumenBottom + 2;
+  doc.y = importeY + 32;
 
-  renderTwoColumnBlocks([
-    {
-      title: 'Orden y solicitante',
-      rows: [
-        ['Área solicitante', compra.area_solicitante],
-        ['Solicitante', compra.usuario],
-        ['Moneda', currencyLabel],
-      ],
-    },
-    {
-      title: 'Proveedor',
-      rows: [
-        ['RUC', compra.ruc],
-        ['Dirección', compra.direccion],
-        ['Distrito', compra.distrito],
-        ['Banco', compra.banco],
-        ['Cuenta', compra.cuenta || compra.numero_cuenta],
-        ['CCI', compra.cci],
-        ['Condiciones de pago', compra.condiciones_pago],
-      ],
-    },
-  ]);
+  // --- INFO ADICIONAL ---
+  ensureSpace(20);
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(`Area solicitante: ${safeText(compra.area_solicitante)}`, left, doc.y, { width: halfWidth });
+  doc.text(`Area final: ${safeText(compra.area_final)}`, left + halfWidth + colGap, doc.y, { width: halfWidth });
+  doc.y += 18;
 
-  const financialBottom = drawInfoBlock({
-    title: 'Detalle financiero',
-    rows: [
-      ['Subtotal', money(subtotal, compra.moneda)],
-      ['IGV', money(igv, compra.moneda)],
-      ['Costo envío', money(costoEnvio, compra.moneda)],
-      ['Otros costos', money(otrosCostos, compra.moneda)],
-      ['Total base', money(totalBase, compra.moneda)],
-      ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-      ['Porcentaje', `${(porcentajeRetencion * 100).toFixed(2)}%`],
-      ['Monto retenido', money(montoRetenido, compra.moneda)],
-      ['Total final', money(totalFinal, compra.moneda)],
-    ],
-    x: left,
-    y: doc.y,
-    width: usableWidth,
-  });
-  doc.y = financialBottom + 6;
-
-  renderTwoColumnBlocks([
-    {
-      title: 'Contacto y observaciones',
-      rows: [
-        ['Correo', compra.correo || compra.contacto_proveedor],
-        ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
-        ['Teléfono', compra.telefono],
-      ],
-    },
-    {
-      title: 'Aprobaciones',
-      rows: [
-        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
-      ],
-    },
-  ]);
-
-  const purchaseDetailText = String(compra.detalle || compra.comentarios || '').trim();
-  if (entregaInfo) {
-    renderTwoColumnBlocks([
-      {
-        title: 'Entrega al area',
-        rows: [
-          ['DNI receptor', entregaInfo.receptor_dni || entregaInfo.dni || 'N/D'],
-          ['Nombre receptor', entregaInfo.receptor_nombre || entregaInfo.nombre || 'N/D'],
-        ],
-      },
-      {
-        title: 'Estado de entrega',
-        rows: [
-          ['Entregado', 'SI'],
-          ['Fecha entrega', entregaInfo.fecha_entrega_area ? new Date(entregaInfo.fecha_entrega_area).toLocaleString() : 'N/D'],
-        ],
-      },
-    ]);
-  }
-
-  if (purchaseDetailText) {
-    writeSectionTitle('Detalle de la solicitud');
-    ensureSpace(40);
-    const detailBoxTop = doc.y;
-    const detailHeight = Math.max(28, doc.heightOfString(purchaseDetailText, { width: usableWidth - 20 }) + 14);
-    doc.rect(left, detailBoxTop, usableWidth, detailHeight).fillAndStroke('#ffffff', '#e2e8f0');
-    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(purchaseDetailText, left + 10, detailBoxTop + 7, {
-      width: usableWidth - 20,
-      align: 'left',
-    });
-    doc.y = detailBoxTop + detailHeight + 3;
-  }
-
-  const items = Array.isArray(compra.items) ? compra.items : [];
-  if (items.length > 0) {
-    const colWidths = [403, 120];
-    const headers = ['Material/Servicio', 'Cantidad'];
-    let x = left;
-
-    const drawDetailHeader = (startY) => {
-      let headerX = left;
-      headers.forEach((header, index) => {
-        doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-        doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
-        doc.text(header, headerX + 6, startY + 6, {
-          width: colWidths[index] - 12,
-          align: index === 0 ? 'left' : 'center',
-        });
-        headerX += colWidths[index];
-      });
-      return startY + 20;
-    };
-    let rowY = doc.y;
-    let renderedAnyItem = false;
-
-    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-    items.forEach((item) => {
-      const qty = Number(item.cantidad || 0);
-      const descripcion = safeText(item.material || item.descripcion || item.nombre);
-      const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
-
-      if (!renderedAnyItem) {
-        if (doc.y + 20 + rowHeight > bottomLimit - 32) {
-          doc.addPage();
-          drawHeader();
-        }
-        writeSectionTitle('Items');
-        rowY = drawDetailHeader(doc.y);
-      } else if (rowY + rowHeight > bottomLimit - 32) {
-        doc.addPage();
-        drawHeader();
-        writeSectionTitle('Items');
-        rowY = drawDetailHeader(doc.y);
-      }
-
-      x = left;
-      const cells = [
-        descripcion,
-        String(qty),
-      ];
-      cells.forEach((cell, cellIndex) => {
-        doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
-        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-        doc.text(cell, x + 6, rowY + 5, {
-          width: colWidths[cellIndex] - 12,
-          align: cellIndex === 0 ? 'left' : 'center',
-        });
-        x += colWidths[cellIndex];
-      });
-      rowY += rowHeight;
-      renderedAnyItem = true;
-    });
-
-    if (rowY + 24 > bottomLimit - 4) {
-      doc.addPage();
-      drawHeader();
-      writeSectionTitle('Items');
-      rowY = doc.y;
-    }
-    const resumenTotalY = rowY;
-    doc.rect(left, resumenTotalY, usableWidth, 22)
-      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
-
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
-      .text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
-        width: usableWidth - 150,
-        align: 'right',
-      });
-
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
-      .text(money(totalFinal || 0, compra.moneda), left + usableWidth - 142, resumenTotalY + 7, {
-        width: 134,
-        align: 'center',
-      });
-
-    doc.y = resumenTotalY + 26;
-  } 
-
+  // --- FOOTER ---
   doc.moveDown(0.5);
-  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
-    `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
+  doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.5).stroke();
+  doc.moveDown(0.3);
+  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(
+    `Formato: FO-ALF-001 | Version: 1.0 | Si tienes dudas sobre el servicio u orden de compra, contactar a: compras@alfosac.pe / ${creatorPhone}`,
     left,
     doc.y,
     { width: usableWidth, align: 'center' }
@@ -4823,6 +4643,7 @@ const authMiddleware = async (req, res, next) => {
         SELECT
           usuarios.id,
           usuarios.nombre,
+          usuarios.telefono,  
           ${userEmailExpr} AS email,
           ${userEmailExpr} AS correo,
           usuarios.id_area,
@@ -8990,6 +8811,8 @@ const mapCompraRows = (rows) => {
         material: row.material,
         descripcion: row.descripcion,
         cantidad: Number(row.cantidad || 0),
+        precio_unitario: Number(row.precio_unitario || 0),
+        subtotal: Number(row.subtotal_item || 0),
       });
     }
 
@@ -9072,7 +8895,9 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
           NULLIF(to_jsonb(dc)->>'descripcion', ''),
           ''
         ) AS descripcion,
-        COALESCE(NULLIF(to_jsonb(dc)->>'cantidad', '')::numeric, 0) AS cantidad
+        COALESCE(NULLIF(to_jsonb(dc)->>'cantidad', '')::numeric, 0) AS cantidad,
+        NULLIF(to_jsonb(dc)->>'precio_unitario', '')::numeric AS precio_unitario,
+        COALESCE(NULLIF(to_jsonb(dc)->>'subtotal', '')::numeric, 0) AS subtotal_item
       FROM compras c
       JOIN usuarios u ON u.id = c.id_usuario
       LEFT JOIN areas a_sol ON a_sol.id = c.id_area_solicitante
