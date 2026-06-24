@@ -22,7 +22,7 @@ const resolvePhotoSrc = (value) => {
   return ''
 }
 
-export default function AjustesView({ currentUser, onUpdatePhoto }) {
+export default function AjustesView({ currentUser, onUpdatePhoto, onRefreshUser }) {
   const [photoBase64, setPhotoBase64] = useState('')
   const [photoPreview, setPhotoPreview] = useState('')
   const [selectedFileName, setSelectedFileName] = useState('')
@@ -67,6 +67,7 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
     if (!res.ok) throw new Error(data.error || 'Error al actualizar teléfono')
     setPhoneSuccess('Teléfono actualizado correctamente')
     setIsEditingPhone(false)
+    if (onRefreshUser) onRefreshUser()
   } catch (err) {
     setPhoneError(err.message || 'No se pudo actualizar el teléfono')
   } finally {
