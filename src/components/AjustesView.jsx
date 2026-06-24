@@ -40,7 +40,40 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
   const fileInputRef = useRef(null)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isEditingPhone, setIsEditingPhone] = useState(false)
+  const [phoneValue, setPhoneValue] = useState('')
+  const [savingPhone, setSavingPhone] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
+  const [phoneSuccess, setPhoneSuccess] = useState('')
 
+  const handleSavePhone = async () => {
+  setPhoneError('')
+  setPhoneSuccess('')
+
+  if (!String(phoneValue || '').trim()) {
+    setPhoneError('El teléfono no puede estar vacío')
+    return
+  }
+
+  try {
+    setSavingPhone(true)
+    const token = localStorage.getItem('token')
+    const res = await fetch(`${API_BASE_URL.replace(/\/api\/?$/, '')}/api/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ telefono: String(phoneValue).trim() }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar teléfono')
+    setPhoneSuccess('Teléfono actualizado correctamente')
+    setIsEditingPhone(false)
+    if (onUpdatePhoto) onUpdatePhoto(photoBase64) // trigger refresh
+  } catch (err) {
+    setPhoneError(err.message || 'No se pudo actualizar el teléfono')
+  } finally {
+    setSavingPhone(false)
+  }
+}
   const isStrongPassword = (value) => {
     const text = String(value || '')
     const hasLength = text.length > 8
@@ -78,6 +111,8 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
       { label: 'Rol', value: currentUser?.rol || 'N/D' },
       { label: 'Area', value: currentUser?.area || 'N/D' },
       { label: 'DNI', value: currentUser?.dni || 'N/D' },
+      { label: 'Teléfono', value: currentUser?.telefono || 'N/D' },
+
     ]
   }, [currentUser])
 
@@ -320,6 +355,47 @@ export default function AjustesView({ currentUser, onUpdatePhoto }) {
             {successMessage && <p className="settings-message success">{successMessage}</p>}
           </article>
 
+           <article className="settings-card">
+            <h2>Teléfono</h2>
+            <div className="settings-field-list">
+              <div className="settings-field">
+                <span className="settings-field-label">Teléfono actual</span>
+                <span className="settings-field-value">{currentUser?.telefono || 'N/D'}</span>
+              </div>
+            </div>
+
+            {!isEditingPhone ? (
+              <button type="button" className="settings-btn" onClick={() => {
+                setPhoneValue(currentUser?.telefono || '');
+                setIsEditingPhone(true);
+                setPhoneError('');
+                setPhoneSuccess('');
+              }}>
+                Cambiar teléfono
+              </button>
+            ) : (
+              <div className="settings-editor">
+                <input
+                  type="text"
+                  value={phoneValue}
+                  onChange={(e) => setPhoneValue(e.target.value)}
+                  placeholder="Ingresa tu teléfono"
+                />
+                <div className="settings-actions">
+                  <button type="button" className="settings-btn" onClick={handleSavePhone} disabled={savingPhone}>
+                    {savingPhone ? 'Guardando...' : 'Guardar cambios'}
+                  </button>
+                  <button type="button" className="settings-btn secondary" onClick={() => setIsEditingPhone(false)} disabled={savingPhone}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phoneError && <p className="settings-message error">{phoneError}</p>}
+            {phoneSuccess && <p className="settings-message success">{phoneSuccess}</p>}
+          </article>
+        
           <article className="settings-card">
             <h2>Seguridad</h2>
 
