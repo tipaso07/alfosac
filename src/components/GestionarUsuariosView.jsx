@@ -16,6 +16,7 @@ const initialForm = {
   nombre: '',
   email: '',
   dni: '',
+  telefono: '',
   foto: '',
   id_role: '',
   id_area: '',
@@ -230,6 +231,7 @@ export default function GestionarUsuariosView() {
       nombre: usuario.nombre || '',
       email: usuario.email || '',
       dni: usuario.dni || '',
+      telefono: usuario.telefono || '',
       foto: usuario.imagen || usuario.foto || '',
       id_role: usuario.id_role || '',
       id_area: usuario.id_area || '',
@@ -292,6 +294,11 @@ export default function GestionarUsuariosView() {
     if (!String(currentForm.dni || '').trim()) {
       errors.dni = 'DNI es obligatorio'
     }
+    if (!String(currentForm.telefono || '').trim()) {
+      errors.telefono = 'Teléfono es obligatorio'
+    }
+
+    return errors
 
     return errors
   }
@@ -317,6 +324,7 @@ export default function GestionarUsuariosView() {
         nombre: String(form.nombre).trim(),
         email: String(form.email).trim().toLowerCase(),
         dni: String(form.dni || '').trim(),
+        telefono: String(form.telefono || '').trim(),
         foto: String(form.foto || '').trim(),
         id_role: Number(form.id_role),
         id_area: form.id_area ? Number(form.id_area) : null,
@@ -470,6 +478,7 @@ export default function GestionarUsuariosView() {
       String(usuario.nombre || '').toLowerCase().includes(q)
       || String(usuario.email || '').toLowerCase().includes(q)
       || String(usuario.dni || '').toLowerCase().includes(q)
+      || String(usuario.telefono || '').toLowerCase().includes(q)
     )
   })
 
@@ -508,6 +517,7 @@ export default function GestionarUsuariosView() {
               <th>Foto</th>
               <th>Nombre</th>
               <th>DNI</th>
+              <th>Teléfono</th>
               <th>Email</th>
               <th>Rol</th>
               <th>Area</th>
@@ -518,7 +528,7 @@ export default function GestionarUsuariosView() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9}>No hay usuarios para mostrar.</td>
+                <td colSpan={10}>No hay usuarios para mostrar.</td>
               </tr>
             )}
             {rows.map((usuario) => (
@@ -529,6 +539,7 @@ export default function GestionarUsuariosView() {
                 </td>
                 <td>{usuario.nombre}</td>
                 <td>{usuario.dni || 'N/D'}</td>
+                <td>{usuario.telefono || 'N/D'}</td>
                 <td>{usuario.email}</td>
                 <td>{usuario.rol || 'N/D'}</td>
                 <td>{usuario.area || 'N/D'}</td>
@@ -611,7 +622,16 @@ export default function GestionarUsuariosView() {
                 />
                 {fieldErrors.dni && <small className="field-error">{fieldErrors.dni}</small>}
               </label>
-
+              <label>
+                Teléfono *
+                <input
+                  value={form.telefono}
+                  onChange={(e) => update({ telefono: e.target.value })}
+                  disabled={saving}
+                  placeholder="Ingresa el teléfono"
+                />
+                {fieldErrors.telefono && <small className="field-error">{fieldErrors.telefono}</small>}
+              </label>
               <label>
                 Foto
                 <input
