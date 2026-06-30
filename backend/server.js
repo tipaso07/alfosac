@@ -103,7 +103,13 @@ const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'postgres',
+  max: 20,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
   options: '-c timezone=America/Lima',
+});
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client:', err.message);
 });
 
 const SQL_DEBUG_ENABLED = String(process.env.SQL_DEBUG || 'true').toLowerCase() !== 'false';
@@ -3883,22 +3889,6 @@ const getColumnSet = async (tableName) => {
 
   return new Set(result.rows.map((row) => row.column_name));
 };
- let attempt = 0;
-  while (attempt < 15) {
-    try {
-      await loadSchemaMeta();
-      break;
-    } catch (err) {
-      attempt++;
-      if (attempt >= 15) {
-        console.error(`DB no disponible tras ${attempt} intentos.`);
-        process.exit(1);
-      }
-      console.warn(`Reintentando DB (${attempt}/15): ${err.message}`);
-      await new Promise(r => setTimeout(r, 3000));
-    }
-  }
-
 const loadSchemaMeta = async () => {
   schemaMeta.proveedoresColumns = await getColumnSet('proveedores');
   schemaMeta.comprasColumns = await getColumnSet('compras');
@@ -12960,7 +12950,22 @@ const startServer = async () => {
     console.warn(`DB_HOST=${configuredDbHost} no es resolvible desde Windows host. Usando ${effectiveDbHost} temporalmente.`);
   }
 
-  await loadSchemaMeta();
+    let attempt = 0;
+  while (attempt < 15) {
+    try {
+      await loadSchemaMeta();
+      break;
+    } catch (err) {
+      attempt++;
+      if (attempt >= 15) {
+        console.error(`DB no disponible tras ${attempt} intentos.`);
+        process.exit(1);
+        return;
+      }
+      console.warn(`DB no lista (intento ${attempt}/15): ${err.message}. Reintentando en 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
   await ensureCoreApprovalPermissions();
   await loadApprovalChainsFromConfig();
   if (String(process.env.RUN_DEMO_SEED || 'false').toLowerCase() === 'true') {
