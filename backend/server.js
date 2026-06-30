@@ -9,6 +9,14 @@ const { Pool } = require('pg');
 const PDFDocument = require('pdfkit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  if (reason instanceof Error) {
+    console.error('UNHANDLED REJECTION:', reason.message);
+  }
+});
 
 const app = express();
 app.use(cors());
@@ -3045,7 +3053,7 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
   };
 
   const drawSectionBar = (title, x, y, width, height = 18) => {
-    doc.rect(x, y, width, height).fill(PDF_BRAND_COLORS.sectionHeader);
+    doc.rect(x, y, width, height).fill('#000059');
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(title, x + 6, y + 5, { width: width - 12 });
     return y + height;
   };
@@ -3054,11 +3062,11 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, x, y, { width: labelWidth });
     doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(value, x + labelWidth, y, { width: valueWidth });
     const h = Math.max(doc.heightOfString(label, { width: labelWidth }), doc.heightOfString(value, { width: valueWidth }));
-    return y + h + 3;
+    return y + h + 5;
   };
 
   const drawHeader = () => {
-    const logoPath = getCompanyLogoPath('dark');
+    const logoPath = getCompanyLogoPath();
 
     doc.rect(left, 18, usableWidth, 85).fill('#f8fafc');
 
@@ -3067,14 +3075,14 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     }
 
     doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
-    let infoX = left + 100;
+    let infoX = left + 130;
     doc.text('ALFOSAC SAC', infoX, 24, { width: 200 });
     doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
     doc.text(companyAddress, infoX, doc.y + 2, { width: 200 });
     doc.text(`RUC: ${companyRuc}`, infoX, doc.y + 2, { width: 200 });
     doc.text(companyWeb, infoX, doc.y + 2, { width: 200 });
 
-    doc.font('Helvetica-Bold').fontSize(18).fillColor(PDF_BRAND_COLORS.primaryDark);
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#000059');
     doc.text('ORDEN DE COMPRA', left + usableWidth - 220, 24, { width: 220, align: 'right' });
 
     const boxX = left + usableWidth - 200;
@@ -3100,38 +3108,46 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
   const halfWidth = (usableWidth - colGap) / 2;
 
   // --- VENDEDOR + ENVIE A ---
-  ensureSpace(60);
+  ensureSpace(80);
   let blockY = doc.y;
 
-  doc.rect(left, blockY, halfWidth, 80).fillAndStroke('#ffffff', '#e2e8f0');
+  doc.rect(left, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
   drawSectionBar('VENDEDOR', left, blockY, halfWidth);
-  let rowY = blockY + 20;
-  rowY = writeSimpleLabel('Razon social:', safeText(compra.proveedor || compra.razon_social), left + 6, rowY, 72, halfWidth - 84);
-  rowY = writeSimpleLabel('Direccion:', safeText(compra.direccion), left + 6, rowY, 72, halfWidth - 84);
-  rowY = writeSimpleLabel('Ciudad:', safeText(compra.distrito), left + 6, rowY, 72, halfWidth - 84);
-  rowY = writeSimpleLabel('RUC:', safeText(compra.ruc), left + 6, rowY, 72, halfWidth - 84);
+  let rowY = blockY + 26;
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text(safeText(compra.proveedor || compra.razon_social), left + 6, rowY, { width: halfWidth - 12 });
+  rowY += doc.heightOfString(safeText(compra.proveedor || compra.razon_social), { width: halfWidth - 12 }) + 6;
+  doc.text(safeText(compra.direccion), left + 6, rowY, { width: halfWidth - 12 });
+  rowY += doc.heightOfString(safeText(compra.direccion), { width: halfWidth - 12 }) + 6;
+  doc.text(safeText(compra.distrito), left + 6, rowY, { width: halfWidth - 12 });
+  rowY += doc.heightOfString(safeText(compra.distrito), { width: halfWidth - 12 }) + 6;
+  rowY = writeSimpleLabel('RUC:', safeText(compra.ruc), left + 6, rowY, 28, halfWidth - 40);
 
   const envieX = left + halfWidth + colGap;
-  doc.rect(envieX, blockY, halfWidth, 80).fillAndStroke('#ffffff', '#e2e8f0');
+  doc.rect(envieX, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
   drawSectionBar('ENVIE A', envieX, blockY, halfWidth);
-  rowY = blockY + 20;
+  rowY = blockY + 26;
   doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text('ALMACENES FORWARDER SAC', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 14;
-  doc.text('AV. NESTOR GAMBETA N° 4783 - CALLAO', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 14;
+  doc.text('ALMACENES FORWARDER SAC', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 18;
+  doc.text('AV. NESTOR GAMBETA N° 4783 - CALLAO', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 18;
   doc.text('CALLAO, CALLAO', envieX + 6, rowY, { width: halfWidth - 12 });
 
-  doc.y = blockY + 80 + 6;
+  doc.y = blockY + 100 + 8;
 
   // --- TABLA PRINCIPAL ---
   const items = Array.isArray(compra.items) ? compra.items : [];
   if (items.length > 0) {
+    const totalQty = items.reduce((sum, i) => sum + Number(i.cantidad || 0), 0);
+    const baseForDistribution = Number(compra.subtotal || 0) || Number(compra.total || compra.importe_final || 0);
+
     ensureSpace(30);
     const colWidths = [36, 290, 46, 64, 78];
     const colHeaders = ['#', 'DESCRIPCION', 'CANT', 'P/U', 'TOTAL'];
     let tableX = left;
     let headerY = doc.y;
 
-    doc.rect(tableX, headerY, usableWidth, 18).fill(PDF_BRAND_COLORS.sectionHeader);
+    doc.rect(tableX, headerY, usableWidth, 18).fill('#000059');
     let hx = tableX;
     colHeaders.forEach((h, i) => {
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
@@ -3143,16 +3159,16 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     items.forEach((item, idx) => {
       const desc = safeText(item.material || item.descripcion || item.nombre);
       const qty = Number(item.cantidad || 0);
-      const pUnit = item.precio_unitario || (qty > 0 ? item.subtotal / qty : 0);
-      const totalItem = Number(item.subtotal || pUnit * qty);
+      const totalItem = Number(item.subtotal || 0) || (baseForDistribution > 0 && totalQty > 0 ? (qty / totalQty) * baseForDistribution : 0);
+      const pUnit = qty > 0 ? totalItem / qty : 0;
       const descH = doc.heightOfString(desc, { width: colWidths[1] - 8 });
-      const rowH = Math.max(18, descH + 6);
+      const rowH = Math.max(22, descH + 10);
 
       if (rowY2 + rowH > bottomLimit - 20) {
         doc.addPage();
         drawHeader();
         headerY = doc.y;
-        doc.rect(tableX, headerY, usableWidth, 18).fill(PDF_BRAND_COLORS.sectionHeader);
+        doc.rect(tableX, headerY, usableWidth, 18).fill('#000059');
         hx = tableX;
         colHeaders.forEach((h, i) => {
           doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
@@ -3172,62 +3188,50 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
         money(totalItem, compra.moneda),
       ];
       cellValues.forEach((cv, ci) => {
-        doc.font(ci === 1 ? 'Helvetica' : 'Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-        doc.text(cv, cx + 3, rowY2 + 3, {
+        doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(cv, cx + 3, rowY2 + 5, {
           width: colWidths[ci] - 6,
           align: ci === 0 ? 'center' : ci === 1 ? 'left' : 'right',
         });
         cx += colWidths[ci];
       });
-      rowY2 += rowH;
+      rowY2 += rowH + 4;
     });
 
-    doc.y = rowY2 + 6;
+    doc.y = rowY2 + 8;
   }
 
-  // --- RESUMEN MONETARIO (derecha) ---
-  ensureSpace(50);
+  // --- COMENTARIOS (izquierda) + RESUMEN (derecha) ---
+  ensureSpace(80);
+  const commentsWidth = usableWidth - 220 - colGap;
+  const commentsX = left;
   const summaryWidth = 220;
   const summaryX = left + usableWidth - summaryWidth;
+
   const subtotal = Number(compra.subtotal || 0);
   const igv = Number(compra.igv || 0);
   const costoEnvio = Number(compra.costo_envio || 0);
   const otrosCostos = Number(compra.otros_costos || 0);
   const totalFinal = Number(compra.importe_final || compra.total || (subtotal + igv + costoEnvio + otrosCostos));
 
-  let sumY = doc.y;
-  const sumRows = [
-    ['SUBTOTAL', money(subtotal, compra.moneda)],
-    ['IGV', money(igv, compra.moneda)],
-    ['ENVIO', money(costoEnvio, compra.moneda)],
-    ['OTRO', money(otrosCostos, compra.moneda)],
-  ];
-  sumRows.forEach(([label, val]) => {
-    doc.rect(summaryX, sumY, summaryWidth, 16).fillAndStroke('#ffffff', '#e2e8f0');
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
-    doc.text(label, summaryX + 6, sumY + 4, { width: 100 });
-    doc.text(val, summaryX + 106, sumY + 4, { width: 108, align: 'right' });
-    sumY += 16;
-  });
+  let sectionY = doc.y;
 
-  doc.rect(summaryX, sumY, summaryWidth, 22).fillAndStroke('#dbeafe', '#93c5fd');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.primaryDark);
-  doc.text('TOTAL', summaryX + 6, sumY + 6, { width: 100 });
-  doc.text(money(totalFinal, compra.moneda), summaryX + 106, sumY + 6, { width: 108, align: 'right' });
-  doc.y = sumY + 26;
-
-  // --- COMENTARIOS E INSTRUCCIONES ESPECIALES ---
-  ensureSpace(80);
-  const commentsWidth = usableWidth;
-  const commentsX = left;
-
-  doc.rect(commentsX, doc.y, commentsWidth, 2).fill(PDF_BRAND_COLORS.primaryDark);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.primaryDark).text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, doc.y + 4, { width: commentsWidth - 4 });
+  // --- COMENTARIOS (izquierda) ---
+  doc.rect(commentsX, sectionY + 2, commentsWidth, 2).fill('#000059');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, sectionY + 8, { width: commentsWidth - 4 });
   doc.moveDown(0.8);
 
   const aplicaRetencion = Boolean(compra.aplica_retencion);
+  const retencionLabel = (() => {
+    if (!aplicaRetencion) return 'NO';
+    const tipoRet = normalize(compra.tipo_retencion || '');
+    const pct = Number(compra.descuento || 0) * 100;
+    const tipoLabel = tipoRet === 'DETRACCION' ? 'Detraccion' : 'Retencion';
+    return `SI - ${tipoLabel} ${pct.toFixed(0)}%`;
+  })();
+
   const commentFields = [
-    ['Retencion/Detraccion:', aplicaRetencion ? 'SI' : 'NO'],
+    ['Retencion/Detraccion:', retencionLabel],
     ['Correo:', safeText(compra.correo || compra.contacto_proveedor)],
     ['Persona Responsable:', safeText(compra.persona_responsable || compra.contacto_proveedor)],
     ['Telefono:', safeText(compra.telefono)],
@@ -3238,37 +3242,43 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     ['CCI:', safeText(compra.cci)],
   ];
 
-  const leftColW = 160;
-  const rightColW = commentsWidth - leftColW - 20;
+  const commentsLeftColW = 120;
+  const commentsRightColW = commentsWidth - commentsLeftColW - 16;
   let cfY = doc.y;
-  const importeLabel = 'Importe:';
-  const importeVal = money(totalFinal, compra.moneda);
 
   commentFields.forEach(([label, val]) => {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: leftColW });
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + leftColW, cfY, { width: rightColW });
-    cfY += 16;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: commentsLeftColW });
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + commentsLeftColW, cfY, { width: commentsRightColW });
+    cfY += 20;
   });
 
-  const importeY = cfY;
-  doc.rect(commentsX + 4, importeY, 260, 26).fillAndStroke('#dbeafe', '#93c5fd');
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(PDF_BRAND_COLORS.primaryDark);
-  doc.text(importeLabel, commentsX + 10, importeY + 6, { width: 80 });
-  doc.text(importeVal, commentsX + 90, importeY + 6, { width: 164, align: 'right' });
+  // --- RESUMEN (derecha) ---
+  let sumY = sectionY;
+  const sumRows = [
+    ['SUBTOTAL', money(subtotal, compra.moneda)],
+    ['IGV', money(igv, compra.moneda)],
+    ['ENVIO', money(costoEnvio, compra.moneda)],
+    ['OTRO', money(otrosCostos, compra.moneda)],
+  ];
+  sumRows.forEach(([label, val]) => {
+    doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
+    doc.text(label, summaryX + 6, sumY + 5, { width: 100 });
+    doc.text(val, summaryX + 106, sumY + 5, { width: 108, align: 'right' });
+    sumY += 22;
+  });
 
-  doc.y = importeY + 32;
+  doc.rect(summaryX, sumY, summaryWidth, 24).fillAndStroke('#000059', '#000059');
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff');
+  doc.text('TOTAL', summaryX + 6, sumY + 7, { width: 100 });
+  doc.text(money(totalFinal, compra.moneda), summaryX + 106, sumY + 7, { width: 108, align: 'right' });
 
-  // --- INFO ADICIONAL ---
-  ensureSpace(20);
-  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-  doc.text(`Area solicitante: ${safeText(compra.area_solicitante)}`, left, doc.y, { width: halfWidth });
-  doc.text(`Area final: ${safeText(compra.area_final)}`, left + halfWidth + colGap, doc.y, { width: halfWidth });
-  doc.y += 18;
+  doc.y = Math.max(cfY, sumY + 28);
 
   // --- FOOTER ---
-  doc.moveDown(0.5);
+  doc.moveDown(1);
   doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.5).stroke();
-  doc.moveDown(0.3);
+  doc.moveDown(0.5);
   doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textSecondary);
   doc.text(
     `Formato: FO-ALF-001 | Version: 1.0 | Si tienes dudas sobre el servicio u orden de compra, contactar a: compras@alfosac.pe / ${creatorPhone}`,
@@ -3305,181 +3315,62 @@ const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve,
     }
   };
 
-  const writeSectionTitle = (title) => {
-    ensureSpace(28);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
-    doc.moveDown(0.2);
-    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
-    doc.moveDown(0.5);
+  const drawSectionBar = (title, x, y, width, height = 18) => {
+    doc.rect(x, y, width, height).fill('#000059');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(title, x + 6, y + 5, { width: width - 12 });
+    return y + height;
   };
 
-  const estimateBlockHeight = (rows = []) => {
-    const rowGap = 4;
-    const paddingY = 4;
-    const titleHeight = 16;
-    const labelWidth = Math.max(98, Math.floor((usableWidth / 2 - 20) * 0.38));
-    const valueWidth = usableWidth / 2 - 20 - labelWidth - 8;
-
-    const measureRowHeight = (label, value) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      doc.font('Helvetica').fontSize(8.5);
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      return Math.max(18, Math.max(labelHeight, valueHeight));
-    };
-
-    let total = titleHeight + (paddingY * 2);
-    rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value) + rowGap;
-    });
-    return total;
+  const writeSimpleLabel = (label, value, x, y, labelWidth, valueWidth) => {
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, x, y, { width: labelWidth });
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(value, x + labelWidth, y, { width: valueWidth });
+    const h = Math.max(doc.heightOfString(label, { width: labelWidth }), doc.heightOfString(value, { width: valueWidth }));
+    return y + h + 5;
   };
-
-  const drawInfoBlock = ({ title, rows, x, y, width }) => {
-    const rowGap = 6;
-    const paddingX = 10;
-    const paddingY = 6;
-    const titleHeight = 18;
-    const labelWidth = Math.max(98, Math.floor(width * 0.38));
-    const valueWidth = width - (paddingX * 2) - labelWidth - 8;
-
-    const measureRowHeight = (label, value) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      doc.font('Helvetica').fontSize(8.5);
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      return {
-        textLabel,
-        textValue,
-        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
-      };
-    };
-
-    let contentHeight = 0;
-    rows.forEach(([label, value]) => {
-      const measured = measureRowHeight(label, value);
-      contentHeight += measured.rowHeight + rowGap;
-    });
-
-    const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
-
-    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
-    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
-      width: width - (paddingX * 2),
-    });
-
-    let rowY = y + titleHeight + paddingY;
-    rows.forEach(([label, value]) => {
-      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
-
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
-        width: labelWidth,
-      });
-
-      const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
-        || String(label || '').toLowerCase().includes('total final')
-        || String(label || '').toLowerCase().includes('totalfinal');
-
-      if (isTotalFinal) {
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-          width: valueWidth,
-        });
-      } else {
-        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-          width: valueWidth,
-        });
-      }
-
-      rowY += rowHeight + rowGap;
-    });
-
-    return y + blockHeight;
-  };
-
-  const renderTwoColumnBlocks = (blocks) => {
-    const colGap = 12;
-    const colWidth = (usableWidth - colGap) / 2;
-    let cursorY = doc.y;
-
-    for (let i = 0; i < blocks.length; i += 2) {
-      const leftBlock = blocks[i];
-      const rightBlock = blocks[i + 1] || null;
-      const estimatedPairHeight = Math.max(
-        estimateBlockHeight(leftBlock?.rows || []),
-        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
-      ) + 10;
-
-      ensureSpace(estimatedPairHeight);
-      cursorY = doc.y;
-
-      const leftBottom = drawInfoBlock({
-        title: leftBlock.title,
-        rows: leftBlock.rows,
-        x: left,
-        y: cursorY,
-        width: colWidth,
-      });
-
-      let pairBottom = leftBottom;
-      if (rightBlock) {
-        const rightBottom = drawInfoBlock({
-          title: rightBlock.title,
-          rows: rightBlock.rows,
-          x: left + colWidth + colGap,
-          y: cursorY,
-          width: colWidth,
-        });
-        pairBottom = Math.max(leftBottom, rightBottom);
-      }
-
-      cursorY = pairBottom + 1;
-      doc.y = cursorY;
-    }
-  };
-
-  const HEADER_INFO_Y = 82;
-  const HEADER_LINE_Y = 106;
-  const HEADER_CONTENT_Y = 108;
 
   const drawHeader = () => {
-    const logoPath = getCompanyLogoPath('dark');
+    const logoPath = getCompanyLogoPath();
 
-    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
+    doc.rect(left, 18, usableWidth, 85).fill('#f8fafc');
 
     if (logoPath) {
-      doc.image(logoPath, left + 12, 24, {
-        fit: [84, 50],
-        align: 'left',
-        valign: 'center',
-      });
+      doc.image(logoPath, left + 12, 24, { fit: [84, 50], align: 'left', valign: 'center' });
     }
 
-    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE SERVICIO', left, 32, { width: usableWidth - 14, align: 'right' });
-
-    doc.rect(left, HEADER_INFO_Y, usableWidth, 22).fillAndStroke(PDF_BRAND_COLORS.surface, PDF_BRAND_COLORS.line);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
+    let infoX = left + 130;
+    doc.text('ALFOSAC SAC', infoX, 24, { width: 200 });
     doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(`Dirección: ${companyAddress}`, left + 8, HEADER_INFO_Y + 3, { width: usableWidth - 16, align: 'center' });
-    doc.text(`RUC: ${companyRuc}  |  ${companyWeb}`, left + 8, HEADER_INFO_Y + 13, { width: usableWidth - 16, align: 'center' });
+    doc.text(companyAddress, infoX, doc.y + 2, { width: 200 });
+    doc.text(`RUC: ${companyRuc}`, infoX, doc.y + 2, { width: 200 });
+    doc.text(companyWeb, infoX, doc.y + 2, { width: 200 });
 
-    doc.moveTo(left, HEADER_LINE_Y).lineTo(pageWidth - right, HEADER_LINE_Y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
-    doc.y = HEADER_CONTENT_Y;
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#000059');
+    doc.text('ORDEN DE SERVICIO', left + usableWidth - 220, 24, { width: 220, align: 'right' });
+
+    const boxX = left + usableWidth - 200;
+    const boxY = 64;
+    doc.rect(boxX, boxY, 200, 30).fillAndStroke('#eef2f7', '#cbd5e1');
+    doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
+    doc.text(`Fecha: ${String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0] || 'N/D'}`, boxX + 6, boxY + 4, { width: 188 });
+    doc.text(`OS: ${servicio.numero_orden || `OS-${servicio.id}`}`, boxX + 6, boxY + 14, { width: 188 });
+    doc.text(`Codigo: INT-${String(servicio.id).padStart(6, '0')}`, boxX + 6, boxY + 22, { width: 188 });
+
+    doc.moveTo(left, 106).lineTo(pageWidth - right, 106).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
+    doc.y = 110;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
   doc.on('error', reject);
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-
-  doc.on('pageAdded', () => {
-    doc.y = HEADER_CONTENT_Y;
-  });
+  doc.on('pageAdded', () => { doc.y = 110; });
 
   drawHeader();
 
+  const colGap = 12;
+  const halfWidth = (usableWidth - colGap) / 2;
+
+  // --- Parse financial data ---
   const parseAmount = (value) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -3512,109 +3403,144 @@ const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve,
   if (aplicaRetencion) {
     totalFinal = Number((totalBase - montoRetenido).toFixed(2));
   }
+
+  const retencionLabel = (() => {
+    if (!aplicaRetencion) return 'NO';
+    const tipoRet = normalize(servicio.proveedor_tipo_retencion || servicio.tipo_retencion || '');
+    const pct = porcentajeRetencion * 100;
+    const tipoLabel = tipoRet === 'DETRACCION' ? 'Detraccion' : 'Retencion';
+    return `SI - ${tipoLabel} ${pct.toFixed(0)}%`;
+  })();
+
+  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
+    ? 'PENDIENTE DE REALIZACION'
+    : (servicio.estado_flujo || servicio.estado_servicio);
+
   const approverEntries = buildPdfApprovalEntries({
     approvals: servicio.aprobadores,
     creatorUserId: servicio.id_usuario,
     creatorRoleId: servicio.usuario_rol_id,
     creatorName: servicio.usuario,
   });
-  const approversSummary = approverEntries
-    .filter((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
-      const rolLabel = String(row.rol || '').trim().toUpperCase()
-      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
-      return !isRequesterRow || approverEntries.length === 1
-    })
-    .map((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
-      const rolLabel = String(row.rol || '').trim().toUpperCase()
-      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
-      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
-        ? fallbackRoleLabel
-        : safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))
-      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`;
-    })
-    .join('\n');
 
-  writeSectionTitle('Resumen');
-  ensureSpace(50);
+  // --- SERVICIO + PROVEEDOR ---
+  ensureSpace(80);
+  let blockY = doc.y;
 
-  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
-    ? 'PENDIENTE DE REALIZACION'
-    : (servicio.estado_flujo || servicio.estado_servicio);
+  doc.rect(left, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
+  drawSectionBar('SERVICIO', left, blockY, halfWidth);
+  let rowY = blockY + 26;
+  rowY = writeSimpleLabel('Nombre:', safeText(servicio.nombre_servicio || servicio.descripcion_servicio), left + 6, rowY, 46, halfWidth - 58);
+  rowY = writeSimpleLabel('Estado:', estadoServicio, left + 6, rowY, 46, halfWidth - 58);
+  rowY = writeSimpleLabel('Area:', safeText(servicio.area), left + 6, rowY, 46, halfWidth - 58);
 
-  const servicioEstadoBottom = drawInfoBlock({
-    title: 'Servicio y estado',
-    rows: [
-      ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
-      ['Descripción', servicio.descripcion_servicio],
-      ['Prioridad', servicio.prioridad],
-      ['Estado', estadoServicio],
-      ['Estado aprobación', servicio.estado_aprobacion],
-    ],
-    x: left,
-    y: doc.y,
-    width: usableWidth,
+  const provX = left + halfWidth + colGap;
+  doc.rect(provX, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
+  drawSectionBar('PROVEEDOR', provX, blockY, halfWidth);
+  rowY = blockY + 26;
+  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text(safeText(servicio.proveedor), provX + 6, rowY, { width: halfWidth - 12 });
+  rowY += doc.heightOfString(safeText(servicio.proveedor), { width: halfWidth - 12 }) + 6;
+  doc.text(safeText(servicio.proveedor_direccion), provX + 6, rowY, { width: halfWidth - 12 });
+  rowY += doc.heightOfString(safeText(servicio.proveedor_direccion), { width: halfWidth - 12 }) + 6;
+  doc.text(`RUC: ${safeText(servicio.proveedor_ruc)}`, provX + 6, rowY, { width: halfWidth - 12 });
+
+  doc.y = blockY + 100 + 8;
+
+  // --- COMENTARIOS (izquierda) + RESUMEN (derecha) ---
+  ensureSpace(80);
+  const commentsWidth = usableWidth - 220 - colGap;
+  const commentsX = left;
+  const summaryWidth = 220;
+  const summaryX = left + usableWidth - summaryWidth;
+
+  let sectionY = doc.y;
+
+  // --- COMENTARIOS (izquierda) ---
+  doc.rect(commentsX, sectionY + 2, commentsWidth, 2).fill('#000059');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, sectionY + 8, { width: commentsWidth - 4 });
+  doc.moveDown(0.8);
+
+  const provCommentFields = [
+    ['Retencion/Detraccion:', retencionLabel],
+    ['Moneda:', currencyLabel],
+    ['Condiciones de Pago:', safeText(servicio.proveedor_condiciones_pago)],
+    ['Banco:', safeText(servicio.proveedor_banco)],
+    ['Cuenta:', safeText(servicio.proveedor_cuenta)],
+    ['CCI:', safeText(servicio.proveedor_cci)],
+  ];
+
+  const leftColW = 120;
+  const rightColW = commentsWidth - leftColW - 16;
+  let cfY = doc.y;
+
+  provCommentFields.forEach(([label, val]) => {
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: leftColW });
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + leftColW, cfY, { width: rightColW });
+    cfY += 20;
   });
-  doc.y = servicioEstadoBottom + 0;
 
-  renderTwoColumnBlocks([
-    {
-      title: 'Datos de la orden',
-      rows: [
-        ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
-        ['Fecha', String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0]],
-        ['Proveedor', servicio.proveedor],
-        ['Área destino', servicio.area],
-      ],
-    },
-    {
-      title: 'Proveedor',
-      rows: [
-        ['Moneda', currencyLabel],
-        ['RUC', servicio.proveedor_ruc],
-        ['Dirección', servicio.proveedor_direccion],
-        ['Banco', servicio.proveedor_banco],
-        ['Cuenta', servicio.proveedor_cuenta],
-        ['CCI', servicio.proveedor_cci],
-        ['Condiciones de pago', servicio.proveedor_condiciones_pago],
-      ],
-    },
-  ]);
-
-  const financialBottom = drawInfoBlock({
-    title: 'Detalle financiero',
-    rows: [
-      ['Subtotal', money(subtotal)],
-      ['IGV', money(igv)],
-      ['Costo envío', money(costoEnvio)],
-      ['Otros costos', money(otrosCostos)],
-      ['Total base', money(totalBase)],
-      ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-      ['Porcentaje', `${(porcentajeRetencion * 100).toFixed(2)}%`],
-      ['Monto retenido', money(montoRetenido)],
-      ['Total final', money(totalFinal)],
-    ],
-    x: left,
-    y: doc.y,
-    width: usableWidth,
+  // --- RESUMEN (derecha) ---
+  let sumY = sectionY;
+  const sumRows = [
+    ['SUBTOTAL', money(subtotal)],
+    ['IGV', money(igv)],
+    ['ENVIO', money(costoEnvio)],
+    ['OTROS', money(otrosCostos)],
+    ['TOTAL BASE', money(totalBase)],
+  ];
+  sumRows.forEach(([label, val]) => {
+    doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
+    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
+    doc.text(label, summaryX + 6, sumY + 5, { width: 100 });
+    doc.text(val, summaryX + 106, sumY + 5, { width: 108, align: 'right' });
+    sumY += 22;
   });
-  doc.y = financialBottom + 6;
 
-  const approbacionesBottom = drawInfoBlock({
-    title: 'Aprobaciones',
-    rows: [
-      ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
-    ],
-    x: left,
-    y: doc.y,
-    width: usableWidth,
+  doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('RETENCION', summaryX + 6, sumY + 5, { width: 100 });
+  doc.text(aplicaRetencion ? money(montoRetenido) : 'NO APLICA', summaryX + 106, sumY + 5, { width: 108, align: 'right' });
+  sumY += 22;
+
+  doc.rect(summaryX, sumY, summaryWidth, 24).fillAndStroke('#000059', '#000059');
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff');
+  doc.text('TOTAL', summaryX + 6, sumY + 7, { width: 100 });
+  doc.text(money(totalFinal), summaryX + 106, sumY + 7, { width: 108, align: 'right' });
+
+  doc.y = Math.max(cfY, sumY + 28);
+
+  // --- APROBACIONES ---
+  const visibleApprovers = approverEntries.filter((row) => {
+    const etapaLabel = String(row.etapa || '').trim().toUpperCase();
+    const rolLabel = String(row.rol || '').trim().toUpperCase();
+    const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE';
+    return !isRequesterRow || approverEntries.length === 1;
   });
-  doc.y = approbacionesBottom + 4;
 
+  if (visibleApprovers.length > 0) {
+    ensureSpace(40);
+    doc.rect(left, doc.y + 2, usableWidth, 2).fill('#000059');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('APROBACIONES', left + 2, doc.y + 8, { width: usableWidth - 4 });
+
+    let appY = doc.y + 22;
+    visibleApprovers.forEach((row) => {
+      const label = safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador));
+      const aprobador = safeText(row.aprobador || 'Pendiente');
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 6, appY, { width: 120 });
+      doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(aprobador, left + 130, appY, { width: 200 });
+      appY += 20;
+    });
+    doc.y = appY + 6;
+  }
+
+  // --- FOOTER ---
+  doc.moveDown(1);
+  doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.5).stroke();
   doc.moveDown(0.5);
-  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
-    `Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n${creatorPhone}`,
+  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(
+    `Formato: FO-ALF-001 | Version: 1.0 | Si tienes dudas sobre el servicio u orden de compra, contactar a: compras@alfosac.pe / ${creatorPhone}`,
     left,
     doc.y,
     { width: usableWidth, align: 'center' }
@@ -3957,6 +3883,21 @@ const getColumnSet = async (tableName) => {
 
   return new Set(result.rows.map((row) => row.column_name));
 };
+ let attempt = 0;
+  while (attempt < 15) {
+    try {
+      await loadSchemaMeta();
+      break;
+    } catch (err) {
+      attempt++;
+      if (attempt >= 15) {
+        console.error(`DB no disponible tras ${attempt} intentos.`);
+        process.exit(1);
+      }
+      console.warn(`Reintentando DB (${attempt}/15): ${err.message}`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
 
 const loadSchemaMeta = async () => {
   schemaMeta.proveedoresColumns = await getColumnSet('proveedores');
