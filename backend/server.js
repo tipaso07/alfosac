@@ -9,14 +9,6 @@ const { Pool } = require('pg');
 const PDFDocument = require('pdfkit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err.message);
-});
-process.on('unhandledRejection', (reason) => {
-  if (reason instanceof Error) {
-    console.error('UNHANDLED REJECTION:', reason.message);
-  }
-});
 
 const app = express();
 app.use(cors());
@@ -28,6 +20,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
+  // Health endpoint for Docker and monitoring
   app.get('/api/health', (_req, res) => {
     try {
       res.status(200).json({ status: 'ok' });
@@ -103,13 +96,7 @@ const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'postgres',
-  max: 20,
-  connectionTimeoutMillis: 5000,
-  idleTimeoutMillis: 30000,
   options: '-c timezone=America/Lima',
-});
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle client:', err.message);
 });
 
 const SQL_DEBUG_ENABLED = String(process.env.SQL_DEBUG || 'true').toLowerCase() !== 'false';
@@ -169,15 +156,18 @@ const normalizePermissionName = (value) => normalizeRoleName(value)
   .replace(/[^A-Z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '');
 
-const MANAGER_ROLES = new Set([
-  'JEFE DE AREA/SUBGERENTE',
-  'GERENCIA DEL AREA',
-  'GERENCIA DE FINANZAS',
-]);
+const GERENTES_ROLE = 'GERENTES';
+const SOLICITANTES_ROLE = 'SOLICITANTES';
+const ALMACENERO_ROLE = 'ALMACENERO';
+const COMPRAS_ROLE = 'COMPRAS';
+const SERVICIOS_GENERALES_ROLE = 'SERVICIOS GENERALES';
 
-const isAdminRole = (role) => normalizeRoleName(role) === 'ADMIN';
-const isComprasRole = (role) => normalizeRoleName(role) === 'COMPRAS';
-const isAlmaceneroRole = (role) => normalizeRoleName(role) === 'ALMACENERO';
+const isGerentesRole = (role) => normalizeRoleName(role) === GERENTES_ROLE;
+const isSolicitantesRole = (role) => normalizeRoleName(role) === SOLICITANTES_ROLE;
+const isAlmaceneroRole = (role) => normalizeRoleName(role) === ALMACENERO_ROLE;
+const isComprasRole = (role) => normalizeRoleName(role) === COMPRAS_ROLE;
+const isServiciosGeneralesRole = (role) => normalizeRoleName(role) === SERVICIOS_GENERALES_ROLE;
+
 const isWarehouseAreaName = (value) => {
   const normalizedValue = normalizeRoleName(value);
   return normalizedValue === 'GENERAL' || normalizedValue.includes('ALMACEN');
@@ -227,9 +217,9 @@ const canManageDeliveryRole = (role) => hasAnyRole(role, ['ADMIN', 'ALMACENERO']
 
 // Approval chains will be loaded from aprobaciones_config table at startup
 let APPROVAL_ROLES_BY_LEVEL = [5, 6, 7, 8];
-let APPROVAL_CHAIN_COMPRA = [5, 6, 7, 8];
-let APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [5, 6, 7];
-let APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [5, 6, 7, 8];
+const APPROVAL_CHAIN_COMPRA = [1];  // Cualquier GERENTES aprueba
+const APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [1];  // GERENTES de FINANZAS
+const APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [1, 1];  // FINANZAS → GERENCIA GENERAL
 let approvalsTableAvailableCache = null;
 let ROLE_NAME_BY_ID = new Map(); // Cache: roleId → roleName for generating PENDIENTE_* states
 let schemaMeta = {
@@ -249,76 +239,20 @@ let schemaMeta = {
   usuariosPasswordColumn: 'password_hash',
   usuariosEstadoColumn: null,
 };
-
-const loadApprovalChainsFromConfig = async () => {
+const loadRoleNamesCache = async () => {
   try {
-    const result = await pool.query(
-      `SELECT to_regclass('public.aprobaciones_config') IS NOT NULL AS exists`
-    );
-    const tableExists = Boolean(result.rows[0]?.exists);
-    if (!tableExists) {
-      return;
-    }
-
-    // Load all role names for state generation
-    try {
-      const rolesResult = await pool.query(`SELECT id, nombre FROM roles`);
-      ROLE_NAME_BY_ID.clear();
-      rolesResult.rows.forEach((row) => {
-        const roleId = Number(row.id || 0);
-        const roleName = String(row.nombre || '').trim();
-        if (roleId > 0 && roleName) {
-          ROLE_NAME_BY_ID.set(roleId, roleName);
-        }
-      });
-    } catch (err) {
-      console.warn('[APPROVAL] Could not load role names:', err.message);
-    }
-
-    const chainResult = await pool.query(
-      `
-        SELECT upper(trim(flujo)) AS flujo, orden, rol_id
-        FROM aprobaciones_config
-        WHERE activo = TRUE
-        ORDER BY flujo, orden ASC
-      `
-    );
-
-    const chainByFlow = new Map();
-    chainResult.rows.forEach((row) => {
-      const flow = String(row.flujo || '').trim().toUpperCase();
-      const roleId = Number(row.rol_id || 0);
-      if (!flow || !Number.isInteger(roleId) || roleId <= 0) return;
-
-      if (!chainByFlow.has(flow)) {
-        chainByFlow.set(flow, []);
+    const result = await pool.query(`SELECT id, nombre FROM roles`);
+    ROLE_NAME_BY_ID.clear();
+    result.rows.forEach((row) => {
+      const roleId = Number(row.id || 0);
+      const roleName = String(row.nombre || '').trim();
+      if (roleId > 0 && roleName) {
+        ROLE_NAME_BY_ID.set(roleId, roleName);
       }
-
-      chainByFlow.get(flow).push(roleId);
     });
-
-    if (chainByFlow.has('COMPRA')) {
-      APPROVAL_CHAIN_COMPRA = chainByFlow.get('COMPRA');
-      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_COMPRA])];
-    }
-
-    if (chainByFlow.has('SERVICIO_DENTRO_PLAN')) {
-      APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = chainByFlow.get('SERVICIO_DENTRO_PLAN');
-      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN])];
-    }
-
-    if (chainByFlow.has('SERVICIO_FUERA_PLAN')) {
-      APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = chainByFlow.get('SERVICIO_FUERA_PLAN');
-      APPROVAL_ROLES_BY_LEVEL = [...new Set([...APPROVAL_ROLES_BY_LEVEL, ...APPROVAL_CHAIN_SERVICIO_FUERA_PLAN])];
-    }
-
-    console.log('[APPROVAL] Chains loaded from aprobaciones_config:', {
-      COMPRA: APPROVAL_CHAIN_COMPRA,
-      DENTRO_PLAN: APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN,
-      FUERA_PLAN: APPROVAL_CHAIN_SERVICIO_FUERA_PLAN,
-    });
+    console.log('[ROLES] Role names cache loaded:', Object.fromEntries(ROLE_NAME_BY_ID));
   } catch (err) {
-    console.error('[APPROVAL] Error loading approval chains from config:', err.message);
+    console.warn('[ROLES] Could not load role names:', err.message);
   }
 };
 
@@ -347,15 +281,16 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   }
 
   if (normalizedTipo === 'SERVICIO') {
-    const serviceChain = dentroPlan
-      ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
-      : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN;
-
-    if (creatorRole > 0 && isApprovalHierarchyRoleId(creatorRole) && !serviceChain.includes(creatorRole)) {
-      return [];
+    // Regla especial: servicios creados por rol 11 van directo a Finanzas.
+    if (creatorRole === 11) {
+      return skipCreatorAndEarlier(dentroPlan ? [7] : [7, 8]);
     }
 
-    return skipCreatorAndEarlier(serviceChain);
+    return skipCreatorAndEarlier(
+      dentroPlan
+        ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
+        : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN
+    );
   }
 
   return [];
@@ -368,12 +303,7 @@ const isApprovalHierarchyRoleId = (roleId) => {
   return APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId);
 };
 
-const APPROVAL_PERMISSION_BY_ROLE_ID = new Map([
-  [5, 'APROBAR_JEFE_AREA'],
-  [6, 'APROBAR_GERENCIA_AREA'],
-  [7, 'APROBAR_FINANZAS'],
-  [8, 'APROBAR_ADMIN'],
-]);
+const APPROVAL_PERMISSION_BY_ROLE_ID = new Map();
 
 const APPROVAL_PERMISSION_BY_STATE = new Map([
   ['PENDIENTE_JEFE_DE_AREA_SUBGERENTE', 'APROBAR_JEFE_AREA'],
@@ -401,17 +331,13 @@ const getApprovalRoleLabel = (roleId, roleName = '') => {
     return explicitName;
   }
 
-  // Primero intenta del cache de roles cargados dinámicamente
   const cachedName = ROLE_NAME_BY_ID.get(numericRoleId);
   if (cachedName) {
     return cachedName;
   }
 
-  // Fallback a los hardcoded para compatibilidad si no está en cache
-  if (numericRoleId === 5) return 'Jefe de Area/Subgerente';
-  if (numericRoleId === 6) return 'Gerencia del Area';
-  if (numericRoleId === 7) return 'Gerencia de Finanzas';
-  if (numericRoleId === 8) return 'Admin';
+  // Fallback actualizado: ya no hay IDs viejos 5/6/7/8
+  // Si el ID no está en cache, retornar genérico
   return numericRoleId > 0 ? `Rol ${numericRoleId}` : '';
 };
 
@@ -495,8 +421,15 @@ const parseBooleanFlag = (value, defaultValue = false) => {
 const tienePermiso = (usuario, permiso) => {
   const normalizedPermission = normalizePermissionName(permiso);
   if (!normalizedPermission) return false;
+
+  const roleId = Number(usuario?.id_role || usuario?.rol_id || 0);
   const directPermissions = Array.isArray(usuario?.permisos) ? usuario.permisos : [];
-  return directPermissions.some((item) => normalizePermissionName(item) === normalizedPermission);
+  const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
+    ? getPermissionsByRoleId(roleId)
+    : [];
+  const permissions = [...new Set([...directPermissions, ...fallbackPermissions])];
+
+  return permissions.some((item) => normalizePermissionName(item) === normalizedPermission);
 };
 
 const getRequiredApprovalPermissionByRoleId = (roleId) => {
@@ -625,7 +558,13 @@ const isPendingApprovalState = (state) => {
   return normalizedState === 'PENDIENTE' || normalizedState.startsWith('PENDIENTE_');
 };
 
-
+const getApprovalStagePermissionForUser = (usuario) => {
+  if (tienePermiso(usuario, 'APROBAR_ADMIN')) return 'APROBAR_ADMIN';
+  if (tienePermiso(usuario, 'APROBAR_FINANZAS')) return 'APROBAR_FINANZAS';
+  if (tienePermiso(usuario, 'APROBAR_GERENCIA_AREA')) return 'APROBAR_GERENCIA_AREA';
+  if (tienePermiso(usuario, 'APROBAR_JEFE_AREA')) return 'APROBAR_JEFE_AREA';
+  return '';
+};
 
 const getApprovalStageRoleIdForUser = (usuario) => {
   const roleId = resolveApprovalRoleId(usuario);
@@ -950,14 +889,13 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       }
     }
 
-   await client.query('COMMIT');
-   await registrarAprobacion(pool, usuario, normalizedTipo === 'COMPRA' ? 'compra' : 'servicio', referenceId, estadoAnterior);
+    await client.query('COMMIT');
+
     return {
       ok: true,
       estado_anterior: estadoAnterior,
       estado_nuevo: estadoNuevo,
     };
-    
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -967,7 +905,13 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
 };
 
 const resolveApprovalRoleIdByPermissions = (user) => {
-  const permissionSet = new Set((Array.isArray(user?.permisos) ? user.permisos : [])
+  const roleId = Number(user?.id_role || user?.rol_id || 0);
+  const hasDirectPermissions = Array.isArray(user?.permisos) && user.permisos.length > 0;
+  const directPermissions = hasDirectPermissions ? user.permisos : [];
+  const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
+    ? getPermissionsByRoleId(roleId)
+    : [];
+  const permissionSet = new Set((hasDirectPermissions ? directPermissions : fallbackPermissions)
     .map((perm) => String(perm || '').trim().toUpperCase())
     .filter(Boolean));
 
@@ -1679,14 +1623,12 @@ const createApprovalRowsForEntity = async (client, {
   }
 
   if (roleChain.length === 0) {
-      if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
+    if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
       return { usesApprovalTable: true, autoApproved: true };
     }
-    if (normalizedTipo === 'SERVICIO' && Number(creatorRoleId || 0) > 0) {
-      return { usesApprovalTable: true, autoApproved: true };
-    }
+
     throw new Error(`No se pudo resolver la cadena de aprobaciones para tipo ${normalizedTipo}`);
-}
+  }
 
   await client.query('DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2', [normalizedTipo, reference]);
 
@@ -1815,7 +1757,134 @@ const fetchFirstApprovalReferenceIdsByRole = async (client, {
   return new Set(result.rows.map((row) => Number(row.referencia_id)).filter((value) => Number.isInteger(value) && value > 0));
 };
 
+const applyApprovalDecision = async (client, {
+  tipo,
+  referenciaId,
+  roleId,
+  userId,
+  user,
+  decision,
+}) => {
+  const tableExists = await hasAprobacionesTable(client);
+  if (!tableExists) {
+    return {
+      usesApprovalTable: false,
+      finalApproved: normalize(decision) === 'APROBADO',
+      rejected: normalize(decision) === 'RECHAZADO',
+      hasPendingApprovals: false,
+    };
+  }
 
+  const normalizedTipo = normalizeApprovalTipo(tipo);
+  const reference = Number(referenciaId || 0);
+  const role = Number(roleId || 0);
+  const actor = Number(userId || 0);
+  const normalizedDecision = normalize(decision);
+  const requiredPermission = getRequiredApprovalPermissionByRoleId(role);
+
+  if (!['APROBADO', 'RECHAZADO'].includes(normalizedDecision)) {
+    throw new Error('decision de aprobacion invalida');
+  }
+
+  if (!requiredPermission) {
+    throw new Error('No existe un permiso de aprobacion configurado para este rol');
+  }
+
+  if (!tienePermiso(user, requiredPermission)) {
+    throw new Error(`No tienes permiso para aprobar en este nivel (${requiredPermission})`);
+  }
+
+  const stageRowsResult = await client.query(
+    `
+      SELECT id, orden, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
+      FROM aprobaciones
+      WHERE upper(trim(tipo)) = $1
+        AND referencia_id = $2
+        AND rol_aprobador = $3
+      ORDER BY orden ASC
+      FOR UPDATE
+    `,
+    [normalizedTipo, reference, role]
+  );
+
+  if (stageRowsResult.rows.length === 0) {
+    throw new Error('No existe etapa de aprobacion configurada para este nivel y registro');
+  }
+
+  const pendingRows = stageRowsResult.rows.filter((row) => normalize(row.estado) === 'PENDIENTE');
+  if (pendingRows.length === 0) {
+    const managedState = normalize(stageRowsResult.rows[0]?.estado || 'GESTIONADO');
+    const stageName = getApprovalStageKeyByRoleId(role) || `ROL_${role}`;
+    throw new Error(`La etapa ${stageName} ya fue gestionada (${managedState})`);
+  }
+
+  if (pendingRows.length > 1) {
+    throw new Error('Inconsistencia de flujo: existe mas de una etapa pendiente para el mismo nivel');
+  }
+
+  const targetApproval = pendingRows[0];
+
+  const blockedByPrevious = await client.query(
+    `
+      SELECT 1
+      FROM aprobaciones prev
+      WHERE upper(trim(prev.tipo)) = $1
+        AND prev.referencia_id = $2
+        AND prev.orden < $3
+        AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
+      LIMIT 1
+    `,
+    [normalizedTipo, reference, Number(targetApproval.orden || 0)]
+  );
+
+  if (blockedByPrevious.rows.length > 0) {
+    throw new Error('Aun hay niveles anteriores sin aprobar');
+  }
+
+  const updateDecision = await client.query(
+    `
+      UPDATE aprobaciones
+      SET estado = $1,
+          usuario_id = $2,
+          fecha = ${PET_SQL_NOW}
+      WHERE id = $3
+        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+      RETURNING id
+    `,
+    [normalizedDecision, actor || null, Number(targetApproval.id)]
+  );
+
+  if (updateDecision.rows.length === 0) {
+    const stageName = getApprovalStageKeyByRoleId(role) || `ROL_${role}`;
+    throw new Error(`La etapa ${stageName} ya fue gestionada por otro usuario`);
+  }
+
+  if (normalizedDecision === 'APROBADO') {
+    await registrarAprobacion(client, usuario, normalizedTipo === 'COMPRA' ? 'compra' : 'servicio', referenceId, estadoAnterior);
+  }
+
+  const remainingPending = await client.query(
+    `
+      SELECT COUNT(*) AS total
+      FROM aprobaciones
+      WHERE upper(trim(tipo)) = $1
+        AND referencia_id = $2
+        AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+             OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+    `,
+    [normalizedTipo, reference]
+  );
+
+  const pendingCount = Number(remainingPending.rows[0]?.total || 0);
+
+  return {
+    usesApprovalTable: true,
+    finalApproved: normalizedDecision === 'APROBADO' && pendingCount === 0,
+    rejected: normalizedDecision === 'RECHAZADO',
+    hasPendingApprovals: pendingCount > 0,
+  };
+};
 
 const fetchApprovedApproversByEntity = async (client, { tipo, referenciaId }) => {
   const tableExists = await hasAprobacionesTable(client);
@@ -3033,7 +3102,7 @@ const buildPurchaseComment = ({ comentarios = '', recibidoPor = '', itemCategori
   return text;
 };
 
-const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, reject) => {
+const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
   const chunks = [];
 
@@ -3058,245 +3127,429 @@ const buildCompraPdfBase64 = (compra, creatorPhone) => new Promise((resolve, rej
     }
   };
 
-  const drawSectionBar = (title, x, y, width, height = 18) => {
-    doc.rect(x, y, width, height).fill('#000059');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(title, x + 6, y + 5, { width: width - 12 });
-    return y + height;
+  const writeSectionTitle = (title) => {
+    ensureSpace(28);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
+    doc.moveDown(0.2);
+    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
+    doc.moveDown(0.5);
   };
 
-  const writeSimpleLabel = (label, value, x, y, labelWidth, valueWidth) => {
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, x, y, { width: labelWidth });
-    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(value, x + labelWidth, y, { width: valueWidth });
-    const h = Math.max(doc.heightOfString(label, { width: labelWidth }), doc.heightOfString(value, { width: valueWidth }));
-    return y + h + 5;
+  const estimateBlockHeight = (rows = []) => {
+    const rowGap = 4;
+    const paddingY = 4;
+    const titleHeight = 16;
+    const labelWidth = Math.max(98, Math.floor((usableWidth / 2 - 20) * 0.38));
+    const valueWidth = usableWidth / 2 - 20 - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return Math.max(18, Math.max(labelHeight, valueHeight));
+    };
+
+    let total = titleHeight + (paddingY * 2);
+    rows.forEach(([label, value]) => {
+      total += measureRowHeight(label, value) + rowGap;
+    });
+    return total;
+  };
+
+  const drawInfoBlock = ({ title, rows, x, y, width }) => {
+    const rowGap = 6;
+    const paddingX = 10;
+    const paddingY = 6;
+    const titleHeight = 18;
+    const labelWidth = Math.max(98, Math.floor(width * 0.38));
+    const valueWidth = width - (paddingX * 2) - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return {
+        textLabel,
+        textValue,
+        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
+      };
+    };
+
+    let contentHeight = 0;
+    rows.forEach(([label, value]) => {
+      const measured = measureRowHeight(label, value);
+      contentHeight += measured.rowHeight + rowGap;
+    });
+
+    const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
+
+    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
+    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
+      width: width - (paddingX * 2),
+    });
+
+    let rowY = y + titleHeight + paddingY;
+    rows.forEach(([label, value]) => {
+      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
+
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
+        width: labelWidth,
+      });
+
+      // Make the TOTAL FINAL value bold
+      const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
+        || String(label || '').toLowerCase().includes('total final')
+        || String(label || '').toLowerCase().includes('totalfinal');
+
+      if (isTotalFinal) {
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      } else {
+        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+          width: valueWidth,
+        });
+      }
+
+      rowY += rowHeight + rowGap;
+    });
+
+    return y + blockHeight;
+  };
+
+  const renderTwoColumnBlocks = (blocks) => {
+    const colGap = 12;
+    const colWidth = (usableWidth - colGap) / 2;
+    let cursorY = doc.y;
+
+    for (let i = 0; i < blocks.length; i += 2) {
+      const leftBlock = blocks[i];
+      const rightBlock = blocks[i + 1] || null;
+      const estimatedPairHeight = Math.max(
+        estimateBlockHeight(leftBlock?.rows || []),
+        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
+      );
+
+      ensureSpace(estimatedPairHeight);
+      cursorY = Math.max(cursorY, doc.y);
+
+      const leftBottom = drawInfoBlock({
+        title: leftBlock.title,
+        rows: leftBlock.rows,
+        x: left,
+        y: cursorY,
+        width: colWidth,
+      });
+
+      let pairBottom = leftBottom;
+      if (rightBlock) {
+        const rightBottom = drawInfoBlock({
+          title: rightBlock.title,
+          rows: rightBlock.rows,
+          x: left + colWidth + colGap,
+          y: cursorY,
+          width: colWidth,
+        });
+        pairBottom = Math.max(leftBottom, rightBottom);
+      }
+
+      cursorY = pairBottom + 1;
+      doc.y = cursorY;
+    }
   };
 
   const drawHeader = () => {
-    const logoPath = getCompanyLogoPath();
+    const logoPath = getCompanyLogoPath('dark');
 
-    doc.rect(left, 18, usableWidth, 85).fill('#f8fafc');
+    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
 
     if (logoPath) {
-      doc.image(logoPath, left + 12, 24, { fit: [84, 50], align: 'left', valign: 'center' });
+      doc.image(logoPath, left + 12, 24, {
+        fit: [84, 50],
+        align: 'left',
+        valign: 'center',
+      });
     }
 
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
-    let infoX = left + 130;
-    doc.text('ALFOSAC SAC', infoX, 24, { width: 200 });
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(companyAddress, infoX, doc.y + 2, { width: 200 });
-    doc.text(`RUC: ${companyRuc}`, infoX, doc.y + 2, { width: 200 });
-    doc.text(companyWeb, infoX, doc.y + 2, { width: 200 });
-
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#000059');
-    doc.text('ORDEN DE COMPRA', left + usableWidth - 220, 24, { width: 220, align: 'right' });
-
-    const boxX = left + usableWidth - 200;
-    const boxY = 64;
-    doc.rect(boxX, boxY, 200, 30).fillAndStroke('#eef2f7', '#cbd5e1');
-    doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(`Fecha: ${String(formatPetDateTime(compra.fecha_creacion) || '').split(' ')[0] || 'N/D'}`, boxX + 6, boxY + 4, { width: 188 });
-    doc.text(`OC: ${compra.numero_orden || `OC-${compra.id}`}`, boxX + 6, boxY + 14, { width: 188 });
-    doc.text(`Codigo: INT-${String(compra.id).padStart(6, '0')}`, boxX + 6, boxY + 22, { width: 188 });
-
-    doc.moveTo(left, 106).lineTo(pageWidth - right, 106).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
-    doc.y = 110;
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE COMPRA', left, 32, { width: usableWidth - 14, align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
+    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
+    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
+    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = 124;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
   doc.on('error', reject);
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-  doc.on('pageAdded', () => { doc.y = 110; });
+
+  doc.on('pageAdded', () => {
+    doc.y = 124;
+  });
 
   drawHeader();
-
-  const colGap = 12;
-  const halfWidth = (usableWidth - colGap) / 2;
-
-  // --- VENDEDOR + ENVIE A ---
-  ensureSpace(80);
-  let blockY = doc.y;
-
-  doc.rect(left, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
-  drawSectionBar('VENDEDOR', left, blockY, halfWidth);
-  let rowY = blockY + 26;
-
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text(safeText(compra.proveedor || compra.razon_social), left + 6, rowY, { width: halfWidth - 12 });
-  rowY += doc.heightOfString(safeText(compra.proveedor || compra.razon_social), { width: halfWidth - 12 }) + 6;
-  doc.text(safeText(compra.direccion), left + 6, rowY, { width: halfWidth - 12 });
-  rowY += doc.heightOfString(safeText(compra.direccion), { width: halfWidth - 12 }) + 6;
-  doc.text(safeText(compra.distrito), left + 6, rowY, { width: halfWidth - 12 });
-  rowY += doc.heightOfString(safeText(compra.distrito), { width: halfWidth - 12 }) + 6;
-  rowY = writeSimpleLabel('RUC:', safeText(compra.ruc), left + 6, rowY, 28, halfWidth - 40);
-
-  const envieX = left + halfWidth + colGap;
-  doc.rect(envieX, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
-  drawSectionBar('ENVIE A', envieX, blockY, halfWidth);
-  rowY = blockY + 26;
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text('ALMACENES FORWARDER SAC', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 18;
-  doc.text('AV. NESTOR GAMBETA N° 4783 - CALLAO', envieX + 6, rowY, { width: halfWidth - 12 }); rowY += 18;
-  doc.text('CALLAO, CALLAO', envieX + 6, rowY, { width: halfWidth - 12 });
-
-  doc.y = blockY + 100 + 8;
-
-  // --- TABLA PRINCIPAL ---
-  const items = Array.isArray(compra.items) ? compra.items : [];
-  if (items.length > 0) {
-    const totalQty = items.reduce((sum, i) => sum + Number(i.cantidad || 0), 0);
-    const baseForDistribution = Number(compra.subtotal || 0) || Number(compra.total || compra.importe_final || 0);
-
-    ensureSpace(30);
-    const colWidths = [36, 290, 46, 64, 78];
-    const colHeaders = ['#', 'DESCRIPCION', 'CANT', 'P/U', 'TOTAL'];
-    let tableX = left;
-    let headerY = doc.y;
-
-    doc.rect(tableX, headerY, usableWidth, 18).fill('#000059');
-    let hx = tableX;
-    colHeaders.forEach((h, i) => {
-      doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
-      doc.text(h, hx + 3, headerY + 5, { width: colWidths[i] - 6, align: i === 0 ? 'center' : i === 1 ? 'left' : 'right' });
-      hx += colWidths[i];
-    });
-
-    let rowY2 = headerY + 18;
-    items.forEach((item, idx) => {
-      const desc = safeText(item.material || item.descripcion || item.nombre);
-      const qty = Number(item.cantidad || 0);
-      const totalItem = Number(item.subtotal || 0) || (baseForDistribution > 0 && totalQty > 0 ? (qty / totalQty) * baseForDistribution : 0);
-      const pUnit = qty > 0 ? totalItem / qty : 0;
-      const descH = doc.heightOfString(desc, { width: colWidths[1] - 8 });
-      const rowH = Math.max(22, descH + 10);
-
-      if (rowY2 + rowH > bottomLimit - 20) {
-        doc.addPage();
-        drawHeader();
-        headerY = doc.y;
-        doc.rect(tableX, headerY, usableWidth, 18).fill('#000059');
-        hx = tableX;
-        colHeaders.forEach((h, i) => {
-          doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
-          doc.text(h, hx + 3, headerY + 5, { width: colWidths[i] - 6, align: i === 0 ? 'center' : i === 1 ? 'left' : 'right' });
-          hx += colWidths[i];
-        });
-        rowY2 = headerY + 18;
-      }
-
-      doc.rect(tableX, rowY2, usableWidth, rowH).fillAndStroke('#ffffff', '#e2e8f0');
-      let cx = tableX;
-      const cellValues = [
-        String(idx + 1),
-        desc,
-        String(qty),
-        money(pUnit, compra.moneda),
-        money(totalItem, compra.moneda),
-      ];
-      cellValues.forEach((cv, ci) => {
-        doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-        doc.text(cv, cx + 3, rowY2 + 5, {
-          width: colWidths[ci] - 6,
-          align: ci === 0 ? 'center' : ci === 1 ? 'left' : 'right',
-        });
-        cx += colWidths[ci];
-      });
-      rowY2 += rowH + 4;
-    });
-
-    doc.y = rowY2 + 8;
-  }
-
-  // --- COMENTARIOS (izquierda) + RESUMEN (derecha) ---
-  ensureSpace(80);
-  const commentsWidth = usableWidth - 220 - colGap;
-  const commentsX = left;
-  const summaryWidth = 220;
-  const summaryX = left + usableWidth - summaryWidth;
 
   const subtotal = Number(compra.subtotal || 0);
   const igv = Number(compra.igv || 0);
   const costoEnvio = Number(compra.costo_envio || 0);
   const otrosCostos = Number(compra.otros_costos || 0);
-  const totalFinal = Number(compra.importe_final || compra.total || (subtotal + igv + costoEnvio + otrosCostos));
-
-  let sectionY = doc.y;
-
-  // --- COMENTARIOS (izquierda) ---
-  doc.rect(commentsX, sectionY + 2, commentsWidth, 2).fill('#000059');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, sectionY + 8, { width: commentsWidth - 4 });
-  doc.moveDown(0.8);
-
+  const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
   const aplicaRetencion = Boolean(compra.aplica_retencion);
-  const retencionLabel = (() => {
-    if (!aplicaRetencion) return 'NO';
-    const tipoRet = normalize(compra.tipo_retencion || '');
-    const pct = Number(compra.descuento || 0) * 100;
-    const tipoLabel = tipoRet === 'DETRACCION' ? 'Detraccion' : 'Retencion';
-    return `SI - ${tipoLabel} ${pct.toFixed(0)}%`;
-  })();
+  const porcentajeRetencion = Number(compra.descuento || 0);
+  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
+  const totalFinal = Number(compra.importe_final || compra.total || totalBase);
+  const approverEntries = buildPdfApprovalEntries({
+    approvals: compra.aprobadores,
+    creatorUserId: compra.id_usuario,
+    creatorRoleId: compra.usuario_rol_id,
+    creatorName: compra.usuario,
+  });
+  const approversSummary = approverEntries
+    .filter((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+      return !isRequesterRow || approverEntries.length === 1
+    })
+    .map((row) => {
+      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      const aprobadorNombre = safeText(row.aprobador || 'Pendiente')
+      return `${aprobadorNombre} (${fallbackRoleLabel})`
+    })
+    .join('\n');
+  const entregaInfo = compra.entrega_area && compra.entrega_area.entregado === true
+    ? {
+      ...compra.entrega_area,
+      ...parseReceiptInfo(compra.recibido_por),
+    }
+    : null;
 
-  const commentFields = [
-    ['Retencion/Detraccion:', retencionLabel],
-    ['Correo:', safeText(compra.correo || compra.contacto_proveedor)],
-    ['Persona Responsable:', safeText(compra.persona_responsable || compra.contacto_proveedor)],
-    ['Telefono:', safeText(compra.telefono)],
-    ['Condiciones de Pago:', safeText(compra.condiciones_pago)],
-    ['Banco:', safeText(compra.banco)],
-    ['Moneda:', currencyLabel],
-    ['N de Cuenta:', safeText(compra.numero_cuenta || compra.cuenta)],
-    ['CCI:', safeText(compra.cci)],
+  writeSectionTitle('Resumen');
+  ensureSpace(98);
+  const resumenTop = doc.y;
+  const resumenRows = [
+    ['Número de orden', compra.numero_orden || `OC-${compra.id}`],
+    ['Fecha', String(formatPetDateTime(compra.fecha_creacion || currentPetDateTime()) || '').split(' ')[0]],
+    ['Proveedor', compra.proveedor || compra.razon_social],
+    ['Área destino', compra.area_final],
   ];
+  const resumenRowHeight = 20;
+  const resumenLabelWidth = 160;
 
-  const commentsLeftColW = 120;
-  const commentsRightColW = commentsWidth - commentsLeftColW - 16;
-  let cfY = doc.y;
-
-  commentFields.forEach(([label, val]) => {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: commentsLeftColW });
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + commentsLeftColW, cfY, { width: commentsRightColW });
-    cfY += 20;
+  doc.rect(left, resumenTop, usableWidth, 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text('Datos de la orden', left + 10, resumenTop + 6, {
+    width: usableWidth - 20,
+    align: 'left',
   });
 
-  // --- RESUMEN (derecha) ---
-  let sumY = sectionY;
-  const sumRows = [
-    ['SUBTOTAL', money(subtotal, compra.moneda)],
-    ['IGV', money(igv, compra.moneda)],
-    ['ENVIO', money(costoEnvio, compra.moneda)],
-    ['OTRO', money(otrosCostos, compra.moneda)],
-  ];
-  sumRows.forEach(([label, val]) => {
-    doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
-    doc.text(label, summaryX + 6, sumY + 5, { width: 100 });
-    doc.text(val, summaryX + 106, sumY + 5, { width: 108, align: 'right' });
-    sumY += 22;
+  let resumenY = resumenTop + 20;
+  resumenRows.forEach(([label, value], index) => {
+    const isAlternate = index % 2 === 0;
+    const valueHeight = doc.heightOfString(safeText(value), {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    const rowHeight = Math.max(resumenRowHeight, valueHeight + 12);
+    doc.rect(left, resumenY, usableWidth, rowHeight).fillAndStroke(isAlternate ? '#f8fafc' : '#ffffff', '#e2e8f0');
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 10, resumenY + 6, {
+      width: resumenLabelWidth,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(safeText(value), left + 10 + resumenLabelWidth, resumenY + 6, {
+      width: usableWidth - resumenLabelWidth - 20,
+      align: 'left',
+    });
+    resumenY += rowHeight;
   });
+  doc.y = resumenY + 2;
 
-  doc.rect(summaryX, sumY, summaryWidth, 24).fillAndStroke('#000059', '#000059');
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff');
-  doc.text('TOTAL', summaryX + 6, sumY + 7, { width: 100 });
-  doc.text(money(totalFinal, compra.moneda), summaryX + 106, sumY + 7, { width: 108, align: 'right' });
+  renderTwoColumnBlocks([
+    {
+      title: 'Orden y solicitante',
+      rows: [
+        ['Área solicitante', compra.area_solicitante],
+        ['Solicitante', compra.usuario],
+        ['Moneda', currencyLabel],
+      ],
+    },
+    {
+      title: 'Proveedor',
+      rows: [
+        ['RUC', compra.ruc],
+        ['Dirección', compra.direccion],
+        ['Distrito', compra.distrito],
+        ['Banco', compra.banco],
+        ['Cuenta', compra.cuenta || compra.numero_cuenta],
+        ['CCI', compra.cci],
+        ['Condiciones de pago', compra.condiciones_pago],
+      ],
+    },
+    {
+      title: 'Detalle financiero',
+      rows: [
+        ['Subtotal', money(subtotal, compra.moneda)],
+        ['IGV', money(igv, compra.moneda)],
+        ['Costo envío', money(costoEnvio, compra.moneda)],
+        ['Otros costos', money(otrosCostos, compra.moneda)],
+        ['Total base', money(totalBase, compra.moneda)],
+        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
+        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+        ['Monto retenido', money(montoRetenido, compra.moneda)],
+      ],
+    },
+    {
+      title: 'Contacto y observaciones',
+      rows: [
+        ['Correo', compra.correo || compra.contacto_proveedor],
+        ['Persona responsable', compra.persona_responsable || compra.contacto_proveedor],
+        ['Teléfono', compra.telefono],
+        ['Aprobaciones', approversSummary || 'Sin aprobaciones registradas'],
+        ...(String(compra.comentarios || '').trim()
+          ? [['Comentarios', compra.comentarios]]
+          : []),
+      ],
+    },
+  ]);
 
-  doc.y = Math.max(cfY, sumY + 28);
+  const purchaseDetailText = String(compra.detalle || compra.comentarios || '').trim();
+  if (entregaInfo) {
+    renderTwoColumnBlocks([
+      {
+        title: 'Entrega al area',
+        rows: [
+          ['DNI receptor', entregaInfo.receptor_dni || entregaInfo.dni || 'N/D'],
+          ['Nombre receptor', entregaInfo.receptor_nombre || entregaInfo.nombre || 'N/D'],
+        ],
+      },
+      {
+        title: 'Estado de entrega',
+        rows: [
+          ['Entregado', 'SI'],
+          ['Fecha entrega', entregaInfo.fecha_entrega_area ? new Date(entregaInfo.fecha_entrega_area).toLocaleString() : 'N/D'],
+        ],
+      },
+    ]);
+  }
 
-  // --- FOOTER ---
+  if (purchaseDetailText) {
+    writeSectionTitle('Detalle de la solicitud');
+    ensureSpace(40);
+    const detailBoxTop = doc.y;
+    const detailHeight = Math.max(28, doc.heightOfString(purchaseDetailText, { width: usableWidth - 20 }) + 14);
+    doc.rect(left, detailBoxTop, usableWidth, detailHeight).fillAndStroke('#ffffff', '#e2e8f0');
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(purchaseDetailText, left + 10, detailBoxTop + 7, {
+      width: usableWidth - 20,
+      align: 'left',
+    });
+    doc.y = detailBoxTop + detailHeight + 3;
+  }
+
+  const items = Array.isArray(compra.items) ? compra.items : [];
+  if (items.length > 0) {
+    const colWidths = [403, 120];
+    const headers = ['Material/Servicio', 'Cantidad'];
+    let x = left;
+
+    const drawDetailHeader = (startY) => {
+      let headerX = left;
+      headers.forEach((header, index) => {
+        doc.rect(headerX, startY, colWidths[index], 20).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(header, headerX + 6, startY + 6, {
+          width: colWidths[index] - 12,
+          align: index === 0 ? 'left' : 'center',
+        });
+        headerX += colWidths[index];
+      });
+      return startY + 20;
+    };
+    let rowY = doc.y;
+    let renderedAnyItem = false;
+
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+    items.forEach((item) => {
+      const qty = Number(item.cantidad || 0);
+      const descripcion = safeText(item.material || item.descripcion || item.nombre);
+      const rowHeight = Math.max(20, doc.heightOfString(descripcion, { width: colWidths[0] - 12 }) + 8);
+
+      if (!renderedAnyItem) {
+        if (doc.y + 20 + rowHeight > bottomLimit - 32) {
+          doc.addPage();
+          drawHeader();
+        }
+        writeSectionTitle('Items');
+        rowY = drawDetailHeader(doc.y);
+      } else if (rowY + rowHeight > bottomLimit - 32) {
+        doc.addPage();
+        drawHeader();
+        writeSectionTitle('Items');
+        rowY = drawDetailHeader(doc.y);
+      }
+
+      x = left;
+      const cells = [
+        descripcion,
+        String(qty),
+      ];
+      cells.forEach((cell, cellIndex) => {
+        doc.rect(x, rowY, colWidths[cellIndex], rowHeight).fillAndStroke('#ffffff', '#e2e8f0');
+        doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+        doc.text(cell, x + 6, rowY + 5, {
+          width: colWidths[cellIndex] - 12,
+          align: cellIndex === 0 ? 'left' : 'center',
+        });
+        x += colWidths[cellIndex];
+      });
+      rowY += rowHeight;
+      renderedAnyItem = true;
+    });
+
+    if (rowY + 24 > bottomLimit - 4) {
+      doc.addPage();
+      drawHeader();
+      writeSectionTitle('Items');
+      rowY = doc.y;
+    }
+    const resumenTotalY = rowY;
+    doc.rect(left, resumenTotalY, usableWidth - 130, 22)
+      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+
+    doc.rect(left + usableWidth - 130, resumenTotalY, 130, 22)
+      .fillAndStroke(PDF_BRAND_COLORS.surface, '#cbd5e1');
+
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary)
+      .text('TOTAL GENERAL', left + 8, resumenTotalY + 7, {
+        width: usableWidth - 146,
+        align: 'right',
+      });
+
+    doc.text(money(totalFinal || 0, compra.moneda), left + usableWidth - 124, resumenTotalY + 7, {
+      width: 118,
+      align: 'center',
+    });
+
+    doc.y = resumenTotalY + 2;
+  } 
+
   doc.moveDown(1);
-  doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.5).stroke();
-  doc.moveDown(0.5);
-  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textSecondary);
-  doc.text(
-    `Formato: FO-ALF-001 | Version: 1.0 | Si tienes dudas sobre el servicio u orden de compra, contactar a: compras@alfosac.pe / ${creatorPhone}`,
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
+    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
-    doc.y,
+    bottomLimit - 24,
     { width: usableWidth, align: 'center' }
   );
 
   doc.end();
 });
 
-const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve, reject) => {
+const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
   const chunks = [];
 
@@ -3321,62 +3574,159 @@ const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve,
     }
   };
 
-  const drawSectionBar = (title, x, y, width, height = 18) => {
-    doc.rect(x, y, width, height).fill('#000059');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(title, x + 6, y + 5, { width: width - 12 });
-    return y + height;
+  const writeSectionTitle = (title) => {
+    ensureSpace(28);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
+    doc.moveDown(0.2);
+    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
+    doc.moveDown(0.5);
   };
 
-  const writeSimpleLabel = (label, value, x, y, labelWidth, valueWidth) => {
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, x, y, { width: labelWidth });
-    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(value, x + labelWidth, y, { width: valueWidth });
-    const h = Math.max(doc.heightOfString(label, { width: labelWidth }), doc.heightOfString(value, { width: valueWidth }));
-    return y + h + 5;
+  const estimateBlockHeight = (rows = []) => {
+    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return Math.max(18, Math.max(labelHeight, valueHeight));
+    };
+
+    let total = 24;
+    const labelWidth = 98;
+    const valueWidth = 136;
+    rows.forEach(([label, value]) => {
+      total += measureRowHeight(label, value, labelWidth, valueWidth) + 6;
+    });
+    return total + 6;
+  };
+
+  const drawInfoBlock = ({ title, rows, x, y, width }) => {
+    const rowGap = 5;
+    const paddingX = 10;
+    const paddingY = 6;
+    const titleHeight = 18;
+    const labelWidth = Math.max(98, Math.floor(width * 0.38));
+    const valueWidth = width - (paddingX * 2) - labelWidth - 8;
+
+    const measureRowHeight = (label, value) => {
+      const textLabel = `${safeText(label)}:`;
+      const textValue = safeText(value);
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
+      doc.font('Helvetica').fontSize(8.5);
+      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
+      return {
+        textLabel,
+        textValue,
+        rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
+      };
+    };
+
+    let contentHeight = 0;
+    rows.forEach(([label, value]) => {
+      const measured = measureRowHeight(label, value);
+      contentHeight += measured.rowHeight + rowGap;
+    });
+
+    const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
+
+    doc.rect(x, y, width, blockHeight).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
+    doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
+      width: width - (paddingX * 2),
+    });
+
+    let rowY = y + titleHeight + paddingY;
+    rows.forEach(([label, value]) => {
+      const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
+
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
+        width: labelWidth,
+      });
+      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
+        width: valueWidth,
+      });
+
+      rowY += rowHeight + rowGap;
+    });
+
+    return y + blockHeight;
+  };
+
+  const renderTwoColumnBlocks = (blocks) => {
+    const colGap = 12;
+    const colWidth = (usableWidth - colGap) / 2;
+    let cursorY = doc.y;
+
+    for (let i = 0; i < blocks.length; i += 2) {
+      const leftBlock = blocks[i];
+      const rightBlock = blocks[i + 1] || null;
+      const estimatedPairHeight = Math.max(
+        estimateBlockHeight(leftBlock?.rows || []),
+        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
+      ) + 10;
+
+      ensureSpace(estimatedPairHeight);
+      cursorY = Math.max(cursorY, doc.y);
+
+      const leftBottom = drawInfoBlock({
+        title: leftBlock.title,
+        rows: leftBlock.rows,
+        x: left,
+        y: cursorY,
+        width: colWidth,
+      });
+
+      let pairBottom = leftBottom;
+      if (rightBlock) {
+        const rightBottom = drawInfoBlock({
+          title: rightBlock.title,
+          rows: rightBlock.rows,
+          x: left + colWidth + colGap,
+          y: cursorY,
+          width: colWidth,
+        });
+        pairBottom = Math.max(leftBottom, rightBottom);
+      }
+
+      cursorY = pairBottom + 1;
+      doc.y = cursorY;
+    }
   };
 
   const drawHeader = () => {
-    const logoPath = getCompanyLogoPath();
+    const logoPath = getCompanyLogoPath('dark');
 
-    doc.rect(left, 18, usableWidth, 85).fill('#f8fafc');
+    doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
 
     if (logoPath) {
-      doc.image(logoPath, left + 12, 24, { fit: [84, 50], align: 'left', valign: 'center' });
+      doc.image(logoPath, left + 12, 24, {
+        fit: [84, 50],
+        align: 'left',
+        valign: 'center',
+      });
     }
 
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
-    let infoX = left + 130;
-    doc.text('ALFOSAC SAC', infoX, 24, { width: 200 });
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(companyAddress, infoX, doc.y + 2, { width: 200 });
-    doc.text(`RUC: ${companyRuc}`, infoX, doc.y + 2, { width: 200 });
-    doc.text(companyWeb, infoX, doc.y + 2, { width: 200 });
-
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#000059');
-    doc.text('ORDEN DE SERVICIO', left + usableWidth - 220, 24, { width: 220, align: 'right' });
-
-    const boxX = left + usableWidth - 200;
-    const boxY = 64;
-    doc.rect(boxX, boxY, 200, 30).fillAndStroke('#eef2f7', '#cbd5e1');
-    doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(`Fecha: ${String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0] || 'N/D'}`, boxX + 6, boxY + 4, { width: 188 });
-    doc.text(`OS: ${servicio.numero_orden || `OS-${servicio.id}`}`, boxX + 6, boxY + 14, { width: 188 });
-    doc.text(`Codigo: INT-${String(servicio.id).padStart(6, '0')}`, boxX + 6, boxY + 22, { width: 188 });
-
-    doc.moveTo(left, 106).lineTo(pageWidth - right, 106).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
-    doc.y = 110;
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text('ORDEN DE SERVICIO', left, 32, { width: usableWidth - 14, align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
+    doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
+    doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
+    doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+    doc.y = 140;
   };
 
   doc.on('data', (chunk) => chunks.push(chunk));
   doc.on('error', reject);
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-  doc.on('pageAdded', () => { doc.y = 110; });
+
+  doc.on('pageAdded', () => {
+    doc.y = 140;
+  });
 
   drawHeader();
 
-  const colGap = 12;
-  const halfWidth = (usableWidth - colGap) / 2;
-
-  // --- Parse financial data ---
   const parseAmount = (value) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -3404,151 +3754,106 @@ const buildServicioPdfBase64 = (servicio, creatorPhone) => new Promise((resolve,
   const exceedsThreshold = (isPenCurrency && totalBase > 700) || (isUsdCurrency && totalBaseSoles > 700);
   const providerAllowsRetention = normalize(servicio.proveedor_retencion) === 'SI' && porcentajeRetencion > 0;
   const aplicaRetencion = Boolean(servicio.aplica_retencion) || (providerAllowsRetention && exceedsThreshold);
-  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion)).toFixed(2)) : 0;
+  const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
   let totalFinal = parseAmount(servicio.total || totalBase);
   if (aplicaRetencion) {
     totalFinal = Number((totalBase - montoRetenido).toFixed(2));
   }
-
-  const retencionLabel = (() => {
-    if (!aplicaRetencion) return 'NO';
-    const tipoRet = normalize(servicio.proveedor_tipo_retencion || servicio.tipo_retencion || '');
-    const pct = porcentajeRetencion * 100;
-    const tipoLabel = tipoRet === 'DETRACCION' ? 'Detraccion' : 'Retencion';
-    return `SI - ${tipoLabel} ${pct.toFixed(0)}%`;
-  })();
-
-  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
-    ? 'PENDIENTE DE REALIZACION'
-    : (servicio.estado_flujo || servicio.estado_servicio);
-
   const approverEntries = buildPdfApprovalEntries({
     approvals: servicio.aprobadores,
     creatorUserId: servicio.id_usuario,
     creatorRoleId: servicio.usuario_rol_id,
     creatorName: servicio.usuario,
   });
+  const approversSummary = approverEntries
+    .filter((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+      return !isRequesterRow || approverEntries.length === 1
+    })
+    .map((row) => {
+      const etapaLabel = String(row.etapa || '').trim().toUpperCase()
+      const rolLabel = String(row.rol || '').trim().toUpperCase()
+      const fallbackRoleLabel = safeText(row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
+        ? fallbackRoleLabel
+        : safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador))
+      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`;
+    })
+    .join('\n');
 
-  // --- SERVICIO + PROVEEDOR ---
-  ensureSpace(80);
-  let blockY = doc.y;
+  writeSectionTitle('Resumen');
+  ensureSpace(50);
 
-  doc.rect(left, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
-  drawSectionBar('SERVICIO', left, blockY, halfWidth);
-  let rowY = blockY + 26;
-  rowY = writeSimpleLabel('Nombre:', safeText(servicio.nombre_servicio || servicio.descripcion_servicio), left + 6, rowY, 46, halfWidth - 58);
-  rowY = writeSimpleLabel('Estado:', estadoServicio, left + 6, rowY, 46, halfWidth - 58);
-  rowY = writeSimpleLabel('Area:', safeText(servicio.area), left + 6, rowY, 46, halfWidth - 58);
+  const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
+    ? 'PENDIENTE DE REALIZACION'
+    : (servicio.estado_flujo || servicio.estado_servicio);
 
-  const provX = left + halfWidth + colGap;
-  doc.rect(provX, blockY, halfWidth, 100).fillAndStroke('#ffffff', '#e2e8f0');
-  drawSectionBar('PROVEEDOR', provX, blockY, halfWidth);
-  rowY = blockY + 26;
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text(safeText(servicio.proveedor), provX + 6, rowY, { width: halfWidth - 12 });
-  rowY += doc.heightOfString(safeText(servicio.proveedor), { width: halfWidth - 12 }) + 6;
-  doc.text(safeText(servicio.proveedor_direccion), provX + 6, rowY, { width: halfWidth - 12 });
-  rowY += doc.heightOfString(safeText(servicio.proveedor_direccion), { width: halfWidth - 12 }) + 6;
-  doc.text(`RUC: ${safeText(servicio.proveedor_ruc)}`, provX + 6, rowY, { width: halfWidth - 12 });
-
-  doc.y = blockY + 100 + 8;
-
-  // --- COMENTARIOS (izquierda) + RESUMEN (derecha) ---
-  ensureSpace(80);
-  const commentsWidth = usableWidth - 220 - colGap;
-  const commentsX = left;
-  const summaryWidth = 220;
-  const summaryX = left + usableWidth - summaryWidth;
-
-  let sectionY = doc.y;
-
-  // --- COMENTARIOS (izquierda) ---
-  doc.rect(commentsX, sectionY + 2, commentsWidth, 2).fill('#000059');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('COMENTARIOS O INSTRUCCIONES ESPECIALES', commentsX + 2, sectionY + 8, { width: commentsWidth - 4 });
-  doc.moveDown(0.8);
-
-  const provCommentFields = [
-    ['Retencion/Detraccion:', retencionLabel],
-    ['Moneda:', currencyLabel],
-    ['Condiciones de Pago:', safeText(servicio.proveedor_condiciones_pago)],
-    ['Banco:', safeText(servicio.proveedor_banco)],
-    ['Cuenta:', safeText(servicio.proveedor_cuenta)],
-    ['CCI:', safeText(servicio.proveedor_cci)],
-  ];
-
-  const leftColW = 120;
-  const rightColW = commentsWidth - leftColW - 16;
-  let cfY = doc.y;
-
-  provCommentFields.forEach(([label, val]) => {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(label, commentsX + 4, cfY, { width: leftColW });
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(val, commentsX + 4 + leftColW, cfY, { width: rightColW });
-    cfY += 20;
+  const servicioEstadoBottom = drawInfoBlock({
+    title: 'Servicio y estado',
+    rows: [
+      ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
+      ['Descripción', servicio.descripcion_servicio],
+      ['Prioridad', servicio.prioridad],
+      ['Estado', estadoServicio],
+      ['Estado aprobación', servicio.estado_aprobacion],
+    ],
+    x: left,
+    y: doc.y,
+    width: usableWidth,
   });
+  doc.y = servicioEstadoBottom + 0;
 
-  // --- RESUMEN (derecha) ---
-  let sumY = sectionY;
-  const sumRows = [
-    ['SUBTOTAL', money(subtotal)],
-    ['IGV', money(igv)],
-    ['ENVIO', money(costoEnvio)],
-    ['OTROS', money(otrosCostos)],
-    ['TOTAL BASE', money(totalBase)],
-  ];
-  sumRows.forEach(([label, val]) => {
-    doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
-    doc.text(label, summaryX + 6, sumY + 5, { width: 100 });
-    doc.text(val, summaryX + 106, sumY + 5, { width: 108, align: 'right' });
-    sumY += 22;
-  });
+  renderTwoColumnBlocks([
+    {
+      title: 'Datos de la orden',
+      rows: [
+        ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
+        ['Fecha', String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0]],
+        ['Proveedor', servicio.proveedor],
+        ['Área destino', servicio.area],
+      ],
+    },
+    {
+      title: 'Proveedor',
+      rows: [
+        ['Moneda', currencyLabel],
+        ['RUC', servicio.proveedor_ruc],
+        ['Dirección', servicio.proveedor_direccion],
+        ['Banco', servicio.proveedor_banco],
+        ['Cuenta', servicio.proveedor_cuenta],
+        ['CCI', servicio.proveedor_cci],
+        ['Condiciones de pago', servicio.proveedor_condiciones_pago],
+      ],
+    },
+    {
+      title: 'Detalle financiero',
+      rows: [
+        ['Subtotal', money(subtotal)],
+        ['IGV', money(igv)],
+        ['Costo envío', money(costoEnvio)],
+        ['Otros costos', money(otrosCostos)],
+        ['Total base', money(totalBase)],
+        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
+        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
+        ['Monto retenido', money(montoRetenido)],
+        ['Total final', money(totalFinal)],
+      ],
+    },
+    {
+      title: 'Aprobaciones',
+      rows: [
+        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
+      ],
+    },
+  ]);
 
-  doc.rect(summaryX, sumY, summaryWidth, 18).fillAndStroke('#ffffff', '#e2e8f0');
-  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text('RETENCION', summaryX + 6, sumY + 5, { width: 100 });
-  doc.text(aplicaRetencion ? money(montoRetenido) : 'NO APLICA', summaryX + 106, sumY + 5, { width: 108, align: 'right' });
-  sumY += 22;
-
-  doc.rect(summaryX, sumY, summaryWidth, 24).fillAndStroke('#000059', '#000059');
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff');
-  doc.text('TOTAL', summaryX + 6, sumY + 7, { width: 100 });
-  doc.text(money(totalFinal), summaryX + 106, sumY + 7, { width: 108, align: 'right' });
-
-  doc.y = Math.max(cfY, sumY + 28);
-
-  // --- APROBACIONES ---
-  const visibleApprovers = approverEntries.filter((row) => {
-    const etapaLabel = String(row.etapa || '').trim().toUpperCase();
-    const rolLabel = String(row.rol || '').trim().toUpperCase();
-    const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE';
-    return !isRequesterRow || approverEntries.length === 1;
-  });
-
-  if (visibleApprovers.length > 0) {
-    ensureSpace(40);
-    doc.rect(left, doc.y + 2, usableWidth, 2).fill('#000059');
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000059').text('APROBACIONES', left + 2, doc.y + 8, { width: usableWidth - 4 });
-
-    let appY = doc.y + 22;
-    visibleApprovers.forEach((row) => {
-      const label = safeText(row.etapa || row.rol || getApprovalRoleLabel(row.rol_aprobador));
-      const aprobador = safeText(row.aprobador || 'Pendiente');
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(`${label}:`, left + 6, appY, { width: 120 });
-      doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary).text(aprobador, left + 130, appY, { width: 200 });
-      appY += 20;
-    });
-    doc.y = appY + 6;
-  }
-
-  // --- FOOTER ---
-  doc.moveDown(1);
-  doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.5).stroke();
-  doc.moveDown(0.5);
-  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textSecondary);
-  doc.text(
-    `Formato: FO-ALF-001 | Version: 1.0 | Si tienes dudas sobre el servicio u orden de compra, contactar a: compras@alfosac.pe / ${creatorPhone}`,
+  doc.moveDown(0.2);
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
+    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
     left,
-    doc.y,
+    bottomLimit - 24,
     { width: usableWidth, align: 'center' }
   );
 
@@ -3600,8 +3905,6 @@ const getUserPasswordExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'password_hash', to_jsonb(${tableAlias})->>'contraseña', to_jsonb(${tableAlias})->>'contrasena', ''), '')`;
 const getUserEstadoExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'estado', ''), '')`;
-const getUserTelefonoExpr = (tableAlias) =>
-  `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'telefono', ''), '')`;
 const getRequerimientoDescripcionExpr = (tableAlias) =>
   `NULLIF(COALESCE(to_jsonb(${tableAlias})->>'comentario', to_jsonb(${tableAlias})->>'descripcion', to_jsonb(${tableAlias})->>'observaciones', ''), '')`;
 const getRequerimientoDescripcionColumn = () =>
@@ -3732,7 +4035,6 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         COALESCE(a.nombre, 'Sin area') AS area,
         COALESCE(mo.nombre, '') AS moneda,
         COALESCE(u.nombre, 'Sin usuario') AS usuario,
-        u.telefono AS usuario_telefono,
         (csr.puntuacion IS NOT NULL) AS calificacion_servicio_existe,
         csr.puntuacion AS calificacion_servicio_puntuacion,
         COALESCE(csr.comentario, '') AS calificacion_servicio_comentario,
@@ -3889,6 +4191,7 @@ const getColumnSet = async (tableName) => {
 
   return new Set(result.rows.map((row) => row.column_name));
 };
+
 const loadSchemaMeta = async () => {
   schemaMeta.proveedoresColumns = await getColumnSet('proveedores');
   schemaMeta.comprasColumns = await getColumnSet('compras');
@@ -4048,10 +4351,7 @@ const ensureComprasColumns = async () => {
   for (const statement of compraColumnStatements) {
     await pool.query(statement);
   }
-  await pool.query(`
-    ALTER TABLE compras_directas
-    ADD COLUMN IF NOT EXISTS id_moneda INTEGER REFERENCES monedas(id);
-  `);
+
   await pool.query(`
     ALTER TABLE materiales
     ADD COLUMN IF NOT EXISTS id_moneda INTEGER;
@@ -4186,50 +4486,41 @@ const seedInventoryDemoData = async () => {
         INSERT INTO permisos (nombre, descripcion)
         VALUES
           ('VER_INVENTARIO', 'Puede ver inventario'),
-          ('EDITAR_INVENTARIO', 'Puede editar materiales en inventario'),
-          ('AGREGAR_INVENTARIO_MANUAL', 'Puede agregar material manual'),
-          ('CREAR_REQUERIMIENTO', 'Puede crear requerimientos'),
-          ('CREAR_SOLICITUD_COMPRA', 'Puede crear solicitudes de compra'),
-          ('CREAR_SOLICITUD_SERVICIO', 'Puede crear solicitudes de servicio'),
-          ('CAMBIAR_ESTADO_SERVICIO', 'Puede cambiar estado de servicio'),
-          ('GESTIONAR_COMPRAS', 'Puede gestionar ordenes de compra'),
-          ('GESTIONAR_ORDENES_COMPRA', 'Puede gestionar ordenes de compra'),
-          ('GESTIONAR_PROVEEDORES', 'Puede gestionar proveedores'),
-          ('GESTIONAR_ENTREGAS', 'Puede gestionar entregas'),
-          ('GESTIONAR_SOLICITUDES', 'Puede gestionar solicitudes'),
-          ('GESTIONAR_CUENTAS', 'Puede gestionar cuentas de usuario'),
-          ('GESTIONAR_ROLES', 'Puede gestionar roles y permisos'),
-          ('VER_AJUSTES', 'Puede ver ajustes'),
-          ('VER_DASHBOARD', 'Puede ver dashboard'),
-          ('VER_MOVIMIENTOS', 'Puede ver movimientos'),
-          ('VER_NOTIFICACIONES_PROVEEDOR', 'Puede ver notificaciones de proveedores'),
-          ('VER_HISTORIAL_SERVICIOS', 'Puede ver historial de servicios'),
-          ('APROBAR_JEFE_AREA', 'Puede aprobar como jefe de area'),
-          ('APROBAR_GERENCIA_AREA', 'Puede aprobar como gerencia de area'),
-          ('APROBAR_FINANZAS', 'Puede aprobar como finanzas'),
-          ('APROBAR_ADMIN', 'Puede aprobar como admin'),
-          ('CALIFICAR_COMPRA', 'Puede calificar compras'),
-          ('CALIFICAR_REQUERIMIENTO', 'Puede calificar requerimientos'),
-          ('CALIFICAR_SERVICIO', 'Puede calificar servicios'),
-          ('CREAR_COMPRA_DIRECTA', 'Puede crear compras directas'),
-          ('VER_HISTORIAL_COMPRAS_DIRECTAS', 'Puede ver historial de compras directas')
+          ('EDITAR_MATERIAL', 'Puede editar materiales'),
+          ('GESTIONAR_COMPRAS', 'Puede gestionar compras'),
+          ('APROBAR_REQUERIMIENTO', 'Puede aprobar requerimientos'),
+          ('COMPLETAR_REQUERIMIENTO', 'Puede completar requerimientos')
         ON CONFLICT (nombre) DO NOTHING
       `
     );
 
     console.log('[SEED] permisos listos');
 
-    // Asignar TODOS los permisos al rol Admin
     await client.query(
       `
         INSERT INTO rol_permiso (id_rol, id_permiso)
-        SELECT $1, p.id FROM permisos p
+        SELECT $1, p.id
+        FROM permisos p
+        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'EDITAR_MATERIAL', 'GESTIONAR_COMPRAS', 'APROBAR_REQUERIMIENTO', 'COMPLETAR_REQUERIMIENTO')
         ON CONFLICT (id_rol, id_permiso) DO NOTHING
       `,
       [idAdminRole]
     );
 
     console.log('[SEED] permisos admin listos');
+
+    await client.query(
+      `
+        INSERT INTO rol_permiso (id_rol, id_permiso)
+        SELECT $1, p.id
+        FROM permisos p
+        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'GESTIONAR_COMPRAS')
+        ON CONFLICT (id_rol, id_permiso) DO NOTHING
+      `,
+      [idComprasRole]
+    );
+
+    console.log('[SEED] permisos compras listos');
 
     const providerResult = await client.query(
       `
@@ -4574,7 +4865,6 @@ const authMiddleware = async (req, res, next) => {
         SELECT
           usuarios.id,
           usuarios.nombre,
-          usuarios.telefono,  
           ${userEmailExpr} AS email,
           ${userEmailExpr} AS correo,
           usuarios.id_area,
@@ -4637,16 +4927,55 @@ const requireRoleAdminOrCompras = (req, res, next) => {
   return res.status(403).json({ error: 'No autorizado' });
 };
 
+const BASE_PERMISSION_NAMES = [
+  'VER_INVENTARIO',
+  'CREAR_REQUERIMIENTO',
+  'CREAR_SOLICITUD_COMPRA',
+  'VER_AJUSTES',
+];
 
-const requirePermissions = (...permissions) => async (req, res, next) => {
-  if (!req.user?.permisos) {
-    try {
-      req.user.permisos = await fetchPermissionNamesByUserId(pool, req.user?.id || 0);
-    } catch {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
+const ROLE_PERMISSION_NAMES_BY_ID = new Map([
+  [4, [...BASE_PERMISSION_NAMES, 'CREAR_SOLICITUD_SERVICIO', 'CAMBIAR_ESTADO_SERVICIO']],
+  [5, [...BASE_PERMISSION_NAMES, 'APROBAR_JEFE_AREA']],
+  [6, [...BASE_PERMISSION_NAMES, 'APROBAR_GERENCIA_AREA', 'CALIFICAR_COMPRA', 'CALIFICAR_REQUERIMIENTO']],
+  [7, [...BASE_PERMISSION_NAMES, 'APROBAR_FINANZAS']],
+  [8, [
+    ...BASE_PERMISSION_NAMES,
+    'APROBAR_JEFE_AREA',
+    'APROBAR_GERENCIA_AREA',
+    'APROBAR_FINANZAS',
+    'APROBAR_ADMIN',
+    'GESTIONAR_ROLES',
+    'CALIFICAR_COMPRA',
+    'CALIFICAR_REQUERIMIENTO',
+    'CALIFICAR_SERVICIO',
+    'GESTIONAR_ORDENES_COMPRA',
+    'GESTIONAR_PROVEEDORES',
+    'EDITAR_INVENTARIO',
+    'AGREGAR_INVENTARIO_MANUAL',
+    'VER_NOTIFICACIONES_PROVEEDOR',
+    'GESTIONAR_ENTREGAS',
+    'CREAR_SOLICITUD_SERVICIO',
+    'CAMBIAR_ESTADO_SERVICIO',
+    'VER_HISTORIAL_SERVICIOS',
+  ]],
+  [9, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ORDENES_COMPRA', 'GESTIONAR_PROVEEDORES', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL', 'VER_NOTIFICACIONES_PROVEEDOR', 'VER_HISTORIAL_SERVICIOS']],
+  [10, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ENTREGAS']],
+  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS', 'CALIFICAR_SERVICIO']],
+]);
+
+const getPermissionsByRoleId = (roleId) => {
+  const numericRoleId = Number(roleId || 0);
+  if (ROLE_PERMISSION_NAMES_BY_ID.has(numericRoleId)) {
+    return [...new Set(ROLE_PERMISSION_NAMES_BY_ID.get(numericRoleId))];
   }
-  const userPermissions = new Set((req.user?.permisos || [])
+
+  return [...BASE_PERMISSION_NAMES];
+};
+
+const requirePermissions = (...permissions) => (req, res, next) => {
+  const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+  const userPermissions = new Set((req.user?.permisos || getPermissionsByRoleId(roleId))
     .map((perm) => normalizePermissionName(perm))
     .filter(Boolean));
   const normalizedPermissions = permissions
@@ -5312,7 +5641,6 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
           usuarios.nombre,
           ${userEmailExpr} AS email,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'dni', '')), ''), '') AS dni,
-          COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'telefono', '')), ''), '') AS telefono,
           ${userRoleExpr} AS id_role,
           usuarios.id_area,
           COALESCE(${userEstadoExpr}, 'ACTIVO') AS estado,
@@ -5333,7 +5661,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
 app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { nombre, email, dni, id_role, id_area, estado, password, foto, telefono} = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, password, foto } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     if (!nombre || !String(nombre).trim()) {
@@ -5347,11 +5675,6 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
     if (!dni || !String(dni).trim()) {
       return res.status(400).json({ error: 'DNI es requerido' });
     }
-
-    if (!telefono || !String(telefono).trim()) {
-      return res.status(400).json({ error: 'Teléfono es requerido' });
-    }
-
 
     const providedPassword = password && String(password).trim();
     const rawPassword = providedPassword || 'admin';
@@ -5392,9 +5715,9 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 
     const result = await pool.query(
       `
-        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado, imagen, telefono)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen, telefono
+        INSERT INTO usuarios (nombre, email, password_hash, dni, ${userRoleColumn}, id_area, estado, imagen)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
       `,
       [
         String(nombre).trim(),
@@ -5404,8 +5727,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
         Number(id_role),
         id_area ? Number(id_area) : null,
         estado || 'ACTIVO',
-        fotoBase64,
-        String(telefono).trim()
+        fotoBase64
       ]
     );
 
@@ -5418,7 +5740,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
 app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, email, dni, id_role, id_area, estado, foto, telefono } = req.body;
+    const { nombre, email, dni, id_role, id_area, estado, foto } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
 
     const userId = Number(id);
@@ -5452,12 +5774,6 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
     if (dni !== undefined && !String(dni).trim()) {
       return res.status(400).json({ error: 'DNI no puede estar vacio' });
     }
-     if (telefono !== undefined && !String(telefono).trim()) {
-      return res.status(400).json({ error: 'Teléfono no puede estar vacío' });
-    }
-   
-
-
 
     if (id_role) {
       const roleCheck = await pool.query('SELECT id FROM roles WHERE id = $1', [id_role]);
@@ -5494,11 +5810,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
       values.push(String(dni).trim());
       paramCount += 1;
     }
-    if (telefono !== undefined) {
-      updates.push(`telefono = $${paramCount}`);
-      values.push(String(telefono).trim());
-      paramCount += 1;
-    }
+
     if (id_role) {
       updates.push(`${userRoleColumn} = $${paramCount}`);
       values.push(Number(id_role));
@@ -5535,7 +5847,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
         UPDATE usuarios
         SET ${updates.join(', ')}
         WHERE id = $${paramCount}
-        RETURNING id, nombre, email, dni, telefono, ${userRoleColumn} AS id_role, id_area, estado, imagen
+        RETURNING id, nombre, email, dni, ${userRoleColumn} AS id_role, id_area, estado, imagen
       `,
       values
     );
@@ -5684,7 +5996,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
           ${getUserRoleIdExpr('u')} AS id_role,
           COALESCE(r.nombre, '') AS rol,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'dni', '')), ''), '') AS dni,
-          COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'telefono', '')), ''), '') AS telefono,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'foto', '')), ''), '') AS foto,
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'imagen', '')), ''), '') AS imagen
         FROM usuarios u
@@ -5705,6 +6016,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     const canAccessManageRequests = await canAccessManageRequestsModule(req.user, dbPermissions);
     dbPermissions = await filterUserPermissions(dbPermissions, req.user);
 
+    // If the user is part of a real approval flow, expose the hidden module permission.
     if (canAccessManageRequests && !dbPermissions.includes('GESTIONAR_SOLICITUDES')) {
       dbPermissions.push('GESTIONAR_SOLICITUDES');
     }
@@ -5720,7 +6032,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
       id_role: profile.id_role,
       rol: profile.rol || req.user.rol || '',
       dni: profile.dni,
-      telefono: profile.telefono || '',
+      // Expose only `imagen` for the current user to avoid stale `foto` shadowing.
       imagen: profile.imagen,
       permisos: dbPermissions,
     });
@@ -5728,6 +6040,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 app.patch('/api/me/foto', authMiddleware, async (req, res) => {
   try {
     // Prefer `imagen` column. Accept `imagen` or `foto` in body for compatibility.
@@ -5767,41 +6080,6 @@ app.patch('/api/me/foto', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
-  }
-});
-app.patch('/api/me', authMiddleware, async (req, res) => {
-  try {
-    const { telefono } = req.body;
-
-    if (telefono === undefined) {
-      return res.status(400).json({ error: 'No hay campos para actualizar' });
-    }
-
-    if (!String(telefono).trim()) {
-      return res.status(400).json({ error: 'Teléfono no puede estar vacío' });
-    }
-
-    const updated = await pool.query(
-      `
-        UPDATE usuarios
-        SET telefono = $1
-        WHERE id = $2
-        RETURNING id, nombre, telefono
-      `,
-      [String(telefono).trim(), req.user.id]
-    );
-
-    if (updated.rows.length === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Teléfono actualizado correctamente',
-      telefono: updated.rows[0].telefono,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
@@ -6794,7 +7072,7 @@ app.get('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVEE
   try {
     const userId = Number(req.user?.id || 0);
     const term = String(req.query.query || '').trim();
-    const limit = term ? 50 : 100;
+    const limit = term ? 20 : 100;
     const likeTerm = `%${term}%`;
 
     const selectExprs = buildProveedorSelectExpressions();
@@ -7335,6 +7613,12 @@ app.post('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVE
       return res.status(400).json({ error: 'id_moneda es obligatorio y debe ser valido' });
     }
 
+    if (ruc) {
+      const rucCheck = await pool.query("SELECT id FROM proveedores WHERE trim(COALESCE(ruc::text, '')) = $1 LIMIT 1", [ruc]);
+      if (rucCheck.rows.length > 0) {
+        return res.status(400).json({ error: 'ruc ya existe en proveedores' });
+      }
+    }
 
     if (descuento < 0) {
       return res.status(400).json({ error: 'descuento debe ser >= 0' });
@@ -7562,7 +7846,18 @@ app.post('/api/proveedores/bulk-import', authMiddleware, requirePermissions('GES
           throw new Error('id_moneda es obligatorio y debe ser válido');
         }
 
-       
+        if (encounteredRucs.has(ruc)) {
+          throw new Error('RUC duplicado en el archivo');
+        }
+        encounteredRucs.add(ruc);
+
+        const rucCheck = await client.query(
+          "SELECT id FROM proveedores WHERE trim(COALESCE(ruc::text, '')) = $1 LIMIT 1",
+          [ruc]
+        );
+        if (rucCheck.rows.length > 0) {
+          throw new Error('RUC ya existe en la BD');
+        }
 
         if (descuento < 0 || descuento > 100) {
           throw new Error('Descuento debe estar entre 0 y 100');
@@ -7837,7 +8132,19 @@ app.put('/api/proveedores/:id', authMiddleware, requirePermissions('GESTIONAR_PR
       }
     }
 
-   
+    const duplicateRuc = await pool.query(
+      `
+        SELECT id
+        FROM proveedores
+        WHERE trim(COALESCE(ruc::text, '')) = $1
+          AND id <> $2
+        LIMIT 1
+      `,
+      [ruc, providerId]
+    );
+    if (duplicateRuc.rows.length > 0) {
+      return res.status(400).json({ error: 'ruc ya existe en proveedores' });
+    }
 
     await pool.query(
       `
@@ -8742,8 +9049,6 @@ const mapCompraRows = (rows) => {
         material: row.material,
         descripcion: row.descripcion,
         cantidad: Number(row.cantidad || 0),
-        precio_unitario: Number(row.precio_unitario || 0),
-        subtotal: Number(row.subtotal_item || 0),
       });
     }
 
@@ -8767,7 +9072,6 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
         NULLIF(to_jsonb(c)->>'id_usuario', '')::int AS id_usuario,
         NULLIF(to_jsonb(c)->>'id_proveedor', '')::int AS id_proveedor,
         u.nombre AS usuario,
-        u.telefono AS usuario_telefono,
         NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int AS id_area_solicitante,
         COALESCE(a_sol.nombre, 'Sin area') AS area_solicitante,
         NULLIF(to_jsonb(c)->>'id_area_final', '')::int AS id_area_final,
@@ -8826,9 +9130,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
           NULLIF(to_jsonb(dc)->>'descripcion', ''),
           ''
         ) AS descripcion,
-        COALESCE(NULLIF(to_jsonb(dc)->>'cantidad', '')::numeric, 0) AS cantidad,
-        NULLIF(to_jsonb(dc)->>'precio_unitario', '')::numeric AS precio_unitario,
-        COALESCE(NULLIF(to_jsonb(dc)->>'subtotal', '')::numeric, 0) AS subtotal_item
+        COALESCE(NULLIF(to_jsonb(dc)->>'cantidad', '')::numeric, 0) AS cantidad
       FROM compras c
       JOIN usuarios u ON u.id = c.id_usuario
       LEFT JOIN areas a_sol ON a_sol.id = c.id_area_solicitante
@@ -9515,7 +9817,11 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'COMPRA', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
+        tipo: 'COMPRA',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'La compra aun no tiene aprobacion final de gerencia de finanzas' });
@@ -9639,7 +9945,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalEnSoles > 700);
     const aplicaRetencion = providerRetencionFlag && descuentoNum > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
-      ? Number((totalBase * descuentoNum).toFixed(2))
+      ? Number((totalBase * (descuentoNum / 100)).toFixed(2))
       : 0;
     const importeFinalCalc = aplicaRetencion
       ? Number((totalBase - montoRetencion).toFixed(2))
@@ -9678,6 +9984,14 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
       tipo: (providerData?.tipo || payload.tipo || ''),
       tipo_retencion: tipoRetencionNorm,
     };
+
+    const missingProviderFields = Object.entries(requiredProviderValues)
+      .filter(([, value]) => !String(value || '').trim())
+      .map(([key]) => key);
+
+    if (missingProviderFields.length > 0) {
+      return res.status(400).json({ error: `Proveedor seleccionado con datos incompletos: ${missingProviderFields.join(', ')}` });
+    }
 
     await pool.query(
       `
@@ -9741,7 +10055,7 @@ app.patch('/api/compras/:id/completar-datos', authMiddleware, async (req, res) =
         tipoRetencionNorm,
         importeFinalCalc,
         (providerData?.condiciones_pago || payload.condiciones_pago || null),
-        subtotal,
+        totalBase,
         costoEnvio,
         otrosCostos,
         igvCalc,
@@ -9792,7 +10106,11 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(client, { tipo: 'COMPRA', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(client, {
+        tipo: 'COMPRA',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         await client.query('ROLLBACK');
@@ -9810,6 +10128,15 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
 
     const missing = [];
     if (!String(compra.proveedor || '').trim()) missing.push('proveedor');
+    if (!contactoProveedor) missing.push('contacto_proveedor');
+    if (!String(compra.banco || '').trim()) missing.push('banco');
+    if (!cuentaProveedor) missing.push('cuenta');
+    if (!String(compra.cci || '').trim()) missing.push('cci');
+    if (!String(compra.condiciones_pago || '').trim()) missing.push('condiciones_pago');
+    if (!compra.subtotal && compra.subtotal !== 0) missing.push('subtotal');
+    if (!compra.igv && compra.igv !== 0) missing.push('igv');
+    if (!compra.total && compra.total !== 0) missing.push('total');
+    if (!compra.id_area_final) missing.push('id_area_final');
 
     if (missing.length > 0) {
       await client.query('ROLLBACK');
@@ -9837,7 +10164,7 @@ app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
       tipo: 'COMPRA',
       referenciaId: finalCompra.id,
     });
-    const pdfBase64 = await buildCompraPdfBase64(finalCompra, req.user.telefono || '+51 000000000');  
+    const pdfBase64 = await buildCompraPdfBase64(finalCompra);
 
     res.json({
       compra: finalCompra,
@@ -10831,305 +11158,6 @@ app.get('/api/compras/:id/receptores', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/compras-directas', authMiddleware, async (req, res) => {
-  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
-    return res.status(403).json({ error: 'No autorizado' });
-  }
-  try {
-    const desde = String(req.query.desde || '').trim();
-    const hasta = String(req.query.hasta || '').trim();
-    const idArea = Number(req.query.id_area || 0);
-
-    const conditions = [];
-    const params = [];
-
-    if (desde) {
-      conditions.push(`cd.fecha_compra >= $${params.length + 1}::date`);
-      params.push(desde);
-    }
-    if (hasta) {
-      conditions.push(`cd.fecha_compra <= $${params.length + 1}::date`);
-      params.push(hasta);
-    }
-    if (Number.isInteger(idArea) && idArea > 0) {
-      conditions.push(`cd.id_area = $${params.length + 1}`);
-      params.push(idArea);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const result = await pool.query(`
-      SELECT
-        cd.id,
-        cd.proveedor_texto,
-        cd.fecha_compra,
-        cd.estado,
-        cd.observaciones,
-        cd.foto,
-        cd.fecha_creacion, 
-        cd.id_moneda,
-        COALESCE(a.nombre, '') AS area_nombre,
-        COALESCE(u.nombre, '') AS usuario_nombre,
-        COALESCE(
-          (SELECT SUM(d.subtotal) FROM detalle_compras_directas d WHERE d.id_compra_directa = cd.id),
-          0
-        ) AS total
-      FROM compras_directas cd
-      LEFT JOIN areas a ON a.id = cd.id_area
-      LEFT JOIN usuarios u ON u.id = cd.id_usuario
-      ${whereClause}
-      ORDER BY cd.fecha_compra DESC, cd.id DESC
-    `, params);
-
-    return res.json(result.rows);
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
-  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
-    return res.status(403).json({ error: 'No autorizado' });
-  }
-  try {
-    const id = Number(req.params.id || 0);
-    if (!Number.isInteger(id) || id <= 0) {
-      return res.status(400).json({ error: 'ID invalido' });
-    }
-
-    const headerResult = await pool.query(`
-      SELECT
-        cd.id,
-        cd.id_usuario,
-        cd.proveedor_texto,
-        cd.id_area,
-        cd.estado,
-        cd.foto,
-        cd.observaciones,
-        cd.fecha_compra,
-        cd.fecha_creacion,
-        cd.fecha_actualizacion,
-        cd.id_moneda,
-        COALESCE(a.nombre, '') AS area_nombre,
-        COALESCE(u.nombre, '') AS usuario_nombre
-      FROM compras_directas cd
-      LEFT JOIN areas a ON a.id = cd.id_area
-      LEFT JOIN usuarios u ON u.id = cd.id_usuario
-      WHERE cd.id = $1
-      LIMIT 1
-    `, [id]);
-
-    if (headerResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Compra directa no encontrada' });
-    }
-
-    const detalleResult = await pool.query(`
-      SELECT
-        d.id,
-        d.id_material,
-        d.nombre_material,
-        d.cantidad,
-        d.precio_unitario,
-        d.subtotal,
-        d.id_unidad,
-        COALESCE(un.nombre, '') AS unidad_nombre
-      FROM detalle_compras_directas d
-      LEFT JOIN unidades un ON un.id = d.id_unidad
-      WHERE d.id_compra_directa = $1
-      ORDER BY d.id ASC
-    `, [id]);
-
-    return res.json({
-      ...headerResult.rows[0],
-      detalle: detalleResult.rows,
-    });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const {
-      proveedor_texto,
-      id_area,
-      fecha_compra,
-      foto,
-      observaciones,
-      id_moneda,    
-      detalle = [],
-    } = req.body;
-
-    if (!Array.isArray(detalle) || detalle.length === 0) {
-      return res.status(400).json({ error: 'Debe incluir al menos un detalle' });
-    }
-
-    await client.query('BEGIN');
-
-    const headerInsert = await client.query(`
-      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, foto, observaciones, estado, id_moneda)
-      VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETADO', $7)
-      RETURNING id
-    `, [
-      req.user.id,
-      proveedor_texto || null,
-      Number.isInteger(id_area) && id_area > 0 ? id_area : null,
-      fecha_compra || new Date().toISOString().slice(0, 10),
-      foto || null,
-      observaciones || null,
-      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
-
-    ]);
-
-    const idCompraDirecta = headerInsert.rows[0].id;
-
-    for (const item of detalle) {
-      const cantidad = Number(item.cantidad || 0);
-      const precioUnitario = Number(item.precio_unitario || 0);
-      if (cantidad <= 0) {
-        throw new Error('La cantidad debe ser mayor a 0');
-      }
-
-      await client.query(`
-        INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        idCompraDirecta,
-        Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
-        String(item.nombre_material || '').trim() || 'N/D',
-        cantidad,
-        precioUnitario,
-        cantidad * precioUnitario,
-        Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
-      ]);
-    }
-
-    await client.query('COMMIT');
-
-    const created = await pool.query(`
-      SELECT cd.*, COALESCE(a.nombre, '') AS area_nombre
-      FROM compras_directas cd
-      LEFT JOIN areas a ON a.id = cd.id_area
-      WHERE cd.id = $1
-      LIMIT 1
-    `, [idCompraDirecta]);
-
-    return res.status(201).json(created.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    return res.status(500).json({ error: error.message });
-  } finally {
-    client.release();
-  }
-});
-
-app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const id = Number(req.params.id || 0);
-    if (!Number.isInteger(id) || id <= 0) {
-      return res.status(400).json({ error: 'ID invalido' });
-    }
-
-    const existing = await client.query('SELECT id FROM compras_directas WHERE id = $1 LIMIT 1', [id]);
-    if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Compra directa no encontrada' });
-    }
-
-    const {
-      proveedor_texto,
-      id_area,
-      fecha_compra,
-      foto,
-      observaciones,
-      id_moneda,
-      detalle = [],
-    } = req.body;
-
-    await client.query('BEGIN');
-
-    await client.query(`
-      UPDATE compras_directas
-      SET proveedor_texto = $1,
-          id_area = $2,
-          fecha_compra = $3,
-          foto = $4,
-          observaciones = $5,
-          id_moneda = $6,
-          fecha_actualizacion = ${PET_SQL_NOW}
-      WHERE id = $7
-    `, [
-      proveedor_texto || null,
-      Number.isInteger(id_area) && id_area > 0 ? id_area : null,
-      fecha_compra || null,
-      foto || null,
-      observaciones || null,
-      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
-      id,
-    ]);
-
-    // Reemplazar detalle: eliminar existente e insertar nuevo
-    await client.query('DELETE FROM detalle_compras_directas WHERE id_compra_directa = $1', [id]);
-
-    if (Array.isArray(detalle)) {
-      for (const item of detalle) {
-        const cantidad = Number(item.cantidad || 0);
-        const precioUnitario = Number(item.precio_unitario || 0);
-        if (cantidad <= 0) continue;
-
-        await client.query(`
-          INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          id,
-          Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
-          String(item.nombre_material || '').trim() || 'N/D',
-          cantidad,
-          precioUnitario,
-          cantidad * precioUnitario,
-          Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
-        ]);
-      }
-    }
-
-    await client.query('COMMIT');
-
-    const updated = await pool.query(`
-      SELECT cd.*, COALESCE(a.nombre, '') AS area_nombre
-      FROM compras_directas cd
-      LEFT JOIN areas a ON a.id = cd.id_area
-      WHERE cd.id = $1
-      LIMIT 1
-    `, [id]);
-
-    return res.json(updated.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    return res.status(500).json({ error: error.message });
-  } finally {
-    client.release();
-  }
-});
-
-app.delete('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-  try {
-    const id = Number(req.params.id || 0);
-    if (!Number.isInteger(id) || id <= 0) {
-      return res.status(400).json({ error: 'ID invalido' });
-    }
-
-    const result = await pool.query('DELETE FROM compras_directas WHERE id = $1 RETURNING id', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Compra directa no encontrada' });
-    }
-
-    return res.json({ ok: true, id });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
 app.get('/api/servicios', authMiddleware, async (req, res) => {
   try {
     if (schemaMeta.serviciosColumns.size === 0) {
@@ -11421,7 +11449,8 @@ app.put('/api/aprobaciones/config/:flujo', authMiddleware, async (req, res) => {
     }
 
     // Reload chains from config
-    await loadApprovalChainsFromConfig();
+    await loadRoleNamesCache();
+
 
     res.json({ success: true, message: `Flujo ${flujo} actualizado correctamente` });
   } catch (error) {
@@ -11531,11 +11560,16 @@ app.post('/api/servicios', authMiddleware, requirePermissions('CREAR_SOLICITUD_S
     });
 
     if (approvalSetup.autoApproved) {
-    await client.query(
-        `UPDATE servicios SET ${quoteIdentifier(approvalColumn)} = 'APROBADO', ${quoteIdentifier(statusColumn)} = 'APROBADO' WHERE id = $1`,
+      await client.query(
+        `
+          UPDATE servicios
+          SET ${quoteIdentifier(approvalColumn)} = 'APROBADO',
+              ${quoteIdentifier(statusColumn)} = NULL
+          WHERE id = $1
+        `,
         [servicioId]
-    );
-}
+      );
+    }
 
     await client.query('COMMIT');
     txStarted = false;
@@ -11807,7 +11841,11 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
+        tipo: 'SERVICIO',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -11868,7 +11906,7 @@ app.patch('/api/servicios/:id/completar-datos', authMiddleware, async (req, res)
     const superaUmbral = (isPen && totalBase > 700) || (isUsd && totalBaseSoles > 700);
     const aplicaRetencion = providerRetencionFlag && retencionPct > 0 && superaUmbral;
     const montoRetencion = aplicaRetencion
-      ? Number((totalBase * (retencionPct)).toFixed(2))
+      ? Number((totalBase * (retencionPct / 100)).toFixed(2))
       : 0;
     const totalFinal = aplicaRetencion
       ? Number((totalBase - montoRetencion).toFixed(2))
@@ -11985,7 +12023,11 @@ app.post('/api/servicios/:id/generar-orden', authMiddleware, async (req, res) =>
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
+        tipo: 'SERVICIO',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12039,7 +12081,7 @@ app.post('/api/servicios/:id/generar-orden', authMiddleware, async (req, res) =>
       referenciaId: refreshedServicio.id,
     });
 
-    const pdfBase64 = await buildServicioPdfBase64(refreshedServicio, req.user.telefono || '+51 000000000');
+    const pdfBase64 = await buildServicioPdfBase64(refreshedServicio);
 
     res.json({
       id: refreshedServicio.id,
@@ -12076,7 +12118,11 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'SERVICIO', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
+        tipo: 'SERVICIO',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'El servicio aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12110,7 +12156,7 @@ app.get('/api/servicios/:id/pdf', authMiddleware, async (req, res) => {
       referenciaId: servicio.id,
     });
 
-    const pdfBase64 = await buildServicioPdfBase64(servicio, req.user.telefono || '+51 000000000');
+    const pdfBase64 = await buildServicioPdfBase64(servicio);
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -12140,7 +12186,11 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
     }
 
     if (!isOwner) {
-      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, { tipo: 'COMPRA', referenciaId: id });
+      const hasFinalApproval = await hasEffectiveFinalApprovalByRole(pool, {
+        tipo: 'COMPRA',
+        referenciaId: id,
+        roleId: 7,
+      });
 
       if (!hasFinalApproval) {
         return res.status(400).json({ error: 'La compra aun no tiene aprobacion final de gerencia de finanzas' });
@@ -12156,7 +12206,7 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
       referenciaId: compra.id,
     });
 
-    const pdfBase64 = await buildCompraPdfBase64(compra, req.user.telefono || '+51 000000000');
+    const pdfBase64 = await buildCompraPdfBase64(compra);
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -12281,18 +12331,10 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               AND ($2::date IS NULL OR COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= $2::date)
             
             UNION
-
+            
             SELECT DISTINCT
               NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int AS area_id
             FROM servicios s
-
-            UNION
-
-            SELECT DISTINCT
-              NULLIF(to_jsonb(cd)->>'id_area', '')::int AS area_id
-            FROM compras_directas cd
-            WHERE ($1::date IS NULL OR NULLIF(to_jsonb(cd)->>'fecha_creacion', '')::date >= $1::date)
-              AND ($2::date IS NULL OR NULLIF(to_jsonb(cd)->>'fecha_creacion', '')::date <= $2::date)
           )
           SELECT area_id
           FROM areas_activas
@@ -12334,9 +12376,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           distribucion_salida_por_area: [],
           gasto_salida_por_area: [],
           cantidad_materiales_recibidos_por_area: [],
-          total_compras_directas: 0,
-          monto_total_compras_directas: 0,
-          compras_directas_por_area: [],
         });
       }
     }
@@ -12347,9 +12386,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       : '';
     const reqWhere = areaIds && areaIds.length > 0
       ? `WHERE COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])`
-      : '';
-    const comprasDirectasWhere = areaIds && areaIds.length > 0
-      ? `WHERE NULLIF(to_jsonb(cd)->>'id_area', '')::int = ANY($1::int[])`
       : '';
     const servWhere = areaIds && areaIds.length > 0
       ? `WHERE NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])`
@@ -12421,7 +12457,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
       dashboardMovimientosRows,
       topProvidersRows,
       worstProvidersRows,
-      comprasDirectasAreaRows,
     ] = await Promise.all([
       pool.query(
         `
@@ -12429,9 +12464,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             (
               SELECT COUNT(*)
               FROM compras c
-              WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-                AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-                ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+              ${comprasWhere}
             ) AS total_compras,
             (
               SELECT COUNT(*)
@@ -12442,13 +12475,11 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
                 ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])` : ''}
             ) AS total_requerimientos,
             (
-               SELECT COUNT(*)
+              SELECT COUNT(*)
               FROM servicios s
-              WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-            AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
+              ${servWhere}
             ) AS total_servicios,
-             (
+            (
               SELECT COALESCE(SUM(
                 CASE 
                   WHEN NULLIF(to_jsonb(c)->>'id_moneda', '')::int = 2 
@@ -12457,9 +12488,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
                 END
               ), 0)
               FROM compras c
-               WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-            AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
+              ${comprasWhere}
             ) AS monto_total_compras,
             (
               SELECT COUNT(*)
@@ -12503,28 +12532,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               WHERE upper(trim(COALESCE(NULLIF(to_jsonb(s)->>'estado_flujo', ''), NULLIF(to_jsonb(s)->>'estado_servicio', ''), ''))) = 'REALIZADO'
               ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
             ) AS total_servicios_realizados,
-             (
-              SELECT COUNT(*)
-              FROM compras_directas cd
-              ${comprasDirectasWhere}
-            ) AS total_compras_directas,
-            (
-               
-                SELECT COALESCE(SUM(
-                  CASE 
-                    WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                      THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
-                    ELSE COALESCE(d.total_monto, 0)
-                  END
-                ), 0)
-                FROM compras_directas cd
-                LEFT JOIN (
-                  SELECT id_compra_directa, SUM(subtotal) AS total_monto
-                  FROM detalle_compras_directas
-                  GROUP BY id_compra_directa
-                ) d ON d.id_compra_directa = cd.id
-                ${comprasDirectasWhere}
-              ) AS monto_total_compras_directas,
             COALESCE((
               SELECT SUM(
                 CASE 
@@ -12551,23 +12558,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               WHERE upper(trim(COALESCE(to_jsonb(mov)->>'tipo_movimiento', COALESCE(to_jsonb(mov)->>'tipo', 'N/D')))) = 'SALIDA'
                 AND (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) >= '${fechaInicio}'::date` : '1=1'})
                 AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(mov)->>'fecha_movimiento', '')::date, NULLIF(to_jsonb(mov)->>'fecha', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ), 0) +
-            COALESCE((
-                SELECT COALESCE(SUM(
-                  CASE 
-                    WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                      THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
-                    ELSE COALESCE(d.total_monto, 0)
-                  END
-                ), 0)
-                FROM compras_directas cd
-                LEFT JOIN (
-                  SELECT id_compra_directa, SUM(subtotal) AS total_monto
-                  FROM detalle_compras_directas
-                  GROUP BY id_compra_directa
-                ) d ON d.id_compra_directa = cd.id
-                ${comprasDirectasWhere}
-              ), 0) AS monto_total_consumo,
+            ), 0) AS monto_total_consumo,
             (
               SELECT COALESCE(SUM(
                 COALESCE(md.cantidad, 0)::numeric
@@ -12602,18 +12593,16 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
                   THEN NULLIF(to_jsonb(c)->>'total_importe', '')::numeric * ${USD_TO_PEN_RATE}
                 ELSE NULLIF(to_jsonb(c)->>'total_importe', '')::numeric
               END
-            ), 0) AS monto_total  
+            ), 0) AS monto_total
           FROM compras c
           LEFT JOIN areas a ON a.id = COALESCE(
             NULLIF(to_jsonb(c)->>'id_area_final', '')::int,
             NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int
           )
-          WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-            AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(c)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(c)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ${areaIds && areaIds.length > 0 ? `AND COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])` : ''}
-             GROUP BY COALESCE(a.nombre, 'Sin area')
-             ORDER BY COUNT(*) DESC, monto_total DESC
-             LIMIT 8
+          ${comprasWhere}
+          GROUP BY COALESCE(a.nombre, 'Sin area')
+          ORDER BY COUNT(*) DESC, monto_total DESC
+          LIMIT 8
         `,
         params
       ),
@@ -12639,9 +12628,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             COUNT(*)::int AS total
           FROM servicios s
           LEFT JOIN areas a ON a.id = NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int
-          WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-            AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
+          ${servWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC
           LIMIT 8
@@ -12662,9 +12649,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
             ), 0) AS monto_total
           FROM servicios s
           LEFT JOIN areas a ON a.id = NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int
-          WHERE (${fechaInicio ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) >= '${fechaInicio}'::date` : '1=1'})
-            AND (${fechaFin ? `COALESCE(NULLIF(to_jsonb(s)->>'fecha_creacion', '')::date, NULLIF(to_jsonb(s)->>'created_at', '')::date) <= '${fechaFin}'::date` : '1=1'})
-            ${areaIds && areaIds.length > 0 ? `AND NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])` : ''}
+          ${servWhere}
           GROUP BY COALESCE(a.nombre, 'Sin area')
           ORDER BY COUNT(*) DESC, monto_total DESC
           LIMIT 8
@@ -12803,33 +12788,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           LIMIT 5
         `
       ),
-      
-      pool.query(
-        `
-          SELECT
-              COALESCE(a.nombre, 'Sin area') AS area,
-              COUNT(*)::int AS total,
-              COALESCE(SUM(
-                CASE 
-                  WHEN NULLIF(to_jsonb(cd)->>'id_moneda', '')::int = 2 
-                    THEN COALESCE(d.total_monto, 0) * ${USD_TO_PEN_RATE}
-                  ELSE COALESCE(d.total_monto, 0)
-                END
-              ), 0) AS monto_total
-            FROM compras_directas cd
-            LEFT JOIN areas a ON a.id = NULLIF(to_jsonb(cd)->>'id_area', '')::int
-            LEFT JOIN (
-              SELECT id_compra_directa, SUM(subtotal) AS total_monto
-              FROM detalle_compras_directas
-              GROUP BY id_compra_directa
-            ) d ON d.id_compra_directa = cd.id
-            ${comprasDirectasWhere}
-            GROUP BY COALESCE(a.nombre, 'Sin area')
-            ORDER BY COUNT(*) DESC, monto_total DESC
-            LIMIT 8
-        `,
-        params
-      )
     ]);
 
     const totals = totalsRows.rows[0] || {};
@@ -12859,8 +12817,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         total_compras_entregadas: Number(totals.total_compras_entregadas || 0),
         total_servicios_pendientes: Number(totals.total_servicios_pendientes || 0),
         total_servicios_realizados: Number(totals.total_servicios_realizados || 0),
-        total_compras_directas: Number(totals.total_compras_directas || 0),
-        monto_total_compras_directas: Number(totals.monto_total_compras_directas || 0),
       },
       compras_por_area: comprasAreaRows.rows.map((row) => ({
         area: row.area,
@@ -12894,11 +12850,6 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
         : []).map((row) => ({
         area: row.area,
         total_gastado: Number(row.total_gastado || 0),
-      })),
-       compras_directas_por_area: (comprasDirectasAreaRows?.rows || []).map((row) => ({
-        area: row.area,
-        total: Number(row.total || 0),
-        monto_total: Number(row.monto_total || 0),
       })),
       cantidad_materiales_recibidos_por_area: (Array.isArray(dashboardMovimientos.cantidad_materiales_recibidos_por_area)
         ? dashboardMovimientos.cantidad_materiales_recibidos_por_area
@@ -12950,22 +12901,7 @@ const startServer = async () => {
     console.warn(`DB_HOST=${configuredDbHost} no es resolvible desde Windows host. Usando ${effectiveDbHost} temporalmente.`);
   }
 
-    let attempt = 0;
-  while (attempt < 15) {
-    try {
-      await loadSchemaMeta();
-      break;
-    } catch (err) {
-      attempt++;
-      if (attempt >= 15) {
-        console.error(`DB no disponible tras ${attempt} intentos.`);
-        process.exit(1);
-        return;
-      }
-      console.warn(`DB no lista (intento ${attempt}/15): ${err.message}. Reintentando en 3s...`);
-      await new Promise(r => setTimeout(r, 3000));
-    }
-  }
+  await loadSchemaMeta();
   await ensureCoreApprovalPermissions();
   await loadApprovalChainsFromConfig();
   if (String(process.env.RUN_DEMO_SEED || 'false').toLowerCase() === 'true') {
@@ -13014,3 +12950,4 @@ startServer().catch((error) => {
   console.error('Error iniciando servidor:', error.message);
   process.exit(1);
 });
+
