@@ -10926,6 +10926,304 @@ app.get('/api/compras/:id/receptores', authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/api/compras-directas', authMiddleware, async (req, res) => {
+  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+  try {
+    const desde = String(req.query.desde || '').trim();
+    const hasta = String(req.query.hasta || '').trim();
+    const idArea = Number(req.query.id_area || 0);
+
+    const conditions = [];
+    const params = [];
+
+    if (desde) {
+      conditions.push(`cd.fecha_compra >= $${params.length + 1}::date`);
+      params.push(desde);
+    }
+    if (hasta) {
+      conditions.push(`cd.fecha_compra <= $${params.length + 1}::date`);
+      params.push(hasta);
+    }
+    if (Number.isInteger(idArea) && idArea > 0) {
+      conditions.push(`cd.id_area = $${params.length + 1}`);
+      params.push(idArea);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await pool.query(`
+      SELECT
+        cd.id,
+        cd.proveedor_texto,
+        cd.fecha_compra,
+        cd.estado,
+        cd.observaciones,
+        cd.foto,
+        cd.fecha_creacion, 
+        cd.id_moneda,
+        COALESCE(a.nombre, '') AS area_nombre,
+        COALESCE(u.nombre, '') AS usuario_nombre,
+        COALESCE(
+          (SELECT SUM(d.subtotal) FROM detalle_compras_directas d WHERE d.id_compra_directa = cd.id),
+          0
+        ) AS total
+      FROM compras_directas cd
+      LEFT JOIN areas a ON a.id = cd.id_area
+      LEFT JOIN usuarios u ON u.id = cd.id_usuario
+      ${whereClause}
+      ORDER BY cd.fecha_compra DESC, cd.id DESC
+    `, params);
+
+    return res.json(result.rows);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
+  if (!tienePermiso(req.user, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+  try {
+    const id = Number(req.params.id || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'ID invalido' });
+    }
+
+    const headerResult = await pool.query(`
+      SELECT
+        cd.id,
+        cd.id_usuario,
+        cd.proveedor_texto,
+        cd.id_area,
+        cd.estado,
+        cd.foto,
+        cd.observaciones,
+        cd.fecha_compra,
+        cd.fecha_creacion,
+        cd.fecha_actualizacion,
+        cd.id_moneda,
+        COALESCE(a.nombre, '') AS area_nombre,
+        COALESCE(u.nombre, '') AS usuario_nombre
+      FROM compras_directas cd
+      LEFT JOIN areas a ON a.id = cd.id_area
+      LEFT JOIN usuarios u ON u.id = cd.id_usuario
+      WHERE cd.id = $1
+      LIMIT 1
+    `, [id]);
+
+    if (headerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Compra directa no encontrada' });
+    }
+
+    const detalleResult = await pool.query(`
+      SELECT
+        d.id,
+        d.id_material,
+        d.nombre_material,
+        d.cantidad,
+        d.precio_unitario,
+        d.subtotal,
+        d.id_unidad,
+        COALESCE(un.nombre, '') AS unidad_nombre
+      FROM detalle_compras_directas d
+      LEFT JOIN unidades un ON un.id = d.id_unidad
+      WHERE d.id_compra_directa = $1
+      ORDER BY d.id ASC
+    `, [id]);
+
+    return res.json({
+      ...headerResult.rows[0],
+      detalle: detalleResult.rows,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const {
+      proveedor_texto,
+      id_area,
+      fecha_compra,
+      foto,
+      observaciones,
+      id_moneda,    
+      detalle = [],
+    } = req.body;
+
+    if (!Array.isArray(detalle) || detalle.length === 0) {
+      return res.status(400).json({ error: 'Debe incluir al menos un detalle' });
+    }
+
+    await client.query('BEGIN');
+
+    const headerInsert = await client.query(`
+      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, foto, observaciones, estado, id_moneda)
+      VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETADO', $7)
+      RETURNING id
+    `, [
+      req.user.id,
+      proveedor_texto || null,
+      Number.isInteger(id_area) && id_area > 0 ? id_area : null,
+      fecha_compra || new Date().toISOString().slice(0, 10),
+      foto || null,
+      observaciones || null,
+      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
+
+    ]);
+
+    const idCompraDirecta = headerInsert.rows[0].id;
+
+    for (const item of detalle) {
+      const cantidad = Number(item.cantidad || 0);
+      const precioUnitario = Number(item.precio_unitario || 0);
+      if (cantidad <= 0) {
+        throw new Error('La cantidad debe ser mayor a 0');
+      }
+
+      await client.query(`
+        INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        idCompraDirecta,
+        Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
+        String(item.nombre_material || '').trim() || 'N/D',
+        cantidad,
+        precioUnitario,
+        cantidad * precioUnitario,
+        Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
+      ]);
+    }
+
+    await client.query('COMMIT');
+
+    const created = await pool.query(`
+      SELECT cd.*, COALESCE(a.nombre, '') AS area_nombre
+      FROM compras_directas cd
+      LEFT JOIN areas a ON a.id = cd.id_area
+      WHERE cd.id = $1
+      LIMIT 1
+    `, [idCompraDirecta]);
+
+    return res.status(201).json(created.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'ID invalido' });
+    }
+
+    const existing = await client.query('SELECT id FROM compras_directas WHERE id = $1 LIMIT 1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Compra directa no encontrada' });
+    }
+
+    const {
+      proveedor_texto,
+      id_area,
+      fecha_compra,
+      foto,
+      observaciones,
+      id_moneda,
+      detalle = [],
+    } = req.body;
+
+    await client.query('BEGIN');
+
+    await client.query(`
+      UPDATE compras_directas
+      SET proveedor_texto = $1,
+          id_area = $2,
+          fecha_compra = $3,
+          foto = $4,
+          observaciones = $5,
+          id_moneda = $6,
+          fecha_actualizacion = ${PET_SQL_NOW}
+      WHERE id = $7
+    `, [
+      proveedor_texto || null,
+      Number.isInteger(id_area) && id_area > 0 ? id_area : null,
+      fecha_compra || null,
+      foto || null,
+      observaciones || null,
+      Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
+      id,
+    ]);
+
+    await client.query('DELETE FROM detalle_compras_directas WHERE id_compra_directa = $1', [id]);
+
+    if (Array.isArray(detalle)) {
+      for (const item of detalle) {
+        const cantidad = Number(item.cantidad || 0);
+        const precioUnitario = Number(item.precio_unitario || 0);
+        if (cantidad <= 0) continue;
+
+        await client.query(`
+          INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          id,
+          Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
+          String(item.nombre_material || '').trim() || 'N/D',
+          cantidad,
+          precioUnitario,
+          cantidad * precioUnitario,
+          Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
+        ]);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    const updated = await pool.query(`
+      SELECT cd.*, COALESCE(a.nombre, '') AS area_nombre
+      FROM compras_directas cd
+      LEFT JOIN areas a ON a.id = cd.id_area
+      WHERE cd.id = $1
+      LIMIT 1
+    `, [id]);
+
+    return res.json(updated.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
+  try {
+    const id = Number(req.params.id || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'ID invalido' });
+    }
+
+    const result = await pool.query('DELETE FROM compras_directas WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Compra directa no encontrada' });
+    }
+
+    return res.json({ ok: true, id });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/servicios', authMiddleware, async (req, res) => {
   try {
     if (schemaMeta.serviciosColumns.size === 0) {
