@@ -10967,7 +10967,7 @@ app.get('/api/compras-directas', authMiddleware, async (req, res) => {
         COALESCE(a.nombre, '') AS area_nombre,
         COALESCE(u.nombre, '') AS usuario_nombre,
         COALESCE(
-          (SELECT SUM(d.subtotal) FROM detalle_compras_directas d WHERE d.id_compra_directa = cd.id),
+          (SELECT SUM(d.total) FROM detalle_compras_directas d WHERE d.id_compra_directa = cd.id),
           0
         ) AS total
       FROM compras_directas cd
@@ -11024,15 +11024,11 @@ app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
     const detalleResult = await pool.query(`
       SELECT
         d.id,
-        d.id_material,
-        d.nombre_material,
+        d.descripcion AS nombre_material,
         d.cantidad,
         d.precio_unitario,
-        d.subtotal,
-        d.id_unidad,
-        COALESCE(un.nombre, '') AS unidad_nombre
+        d.total AS subtotal
       FROM detalle_compras_directas d
-      LEFT JOIN unidades un ON un.id = d.id_unidad
       WHERE d.id_compra_directa = $1
       ORDER BY d.id ASC
     `, [id]);
@@ -11099,16 +11095,14 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
       }
 
       await client.query(`
-        INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO detalle_compras_directas (id_compra_directa, descripcion, cantidad, precio_unitario, total)
+        VALUES ($1, $2, $3, $4, $5)
       `, [
         idCompraDirecta,
-        Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
-        String(item.nombre_material || '').trim() || 'N/D',
+        String(item.nombre_material || item.descripcion || '').trim() || 'N/D',
         cantidad,
         precioUnitario,
         cantidad * precioUnitario,
-        Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
       ]);
     }
 
@@ -11204,16 +11198,14 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_C
         if (cantidad <= 0) continue;
 
         await client.query(`
-          INSERT INTO detalle_compras_directas (id_compra_directa, id_material, nombre_material, cantidad, precio_unitario, subtotal, id_unidad)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          INSERT INTO detalle_compras_directas (id_compra_directa, descripcion, cantidad, precio_unitario, total)
+          VALUES ($1, $2, $3, $4, $5)
         `, [
           id,
-          Number.isInteger(item.id_material) && item.id_material > 0 ? item.id_material : null,
-          String(item.nombre_material || '').trim() || 'N/D',
+          String(item.nombre_material || item.descripcion || '').trim() || 'N/D',
           cantidad,
           precioUnitario,
           cantidad * precioUnitario,
-          Number.isInteger(item.id_unidad) && item.id_unidad > 0 ? item.id_unidad : null,
         ]);
       }
     }

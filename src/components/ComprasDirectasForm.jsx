@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
-import { createCompraDirecta, updateCompraDirecta, fetchAreas, fetchUnidades } from '../services/api'
+import { createCompraDirecta, updateCompraDirecta, fetchAreas } from '../services/api'
 import '../styles/ComprasDirectasForm.css'
 import { uploadMaterialImage } from '../services/api'
 
 const emptyRow = () => ({
-  id_material: '',
   nombre_material: '',
   cantidad: 1,
   precio_unitario: 0,
-  id_unidad: '',
 })
 
 export default function ComprasDirectasForm({ compra, onSave, onCancel, currentUserAreaId = null }) {
@@ -21,7 +19,6 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
   const [foto, setFoto] = useState(compra?.foto || '')
   const [fotoFile, setFotoFile] = useState(null)
   const [areas, setAreas] = useState([])
-  const [unidades, setUnidades] = useState([])
   const [detalle, setDetalle] = useState(
     compra?.detalle && compra.detalle.length > 0
       ? compra.detalle.map(d => ({ ...d }))
@@ -30,8 +27,8 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    Promise.all([fetchAreas(), fetchUnidades()])
-      .then(([a, u]) => { setAreas(a); setUnidades(u) })
+    fetchAreas()
+      .then(a => setAreas(a))
       .catch(() => {})
   }, [])
 
@@ -63,11 +60,9 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
         observaciones,
         id_moneda: idMoneda,
         detalle: detalle.map(r => ({
-          id_material: r.id_material || null,
           nombre_material: r.nombre_material,
           cantidad: Number(r.cantidad || 0),
           precio_unitario: Number(r.precio_unitario || 0),
-          id_unidad: r.id_unidad || null,
         })),
       }
       if (fotoFile) {
@@ -125,7 +120,6 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
               <th>Cantidad</th>
               <th>Precio Unit.</th>
               <th>Subtotal</th>
-              <th>Unidad</th>
               <th></th>
             </tr>
           </thead>
@@ -137,12 +131,6 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
                 <td><input type="number" step="0.01" min="0" value={row.precio_unitario} onChange={e => updateRow(i, 'precio_unitario', e.target.value)} /></td>
                 <td className="cd-subtotal">{subtotal(row).toFixed(2)}</td>
                 <td>
-                  <select value={row.id_unidad} onChange={e => updateRow(i, 'id_unidad', e.target.value)}>
-                    <option value="">-</option>
-                    {unidades.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                  </select>
-                </td>
-                <td>
                   <button type="button" className="cd-btn cd-btn-sm cd-btn-danger" onClick={() => removeRow(i)}>×</button>
                 </td>
               </tr>
@@ -150,7 +138,7 @@ export default function ComprasDirectasForm({ compra, onSave, onCancel, currentU
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={5} className="cd-total-label">Total:</td>
+              <td colSpan={4} className="cd-total-label">Total:</td>
               <td className="cd-total-value">{totalGeneral.toFixed(2)}</td>
             </tr>
           </tfoot>
