@@ -24,9 +24,12 @@ export const hasPermission = (sourcePermissions, permission) => {
   return permissions.some((item) => canonicalizePermissionName(item) === normalizedPermission)
 }
 
-export const getModulesByRole = (rolId) => {
-  void rolId
-  return []
+export const ROLE_IDS = {
+  GERENTES: 1,
+  SOLICITANTES: 2,
+  ALMACENERO: 3,
+  COMPRAS: 4,
+  SERVICIOS_GENERALES: 5,
 }
 
 export const modules = [
@@ -45,7 +48,6 @@ export const modules = [
   { id: 14, name: 'Notificaciones', path: '/notificaciones' },
   { id: 15, name: 'Roles y Permisos', path: '/roles-permisos' },
   { id: 17, name: 'Gestionar Cuentas', path: '/gestionar-cuentas' },
-  { id: 16, name: 'Calificar materiales', path: '/calificar-productos' },
   { id: 18, name: 'Compras Directas', path: '/compras-directas' },
 ]
 
@@ -65,7 +67,6 @@ export const TAB_BY_MODULE_ID = {
   14: 'notifications',
   15: 'roles-permissions',
   17: 'manage-accounts',
-  16: 'rate-products',
   18: 'direct-purchases',
 }
 
@@ -91,8 +92,30 @@ export const MODULE_ID_BY_PATH = {
   '/notificaciones': 14,
   '/roles-permisos': 15,
   '/gestionar-cuentas': 17,
-  '/calificar-productos': 16,
   '/compras-directas': 18,
+}
+
+const MODULES_BY_ROLE = {
+  [ROLE_IDS.GERENTES]: [
+    12, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 18,
+  ],
+  [ROLE_IDS.SOLICITANTES]: [
+    12, 2, 3, 4, 6, 13, 14,
+  ],
+  [ROLE_IDS.ALMACENERO]: [
+    12, 1, 7, 8, 14,
+  ],
+  [ROLE_IDS.COMPRAS]: [
+    12, 1, 3, 5, 6, 7, 10, 14, 18,
+  ],
+  [ROLE_IDS.SERVICIOS_GENERALES]: [
+    12, 4, 5, 7, 13, 14,
+  ],
+}
+
+export const getModulesByRole = (rolId) => {
+  const numericRoleId = Number(rolId || 0)
+  return [...(MODULES_BY_ROLE[numericRoleId] || [])]
 }
 
 export const buildAllowedTabs = (rolId, sourcePermissions = []) => {
@@ -103,38 +126,6 @@ export const buildAllowedTabs = (rolId, sourcePermissions = []) => {
 
 export const buildAllowedModules = (rolId, sourcePermissions = []) => {
   const numericRoleId = Number(rolId || 0)
-  const explicitPermissions = Array.isArray(sourcePermissions) ? sourcePermissions : []
-  const effectivePermissions = [...new Set(explicitPermissions)]
   const allowedModules = [...getModulesByRole(numericRoleId)]
-
-  if (hasPermission(effectivePermissions, 'VER_DASHBOARD')) allowedModules.push(12)
-  if (hasPermission(effectivePermissions, 'VER_INVENTARIO')) allowedModules.push(1)
-  if (hasPermission(effectivePermissions, 'VER_MOVIMIENTOS')) allowedModules.push(8)
-  if (hasPermission(effectivePermissions, 'CREAR_REQUERIMIENTO')) allowedModules.push(2)
-  if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_COMPRA')) allowedModules.push(3)
-  if (hasPermission(effectivePermissions, 'CREAR_SOLICITUD_SERVICIO')) allowedModules.push(4)
-  if (hasPermission(effectivePermissions, 'GESTIONAR_SOLICITUDES')) {
-    allowedModules.push(5)
-  }
-  if (hasPermission(effectivePermissions, 'GESTIONAR_COMPRAS')) {
-    allowedModules.push(6)
-  }
-  if (hasPermission(effectivePermissions, 'GESTIONAR_ENTREGAS')) allowedModules.push(7)
-  if (hasPermission(effectivePermissions, 'GESTIONAR_PROVEEDORES')) allowedModules.push(10)
-  if (hasPermission(effectivePermissions, 'VER_AJUSTES')) allowedModules.push(11)
-  if (hasPermission(effectivePermissions, 'VER_NOTIFICACIONES_PROVEEDOR')) allowedModules.push(14)
-  if (hasPermission(effectivePermissions, 'VER_HISTORIAL_SERVICIOS')) allowedModules.push(13)
-  if (hasPermission(effectivePermissions, 'GESTIONAR_ROLES')) allowedModules.push(15)
-  if (hasPermission(effectivePermissions, 'GESTIONAR_CUENTAS')) allowedModules.push(17)
-  if (
-    hasPermission(effectivePermissions, 'CALIFICAR_COMPRA')
-    || hasPermission(effectivePermissions, 'CALIFICAR_REQUERIMIENTO')
-    || hasPermission(effectivePermissions, 'CALIFICAR_SERVICIO')
-  ) {
-    allowedModules.push(16)
-  }
-  if (hasPermission(effectivePermissions, 'CREAR_COMPRA_DIRECTA')
-    || hasPermission(effectivePermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')) allowedModules.push(18)
-
   return [...new Set(allowedModules)]
 }

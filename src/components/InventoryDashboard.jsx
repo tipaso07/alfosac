@@ -20,7 +20,6 @@ import HistorialServiciosView from './HistorialServiciosView'
 import NotificationsView from './NotificationsView'
 import RolesPermissionsView from './RolesPermissionsView'
 import GestionarUsuariosView from './GestionarUsuariosView'
-import CalificarMaterialesView from './CalificarMaterialesView'
 import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
 import { hasAnyPermission, hasPermission } from '../services/permissions'
 import ComprasDirectasList from './ComprasDirectasList'
@@ -83,7 +82,6 @@ const TAB_ROUTES = {
   notifications: '/notificaciones',
   'roles-permissions': '/roles-permisos',
   'manage-accounts': '/gestionar-cuentas',
-  'rate-products': '/calificar-productos',
   'direct-purchases': '/compras-directas',
 }
 
@@ -1001,14 +999,6 @@ useEffect(() => {
           )}
           {activeTab === 'manage-accounts' && allowedTabs.includes('manage-accounts') && (
             <GestionarUsuariosView />
-          )}
-          {activeTab === 'rate-products' && allowedTabs.includes('rate-products') && (
-            <CalificarMaterialesView
-              movimientos={movimientos}
-              currentUserPermissions={currentUserPermissions}
-              currentUserRoleId={currentUserRoleId}
-              currentUserArea={currentUserArea}
-            />
           )}
             {activeTab === 'direct-purchases' && allowedTabs.includes('direct-purchases') && (
             <ComprasDirectasList

@@ -211,12 +211,12 @@ const isValidBase64ImageValue = (value) => {
 
 const isValidPhotoValue = (value) => isValidUrlValue(value) || isValidBase64ImageValue(value);
 
-const canManageRequirementsRole = (role) => hasAnyRole(role, ['ADMIN', ...MANAGER_ROLES]);
-const canManagePurchasesRole = (role) => hasAnyRole(role, ['ADMIN', ...MANAGER_ROLES]);
-const canManageDeliveryRole = (role) => hasAnyRole(role, ['ADMIN', 'ALMACENERO']);
+const canManageRequirementsRole = (role) => hasAnyRole(role, ['GERENTES', 'COMPRAS', 'SOLICITANTES']);
+const canManagePurchasesRole = (role) => hasAnyRole(role, ['GERENTES', 'COMPRAS']);
+const canManageDeliveryRole = (role) => hasAnyRole(role, ['GERENTES', 'ALMACENERO']);
 
-// Approval chains will be loaded from aprobaciones_config table at startup
-let APPROVAL_ROLES_BY_LEVEL = [5, 6, 7, 8];
+// Approval chains are hardcoded - role 1 = GERENTES approves all
+const APPROVAL_ROLES_BY_LEVEL = [1];
 const APPROVAL_CHAIN_COMPRA = [1];  // Cualquier GERENTES aprueba
 const APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [1];  // GERENTES de FINANZAS
 const APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [1, 1];  // FINANZAS → GERENCIA GENERAL
@@ -281,11 +281,6 @@ const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0
   }
 
   if (normalizedTipo === 'SERVICIO') {
-    // Regla especial: servicios creados por rol 11 van directo a Finanzas.
-    if (creatorRole === 11) {
-      return skipCreatorAndEarlier(dentroPlan ? [7] : [7, 8]);
-    }
-
     return skipCreatorAndEarlier(
       dentroPlan
         ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
@@ -360,11 +355,12 @@ const getApprovalRoleIdFromState = (state) => {
     }
   }
 
+  // Legacy states for backward compatibility with old data
   const legacyStateToRoleId = new Map([
-    ['PENDIENTE_JEFE_AREA', 5],
-    ['PENDIENTE_GERENCIA', 6],
-    ['PENDIENTE_FINANZAS', 7],
-    ['PENDIENTE_ADMIN', 8],
+    ['PENDIENTE_JEFE_AREA', 1],      // old role 5 → now GERENTES (1)
+    ['PENDIENTE_GERENCIA', 1],       // old role 6 → now GERENTES (1)
+    ['PENDIENTE_FINANZAS', 1],       // old role 7 → now GERENTES (1)
+    ['PENDIENTE_ADMIN', 1],          // old role 8 → now GERENTES (1)
   ]);
 
   return Number(legacyStateToRoleId.get(normalizedState) || 0);
@@ -385,11 +381,9 @@ const getApprovalPendingStatesForRoleId = (roleId) => {
     }
   }
 
+  // Legacy states for backward compatibility
   const legacyStatesByRoleId = new Map([
-    [5, ['PENDIENTE_JEFE_AREA']],
-    [6, ['PENDIENTE_GERENCIA']],
-    [7, ['PENDIENTE_FINANZAS']],
-    [8, ['PENDIENTE_ADMIN']],
+    [1, ['PENDIENTE_JEFE_AREA', 'PENDIENTE_GERENCIA', 'PENDIENTE_FINANZAS', 'PENDIENTE_ADMIN']],
   ]);
 
   (legacyStatesByRoleId.get(numericRoleId) || []).forEach((value) => states.add(value));
@@ -708,6 +702,39 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
 
     if (resolveApprovalRoleId(usuario) !== stageRoleId) {
       throw new Error(`No tienes permiso para aprobar en la etapa ${estadoAnterior}`);
+    }
+
+    if (normalizedTipo === 'SERVICIO' && isGerentesRole(usuario?.rol)) {
+      const userAreaId = Number(usuario?.id_area || 0);
+      const finanzasArea = await client.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%FINANZAS%' LIMIT 1");
+      const gerenciaArea = await client.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%GERENCIA GENERAL%' OR upper(trim(nombre)) LIKE '%GERENCIA%GENERAL%' LIMIT 1");
+      const idFinanzas = Number(finanzasArea.rows[0]?.id || 0);
+      const idGerencia = Number(gerenciaArea.rows[0]?.id || 0);
+
+      const pendingApprovalOrden = await client.query(
+        `
+          SELECT orden
+          FROM aprobaciones
+          WHERE upper(trim(tipo)) = $1
+            AND referencia_id = $2
+            AND rol_aprobador = $3
+            AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+                 OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+          ORDER BY orden ASC
+          LIMIT 1
+        `,
+        [normalizedTipo, referenceId, stageRoleId]
+      );
+
+      const currentOrden = Number(pendingApprovalOrden.rows[0]?.orden || 0);
+
+      if (currentOrden === 1 && idFinanzas && userAreaId !== idFinanzas) {
+        throw new Error('Solo un GERENTE del area de FINANZAS puede aprobar la primera etapa del servicio');
+      }
+
+      if (currentOrden === 2 && idGerencia && userAreaId !== idGerencia) {
+        throw new Error('Solo un GERENTE del area de GERENCIA GENERAL puede aprobar la segunda etapa del servicio');
+      }
     }
 
     const approvalRow = await client.query(
@@ -1540,13 +1567,13 @@ const fetchOwnCreatedByRoleIds = async (client, {
 
 const isComprasOperatorUser = (user) => {
   const numericRoleId = Number(user?.id_role || user?.rol_id || 0);
-  return isAdminRole(user?.rol) || isComprasRole(user?.rol) || numericRoleId === 9 || hasPurchaseOrdersAccess(user);
+  return isGerentesRole(user?.rol) || isComprasRole(user?.rol) || hasPurchaseOrdersAccess(user);
 };
 
 const canAccessPurchaseOrdersModule = (user) => (
   tienePermiso(user, 'GESTIONAR_COMPRAS')
   || hasPurchaseOrdersAccess(user)
-  || isAdminRole(user?.rol)
+  || isGerentesRole(user?.rol)
   || isComprasRole(user?.rol)
 );
 
@@ -1555,19 +1582,8 @@ const isApprovalRoleIdConfigured = async (roleId) => {
   if (!Number.isInteger(numericRoleId) || numericRoleId <= 0) {
     return false;
   }
-
-  const result = await pool.query(
-    `
-      SELECT 1
-      FROM aprobaciones_config
-      WHERE activo = TRUE
-        AND rol_id = $1
-      LIMIT 1
-    `,
-    [numericRoleId]
-  );
-
-  return result.rows.length > 0;
+  // Approval roles are now hardcoded - only GERENTES (1) approves
+  return APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId);
 };
 
 const hasApprovalPermissions = (user) => {
@@ -2383,7 +2399,7 @@ const canRateAnyProvider = (user) => canRateCompra(user) || canRateRequerimiento
 
 const canEditUnifiedProveedorRating = (user) => {
   const roleId = Number(user?.id_role || user?.rol_id || 0);
-  if (roleId === 11) return true;
+  if (isServiciosGeneralesRole(user?.rol)) return true;
 
   const roleName = normalize(user?.rol || '');
   return roleName === 'SERVICIOS_GENERALES' || roleName === 'SERVICIOS GENERALES';
@@ -4459,7 +4475,7 @@ const seedInventoryDemoData = async () => {
   try {
     await client.query('BEGIN');
 
-    const adminRole = await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'ADMIN' LIMIT 1");
+    const gerentesRole = await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1");
     const comprasRole = await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'COMPRAS' LIMIT 1");
     const areaRow = await client.query('SELECT id FROM areas ORDER BY id ASC LIMIT 1');
     const warehouseRow = await client.query('SELECT id FROM almacenes ORDER BY id ASC LIMIT 1');
@@ -4468,7 +4484,7 @@ const seedInventoryDemoData = async () => {
     const categoryRow = await client.query('SELECT id FROM categorias ORDER BY id ASC LIMIT 1');
     const adminUserRow = await client.query("SELECT id, nombre, email, id_area FROM usuarios WHERE lower(trim(email)) = 'admin@alfosac.pe' LIMIT 1");
 
-    const idAdminRole = Number(adminRole.rows[0]?.id || 0);
+    const idGerentesRole = Number(gerentesRole.rows[0]?.id || 0);
     const idComprasRole = Number(comprasRole.rows[0]?.id || 0);
     const idArea = Number(areaRow.rows[0]?.id || 0);
     const idWarehouse = Number(warehouseRow.rows[0]?.id || 0);
@@ -4477,80 +4493,19 @@ const seedInventoryDemoData = async () => {
     const idCategory = Number(categoryRow.rows[0]?.id || 0);
     const adminUser = adminUserRow.rows[0];
 
-    if (!idAdminRole || !idComprasRole || !idArea || !idWarehouse || !idUnit || !idCurrency || !idCategory || !adminUser?.id) {
+    if (!idGerentesRole || !idComprasRole || !idArea || !idWarehouse || !idUnit || !idCurrency || !idCategory || !adminUser?.id) {
       throw new Error('No se pudieron resolver las claves base para la semilla del inventario');
     }
-
-    await client.query(
-      `
-        INSERT INTO permisos (nombre, descripcion)
-        VALUES
-          ('VER_INVENTARIO', 'Puede ver inventario'),
-          ('EDITAR_MATERIAL', 'Puede editar materiales'),
-          ('GESTIONAR_COMPRAS', 'Puede gestionar compras'),
-          ('APROBAR_REQUERIMIENTO', 'Puede aprobar requerimientos'),
-          ('COMPLETAR_REQUERIMIENTO', 'Puede completar requerimientos')
-        ON CONFLICT (nombre) DO NOTHING
-      `
-    );
-
-    console.log('[SEED] permisos listos');
-
-    await client.query(
-      `
-        INSERT INTO rol_permiso (id_rol, id_permiso)
-        SELECT $1, p.id
-        FROM permisos p
-        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'EDITAR_MATERIAL', 'GESTIONAR_COMPRAS', 'APROBAR_REQUERIMIENTO', 'COMPLETAR_REQUERIMIENTO')
-        ON CONFLICT (id_rol, id_permiso) DO NOTHING
-      `,
-      [idAdminRole]
-    );
-
-    console.log('[SEED] permisos admin listos');
-
-    await client.query(
-      `
-        INSERT INTO rol_permiso (id_rol, id_permiso)
-        SELECT $1, p.id
-        FROM permisos p
-        WHERE upper(trim(p.nombre)) IN ('VER_INVENTARIO', 'GESTIONAR_COMPRAS')
-        ON CONFLICT (id_rol, id_permiso) DO NOTHING
-      `,
-      [idComprasRole]
-    );
-
-    console.log('[SEED] permisos compras listos');
 
     const providerResult = await client.query(
       `
         INSERT INTO proveedores (
-          nombre,
-          razon_social,
-          direccion,
-          distrito,
-          ruc,
-          correo,
-          persona_responsable,
-          telefono,
-          condiciones_pago,
-          banco,
-          numero_cuenta,
-          cci,
-          id_moneda,
-          id_area_destino,
-          ${getUserRoleIdExpr('u')} AS usuario_rol_id,
-          COALESCE(r_usuario.nombre, '') AS usuario_rol,
-          descripcion,
-          retencion,
-          categoria,
-          descuento,
-        LEFT JOIN roles r_usuario ON r_usuario.id = ${getUserRoleIdExpr('u')}
-          tipo,
-          tipo_retencion,
-          moneda_nombre
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+          nombre, razon_social, direccion, distrito, ruc, correo,
+          persona_responsable, telefono, condiciones_pago, banco,
+          numero_cuenta, cci, id_moneda, id_area_destino,
+          descripcion, retencion, categoria, descuento,
+          tipo, tipo_retencion, moneda_nombre
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         ON CONFLICT (ruc) DO UPDATE SET
           nombre = EXCLUDED.nombre,
           razon_social = EXCLUDED.razon_social,
@@ -4559,27 +4514,11 @@ const seedInventoryDemoData = async () => {
         RETURNING id
       `,
       [
-        'Proveedor Demo',
-        'Proveedor Demo SAC',
-        'Av. Principal 123',
-        'Lima',
-        '20123456789',
-        'proveedor.demo@alfosac.pe',
-        'Carlos Demo',
-        '999999999',
-        '30 dias',
-        'Banco Demo',
-        '123-456',
-        '000-111-222',
-        idCurrency,
-        idArea,
-        'Proveedor inicial para inventario',
-        'NO',
-        'GENERAL',
-        0,
-        'BIEN',
-        'RETENCION',
-        'SOLES',
+        'Proveedor Demo', 'Proveedor Demo SAC', 'Av. Principal 123', 'Lima',
+        '20123456789', 'proveedor.demo@alfosac.pe', 'Carlos Demo', '999999999',
+        '30 dias', 'Banco Demo', '123-456', '000-111-222', idCurrency, idArea,
+        'Proveedor inicial para inventario', 'NO', 'GENERAL', 0,
+        'BIEN', 'RETENCION', 'SOLES',
       ]
     );
 
@@ -4778,44 +4717,20 @@ const seedInventoryDemoData = async () => {
 };
 
 const hasPermission = async (userId, permission) => {
-  const userRoleExpr = getUserRoleIdExpr('usuarios');
-  const result = await pool.query(
-    `
-      SELECT COUNT(*) AS total
-      FROM usuarios
-      JOIN rol_permiso ON rol_permiso.id_rol = ${userRoleExpr}
-      JOIN permisos ON permisos.id = rol_permiso.id_permiso
-      WHERE usuarios.id = $1
-        AND upper(trim(permisos.nombre)) = upper(trim($2))
-    `,
-    [userId, permission]
-  );
-
-  return Number(result.rows[0]?.total || 0) > 0;
+  const id = Number(userId || 0);
+  if (!id) return false;
+  const result = await pool.query(`SELECT id_role FROM usuarios WHERE id = $1`, [id]);
+  const roleId = Number(result.rows[0]?.id_role || 0);
+  const perms = getPermissionsByRoleId(roleId);
+  return perms.some((p) => normalizePermissionName(p) === normalizePermissionName(permission));
 };
 
 const fetchPermissionNamesByUserId = async (db, userId) => {
   const id = Number(userId || 0);
-  if (!Number.isInteger(id) || id <= 0) {
-    return [];
-  }
-
-  const userRoleExpr = getUserRoleIdExpr('u');
-  const result = await db.query(
-    `
-      SELECT DISTINCT upper(trim(p.nombre)) AS nombre
-      FROM usuarios u
-      JOIN rol_permiso rp ON rp.id_rol = ${userRoleExpr}
-      JOIN permisos p ON p.id = rp.id_permiso
-      WHERE u.id = $1
-      ORDER BY upper(trim(p.nombre)) ASC
-    `,
-    [id]
-  );
-
-  return [...new Set(result.rows
-    .map((row) => normalizePermissionName(row.nombre))
-    .filter(Boolean))];
+  if (!id) return [];
+  const result = await db.query(`SELECT id_role FROM usuarios WHERE id = $1`, [id]);
+  const roleId = Number(result.rows[0]?.id_role || 0);
+  return getPermissionsByRoleId(roleId);
 };
 
 const createAuthToken = (user) => {
@@ -4827,6 +4742,7 @@ const createAuthToken = (user) => {
     nombre: user.nombre,
     correo: user.email,
     id_area: user.id_area,
+    sub_area: user.sub_area || '',
   };
 
   console.log('[AUTH] payload del token:', payload);
@@ -4868,6 +4784,7 @@ const authMiddleware = async (req, res, next) => {
           ${userEmailExpr} AS email,
           ${userEmailExpr} AS correo,
           usuarios.id_area,
+          COALESCE(usuarios.sub_area, '') AS sub_area,
           ${userRoleExpr} AS id_role,
           COALESCE(areas.nombre, '') AS area,
           COALESCE(roles.nombre, '') AS rol
@@ -4909,9 +4826,9 @@ const requireRoleIds = (...roleIds) => (req, res, next) => {
   }
   next();
 };
+const requireAdmin = requireRoles('GERENTES');
 
-const requireAdmin = requireRoles('ADMIN');
-const requireCompras = requireRoles('ADMIN', 'COMPRAS');
+const requireCompras = requireRoles('GERENTES', 'COMPRAS');
 
 const hasPurchaseOrdersAccess = (user) => (
   tienePermiso(user, 'GESTIONAR_COMPRAS')
@@ -4920,7 +4837,7 @@ const hasPurchaseOrdersAccess = (user) => (
 
 const requireRoleAdminOrCompras = (req, res, next) => {
   const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
-  if (isAdminRole(req.user?.rol) || isComprasRole(req.user?.rol) || roleId === 9 || hasPurchaseOrdersAccess(req.user)) {
+  if (isGerentesRole(req.user?.rol) || isComprasRole(req.user?.rol) || hasPurchaseOrdersAccess(req.user)) {
     return next();
   }
 
@@ -4935,33 +4852,34 @@ const BASE_PERMISSION_NAMES = [
 ];
 
 const ROLE_PERMISSION_NAMES_BY_ID = new Map([
-  [4, [...BASE_PERMISSION_NAMES, 'CREAR_SOLICITUD_SERVICIO', 'CAMBIAR_ESTADO_SERVICIO']],
-  [5, [...BASE_PERMISSION_NAMES, 'APROBAR_JEFE_AREA']],
-  [6, [...BASE_PERMISSION_NAMES, 'APROBAR_GERENCIA_AREA', 'CALIFICAR_COMPRA', 'CALIFICAR_REQUERIMIENTO']],
-  [7, [...BASE_PERMISSION_NAMES, 'APROBAR_FINANZAS']],
-  [8, [
-    ...BASE_PERMISSION_NAMES,
-    'APROBAR_JEFE_AREA',
-    'APROBAR_GERENCIA_AREA',
-    'APROBAR_FINANZAS',
-    'APROBAR_ADMIN',
-    'GESTIONAR_ROLES',
-    'CALIFICAR_COMPRA',
-    'CALIFICAR_REQUERIMIENTO',
-    'CALIFICAR_SERVICIO',
-    'GESTIONAR_ORDENES_COMPRA',
-    'GESTIONAR_PROVEEDORES',
-    'EDITAR_INVENTARIO',
-    'AGREGAR_INVENTARIO_MANUAL',
-    'VER_NOTIFICACIONES_PROVEEDOR',
-    'GESTIONAR_ENTREGAS',
-    'CREAR_SOLICITUD_SERVICIO',
-    'CAMBIAR_ESTADO_SERVICIO',
-    'VER_HISTORIAL_SERVICIOS',
+  [1, [ // GERENTES
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL',
+    'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA', 'CREAR_SOLICITUD_SERVICIO',
+    'GESTIONAR_SOLICITUDES', 'GESTIONAR_COMPRAS', 'GESTIONAR_ENTREGAS',
+    'GESTIONAR_PROVEEDORES', 'GESTIONAR_ROLES', 'GESTIONAR_CUENTAS',
+    'VER_MOVIMIENTOS', 'VER_AJUSTES', 'VER_NOTIFICACIONES_PROVEEDOR',
+    'VER_HISTORIAL_SERVICIOS', 'VER_HISTORIAL_COMPRAS_DIRECTAS', 'CREAR_COMPRA_DIRECTA',
+    'COMPLETAR_REQUERIMIENTO', 'CAMBIAR_ESTADO_SERVICIO',
+    'APROBAR_REQUERIMIENTO', 'GESTIONAR_ORDENES_COMPRA',
   ]],
-  [9, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ORDENES_COMPRA', 'GESTIONAR_PROVEEDORES', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL', 'VER_NOTIFICACIONES_PROVEEDOR', 'VER_HISTORIAL_SERVICIOS']],
-  [10, [...BASE_PERMISSION_NAMES, 'GESTIONAR_ENTREGAS']],
-  [11, [...BASE_PERMISSION_NAMES, 'VER_HISTORIAL_SERVICIOS', 'CALIFICAR_SERVICIO']],
+  [2, [ // COMPRAS
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'GESTIONAR_COMPRAS', 'GESTIONAR_PROVEEDORES',
+    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS', 'VER_NOTIFICACIONES_PROVEEDOR',
+    'VER_HISTORIAL_COMPRAS_DIRECTAS', 'CREAR_COMPRA_DIRECTA', 'GESTIONAR_ORDENES_COMPRA',
+  ]],
+  [3, [ // ALMACENERO
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'GESTIONAR_ENTREGAS',
+    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
+  ]],
+  [4, [ // SOLICITANTES
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'CREAR_REQUERIMIENTO',
+    'CREAR_SOLICITUD_COMPRA', 'CREAR_SOLICITUD_SERVICIO',
+  ]],
+  [5, [ // SERVICIOS GENERALES
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'CREAR_SOLICITUD_SERVICIO',
+    'GESTIONAR_ENTREGAS', 'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
+    'CAMBIAR_ESTADO_SERVICIO',
+  ]],
 ]);
 
 const getPermissionsByRoleId = (roleId) => {
@@ -5138,6 +5056,7 @@ const loginHandler = async (req, res) => {
           usuarios.nombre,
           ${userEmailExpr} AS email,
           usuarios.id_area,
+          COALESCE(usuarios.sub_area, '') AS sub_area,
           ${userRoleExpr} AS id_role,
           COALESCE(${userPasswordExpr}, '') AS password_hash,
           roles.nombre AS rol
@@ -5190,6 +5109,7 @@ const loginHandler = async (req, res) => {
         nombre: user.nombre,
         correo: user.email,
         id_area: user.id_area,
+        sub_area: user.sub_area,
         rol_id: user.id_role,
         id_role: user.id_role,
         rol: user.rol,
@@ -5284,55 +5204,7 @@ const resolvePermissionIds = async (client, permissionItems = []) => {
 };
 
 const ensureCoreApprovalPermissions = async (client = pool) => {
-  const permisosDescriptionColumn = await client.query(
-    `
-      SELECT 1
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'permisos'
-        AND column_name = 'descripcion'
-      LIMIT 1
-    `
-  );
-
-  if (permisosDescriptionColumn.rows.length > 0) {
-    await client.query(
-      `
-        INSERT INTO permisos (nombre, descripcion)
-        SELECT values_to_insert.nombre, values_to_insert.descripcion
-        FROM (
-          VALUES
-            ('APROBAR_JEFE_AREA', 'Puede aprobar en etapa jefe de area/subgerente'),
-            ('AGREGAR_INVENTARIO_MANUAL', 'Puede agregar materiales manualmente al inventario'),
-            ('VER_HISTORIAL_SERVICIOS', 'Puede ver el historial de servicios')
-        ) AS values_to_insert(nombre, descripcion)
-        WHERE NOT EXISTS (
-          SELECT 1
-          FROM permisos p
-          WHERE upper(trim(p.nombre)) = upper(trim(values_to_insert.nombre))
-        )
-      `
-    );
-  } else {
-    await client.query(
-      `
-        INSERT INTO permisos (nombre)
-        SELECT values_to_insert.nombre
-        FROM (
-          VALUES
-            ('APROBAR_JEFE_AREA'),
-            ('AGREGAR_INVENTARIO_MANUAL'),
-            ('VER_HISTORIAL_SERVICIOS')
-        ) AS values_to_insert(nombre)
-        WHERE NOT EXISTS (
-          SELECT 1
-          FROM permisos p
-          WHERE upper(trim(p.nombre)) = upper(trim(values_to_insert.nombre))
-        )
-      `
-    );
-  }
-
+  // Permissions are now hardcoded in ROLE_PERMISSION_NAMES_BY_ID - no DB operations needed
 };
 
 app.get('/api/roles', authMiddleware, async (req, res) => {
@@ -5354,15 +5226,10 @@ app.get('/api/permisos', authMiddleware, async (req, res) => {
   }
 
   try {
-    await ensureCoreApprovalPermissions();
-    const result = await pool.query(
-      `
-        SELECT id, nombre
-        FROM permisos
-        ORDER BY nombre ASC, id ASC
-      `
-    );
-    res.json(result.rows);
+    const allPerms = new Set();
+    ROLE_PERMISSION_NAMES_BY_ID.forEach((perms) => perms.forEach((p) => allPerms.add(p)));
+    const result = [...allPerms].sort().map((nombre, idx) => ({ id: idx + 1, nombre }));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5384,20 +5251,12 @@ app.get('/api/roles/:id/permisos', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Rol no encontrado' });
     }
 
-    const permissionsResult = await pool.query(
-      `
-        SELECT p.id, p.nombre
-        FROM rol_permiso rp
-        JOIN permisos p ON p.id = rp.id_permiso
-        WHERE rp.id_rol = $1
-        ORDER BY p.nombre ASC, p.id ASC
-      `,
-      [roleId]
-    );
+    const permissionNames = ROLE_PERMISSION_NAMES_BY_ID.get(roleId) || [];
+    const permisos = permissionNames.map((name, idx) => ({ id: idx + 1, nombre: name }));
 
     res.json({
       rol: roleResult.rows[0],
-      permisos: permissionsResult.rows.filter((row) => !HIDDEN_MANAGED_PERMISSIONS.has(String(row.nombre || '').trim().toUpperCase())),
+      permisos,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5409,105 +5268,27 @@ app.put('/api/roles/:id/permisos', authMiddleware, async (req, res) => {
     return res.status(403).json({ error: 'No autorizado' });
   }
 
-  const client = await pool.connect();
-
   try {
     const roleId = Number(req.params?.id || 0);
     if (!Number.isInteger(roleId) || roleId <= 0) {
       return res.status(400).json({ error: 'id_rol invalido' });
     }
 
-    const permissionItems = Array.isArray(req.body?.permisos) ? req.body.permisos : [];
-
-    await client.query('BEGIN');
-
-    const roleResult = await client.query('SELECT id, nombre FROM roles WHERE id = $1 LIMIT 1 FOR UPDATE', [roleId]);
+    const roleResult = await pool.query('SELECT id, nombre FROM roles WHERE id = $1 LIMIT 1', [roleId]);
     if (roleResult.rows.length === 0) {
-      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Rol no encontrado' });
     }
 
-    const resolved = await resolvePermissionIds(client, permissionItems);
-    if (resolved.missing.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Se enviaron permisos inexistentes',
-        permisos_invalidos: resolved.missing,
-      });
-    }
-
-    const hiddenPermissionRequested = permissionItems.some((item) => HIDDEN_MANAGED_PERMISSIONS.has(String(item || '').trim().toUpperCase()));
-    if (hiddenPermissionRequested) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'El permiso GESTIONAR_SOLICITUDES ya no se asigna manualmente' });
-    }
-
-    // Regla de consistencia: editar inventario siempre requiere ver inventario.
-    let resolvedPermissionIds = [...resolved.ids];
-    if (resolvedPermissionIds.length > 0) {
-      const namesByIdResult = await client.query(
-        `
-          SELECT id, nombre
-          FROM permisos
-          WHERE id = ANY($1::int[])
-        `,
-        [resolvedPermissionIds]
-      );
-
-      const normalizedNames = new Set(namesByIdResult.rows.map((row) => normalizePermissionName(row.nombre)).filter(Boolean));
-
-      if (normalizedNames.has('EDITAR_INVENTARIO') && !normalizedNames.has('VER_INVENTARIO')) {
-        const viewPermissionResult = await client.query(
-          `
-            SELECT id
-            FROM permisos
-            WHERE upper(trim(nombre)) = 'VER_INVENTARIO'
-            LIMIT 1
-          `
-        );
-
-        if (viewPermissionResult.rows.length > 0) {
-          resolvedPermissionIds.push(Number(viewPermissionResult.rows[0].id || 0));
-          resolvedPermissionIds = [...new Set(resolvedPermissionIds.filter((id) => Number.isInteger(id) && id > 0))];
-        }
-      }
-    }
-
-    await client.query('DELETE FROM rol_permiso WHERE id_rol = $1', [roleId]);
-
-    if (resolvedPermissionIds.length > 0) {
-      const placeholders = resolvedPermissionIds.map((_, index) => `($1, $${index + 2})`).join(', ');
-      await client.query(
-        `
-          INSERT INTO rol_permiso (id_rol, id_permiso)
-          VALUES ${placeholders}
-        `,
-        [roleId, ...resolvedPermissionIds]
-      );
-    }
-
-    await client.query('COMMIT');
-
-    const updatedPermissions = await pool.query(
-      `
-        SELECT p.id, p.nombre
-        FROM rol_permiso rp
-        JOIN permisos p ON p.id = rp.id_permiso
-        WHERE rp.id_rol = $1
-        ORDER BY p.nombre ASC, p.id ASC
-      `,
-      [roleId]
-    );
+    const permissionNames = ROLE_PERMISSION_NAMES_BY_ID.get(roleId) || [];
+    const permisos = permissionNames.map((name, idx) => ({ id: idx + 1, nombre: name }));
 
     return res.json({
       rol: roleResult.rows[0],
-      permisos: updatedPermissions.rows,
+      permisos,
+      message: 'Los permisos ahora estan hardcodeados por rol y no se pueden modificar',
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     return res.status(500).json({ error: error.message });
-  } finally {
-    client.release();
   }
 });
 
@@ -5542,9 +5323,9 @@ app.delete('/api/roles/:id', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'No se pudo resolver el nombre del rol' });
     }
 
-    if (normalizeRoleName(roleName) === 'ADMIN') {
+    if (normalizeRoleName(roleName) === 'GERENTES') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'No se puede eliminar el rol ADMIN' });
+      return res.status(400).json({ error: 'No se puede eliminar el rol GERENTES' });
     }
 
     const userRoleColumn = getUserRoleIdExpr('u');
@@ -5563,15 +5344,6 @@ app.delete('/api/roles/:id', authMiddleware, async (req, res) => {
       return res.status(409).json({
         error: `No se puede eliminar el rol porque tiene ${assignedUsers} usuario${assignedUsers === 1 ? '' : 's'} asignado${assignedUsers === 1 ? '' : 's'}`,
       });
-    }
-
-    await client.query('DELETE FROM rol_permiso WHERE id_rol = $1', [roleId]);
-
-    const approvalConfigExistsResult = await client.query(
-      "SELECT to_regclass('public.aprobaciones_config') IS NOT NULL AS exists"
-    );
-    if (Boolean(approvalConfigExistsResult.rows[0]?.exists)) {
-      await client.query('DELETE FROM aprobaciones_config WHERE rol_id = $1', [roleId]);
     }
 
     await client.query('DELETE FROM roles WHERE id = $1', [roleId]);
@@ -6118,13 +5890,10 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
             u.id AS usuario_actual_id,
             u.nombre AS usuario_actual_nombre,
             COALESCE(a.nombre, 'Sin area') AS usuario_actual_area,
-            COALESCE(r.nombre, 'Sin rol') AS usuario_actual_rol,
-            COALESCE(STRING_AGG(DISTINCT p.nombre, ', '), 'Sin permisos') AS usuario_actual_permisos
+            COALESCE(r.nombre, 'Sin rol') AS usuario_actual_rol
           FROM usuarios u
           LEFT JOIN areas a ON a.id = u.id_area
           LEFT JOIN roles r ON r.id = ${userRoleExpr}
-          LEFT JOIN rol_permiso rp ON rp.id_rol = r.id
-          LEFT JOIN permisos p ON p.id = rp.id_permiso
           WHERE u.id = $1
           GROUP BY u.id, u.nombre, a.nombre, r.nombre
         ),
@@ -6268,8 +6037,7 @@ app.get('/api/materiales', authMiddleware, requirePermissions('VER_INVENTARIO'),
           COALESCE(dmr.cantidad_detalle_movimientos, 0) AS cantidad_detalle_movimientos,
           ua.usuario_actual_nombre,
           ua.usuario_actual_area,
-          ua.usuario_actual_rol,
-          ua.usuario_actual_permisos
+          ua.usuario_actual_rol
         FROM materiales m
         LEFT JOIN unidades un ON un.id = NULLIF(to_jsonb(m)->>'id_unidad', '')::int
         LEFT JOIN proveedores p ON p.id = NULLIF(to_jsonb(m)->>'id_proveedor', '')::int
@@ -11374,90 +11142,31 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
 
 app.get('/api/aprobaciones/config', authMiddleware, async (req, res) => {
   try {
-    const tableExists = await hasAprobacionesTable(pool);
-    if (!tableExists) {
-      return res.json({ flujos: {} });
-    }
+    // Approval chains are now hardcoded - return them directly
+    const gerentesRole = await pool.query("SELECT id, nombre FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1");
+    const gerentes = gerentesRole.rows[0] || { id: 1, nombre: 'GERENTES' };
 
-    const result = await pool.query(
-      `
-        SELECT upper(trim(ac.flujo)) AS flujo, ac.orden, ac.rol_id, upper(trim(r.nombre)) AS rol_nombre
-        FROM aprobaciones_config ac
-        JOIN roles r ON r.id = ac.rol_id
-        WHERE ac.activo = TRUE
-        ORDER BY ac.flujo, ac.orden ASC
-      `
-    );
+    const flujos = {
+      COMPRA: [{ rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre }],
+      SERVICIO_DENTRO_PLAN: [{ rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre }],
+      SERVICIO_FUERA_PLAN: [
+        { rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre },
+        { rol_id: gerentes.id, orden: 2, rol_nombre: gerentes.nombre },
+      ],
+    };
 
-    const flujos = {};
-    result.rows.forEach((row) => {
-      const flow = String(row.flujo || '').trim().toUpperCase();
-      const roleId = Number(row.rol_id || 0);
-      const order = Number(row.orden || 0);
-      const roleName = String(row.rol_nombre || '').trim().toUpperCase();
-      if (flow && Number.isInteger(roleId) && roleId > 0) {
-        if (!flujos[flow]) {
-          flujos[flow] = [];
-        }
-        flujos[flow].push({ rol_id: roleId, orden: order, rol_nombre: roleName });
-      }
-    });
-
-    res.json({ flujos });
+    res.json({ flujos, hardcoded: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 app.put('/api/aprobaciones/config/:flujo', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    // Only ADMIN can modify approval flows
-    if (!isAdminRole(req.user?.rol)) {
-      return res.status(403).json({ error: 'No tienes permiso para modificar la configuración de aprobaciones' });
-    }
-
-    const flujo = String(req.params.flujo || '').trim().toUpperCase();
-    const roleIds = Array.isArray(req.body?.roleIds) ? req.body.roleIds.map(id => Number(id)).filter(id => Number.isInteger(id) && id > 0) : [];
-
-    if (!flujo || !['COMPRA', 'SERVICIO_DENTRO_PLAN', 'SERVICIO_FUERA_PLAN'].includes(flujo)) {
-      return res.status(400).json({ error: 'Flujo no valido' });
-    }
-
-    if (roleIds.length === 0) {
-      return res.status(400).json({ error: 'Debe proporcionar al menos un rol' });
-    }
-
-    const tableExists = await hasAprobacionesTable(client);
-    if (!tableExists) {
-      return res.status(500).json({ error: 'Tabla de aprobaciones no existe' });
-    }
-
-    // Delete existing roles for this flow
-    await client.query(
-      'DELETE FROM aprobaciones_config WHERE upper(trim(flujo)) = $1',
-      [flujo]
-    );
-
-    // Insert new roles for this flow with correct order
-    for (let idx = 0; idx < roleIds.length; idx += 1) {
-      await client.query(
-        'INSERT INTO aprobaciones_config (flujo, orden, rol_id, activo) VALUES ($1, $2, $3, TRUE)',
-        [flujo, idx + 1, roleIds[idx]]
-      );
-    }
-
-    // Reload chains from config
-    await loadRoleNamesCache();
-
-
-    res.json({ success: true, message: `Flujo ${flujo} actualizado correctamente` });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  } finally {
-    client.release();
-  }
+  // Approval chains are now hardcoded - reject modification
+  return res.status(400).json({
+    error: 'Los flujos de aprobacion estan hardcodeados y no se pueden modificar',
+    hardcoded: true,
+  });
 });
 
 app.post('/api/servicios', authMiddleware, requirePermissions('CREAR_SOLICITUD_SERVICIO'), async (req, res) => {
@@ -11751,7 +11460,7 @@ app.put('/api/servicios/:id/estado', authMiddleware, async (req, res) => {
     }
 
     const row = current.rows[0];
-    const canManage = isAdminRole(req.user?.rol)
+    const canManage = isGerentesRole(req.user?.rol)
       || isComprasRole(req.user?.rol)
       || canManagePurchasesRole(req.user?.rol)
       || canAccessServicesHistoryModule(req.user);
@@ -12903,7 +12612,7 @@ const startServer = async () => {
 
   await loadSchemaMeta();
   await ensureCoreApprovalPermissions();
-  await loadApprovalChainsFromConfig();
+  await loadRoleNamesCache();
   if (String(process.env.RUN_DEMO_SEED || 'false').toLowerCase() === 'true') {
     await seedInventoryDemoData();
   }

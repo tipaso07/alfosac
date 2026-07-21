@@ -199,7 +199,6 @@ function App() {
           <Route path="/notificaciones" element={renderDashboard('notifications', 14)} />
           <Route path="/roles-permisos" element={renderDashboard('roles-permissions', 15)} />
           <Route path="/gestionar-cuentas" element={renderDashboard('manage-accounts', 17)} />
-          <Route path="/calificar-productos" element={renderDashboard('rate-products', 16)} />
           <Route path="/compras-directas" element={renderDashboard('direct-purchases', 18)} />
 
           <Route

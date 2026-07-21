@@ -5,6 +5,7 @@ import {
   fetchAreas,
   fetchReceptoresByCompra,
   fetchReceptoresByRequerimiento,
+  guardarCalificacionProveedor,
 } from '../services/api'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -75,7 +76,55 @@ export default function DeliveryManager({
   const [receptorOptionsByOc, setReceptorOptionsByOc] = useState({})
   const [receptorSelectedByOc, setReceptorSelectedByOc] = useState({})
   const [receptorLoadingByOc, setReceptorLoadingByOc] = useState({})
+  const [ratingCompra, setRatingCompra] = useState(null)
+  const [ratingForm, setRatingForm] = useState({ puntuacion: 5, comentario: '' })
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const [ratingNotice, setRatingNotice] = useState('')
 
+  const openRatingModal = (compra) => {
+    setRatingCompra(compra)
+    setRatingForm({ puntuacion: 5, comentario: '' })
+    setRatingError('')
+    setRatingNotice('')
+  }
+
+  const closeRatingModal = () => {
+    setRatingCompra(null)
+    setRatingForm({ puntuacion: 5, comentario: '' })
+    setRatingError('')
+    setRatingNotice('')
+  }
+
+  const submitRating = async (event) => {
+    event.preventDefault()
+    if (!ratingCompra) return
+
+    const proveedorId = Number(ratingCompra.id_proveedor || 0)
+    if (!proveedorId) {
+      setRatingError('No se pudo identificar el proveedor de esta compra')
+      return
+    }
+
+    setRatingSaving(true)
+    setRatingError('')
+    setRatingNotice('')
+
+    try {
+      await guardarCalificacionProveedor(proveedorId, {
+        puntuacion: Number(ratingForm.puntuacion || 0),
+        comentario: String(ratingForm.comentario || '').trim(),
+        tipo: 'compra',
+        id_referencia: Number(ratingCompra.id || 0),
+      })
+      setRatingNotice('Calificacion guardada correctamente')
+      setTimeout(() => closeRatingModal(), 1200)
+    } catch (err) {
+      setRatingError(err?.message || 'Error al guardar calificacion')
+    } finally {
+      setRatingSaving(false)
+    }
+  }
   const getCompraDeliveryState = useCallback((compra) => normalize(compra?.estado_pedido || compra?.estado), [])
 
   useEffect(() => {
@@ -625,6 +674,15 @@ export default function DeliveryManager({
         >
           Descargar PDF
         </button>
+        {compra.id_proveedor ? (
+          <button
+            type="button"
+            className="btn-delivery-rate"
+            onClick={() => openRatingModal(compra)}
+          >
+            Calificar proveedor
+          </button>
+        ) : null}
       </div>
     </article>
   )
@@ -791,6 +849,71 @@ export default function DeliveryManager({
           </section>
         )}
       </div>
+
+      {ratingCompra && (
+        <div className="provider-modal-backdrop" onClick={closeRatingModal}>
+          <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="provider-modal-head">
+              <h2>Calificar proveedor</h2>
+              <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>×</button>
+            </div>
+            <div className="provider-rating-header">
+              <h3>{ratingCompra.proveedor || 'Proveedor'}</h3>
+              <p>Completa una calificacion breve de la entrega.</p>
+            </div>
+
+            {ratingError ? <p className="providers-error">{ratingError}</p> : null}
+            {ratingNotice ? <p className="providers-success">{ratingNotice}</p> : null}
+
+            <form className="provider-rating-form" onSubmit={submitRating}>
+              <div className="provider-rating-stars-picker" aria-label="Selecciona puntuacion">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rating-star-btn ${Number(ratingForm.puntuacion || 0) >= score ? 'active' : ''}`}
+                    onClick={() => setRatingForm((prev) => ({ ...prev, puntuacion: score }))}
+                    disabled={ratingSaving}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+
+              <label>
+                Puntuacion
+                <select
+                  value={ratingForm.puntuacion}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label>
+                Comentario
+                <textarea
+                  value={ratingForm.comentario}
+                  onChange={(event) => setRatingForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Comentario opcional"
+                  rows={4}
+                  disabled={ratingSaving}
+                />
+              </label>
+
+              <div className="provider-modal-actions">
+                <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Omitir</button>
+                <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
