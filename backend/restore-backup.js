@@ -46,20 +46,13 @@ const resetDatabase = () => {
   });
 };
 
-const args = [
-  '-U', dbUser,
-  '--no-owner',
-  '--no-privileges',
-  '--clean',
-  '--if-exists',
-  '-d',
-  dbName,
-  backupFile,
-];
-
 try {
   resetDatabase();
-  execFileSync('pg_restore', args, {
+  execFileSync('psql', [
+    '-U', dbUser,
+    '-d', dbName,
+    '-f', backupFile,
+  ], {
     stdio: 'inherit',
     env,
   });
