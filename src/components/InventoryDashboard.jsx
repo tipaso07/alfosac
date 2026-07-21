@@ -18,7 +18,6 @@ import AjustesView from './AjustesView'
 import AdminDashboardView from './AdminDashboardView'
 import HistorialServiciosView from './HistorialServiciosView'
 import NotificationsView from './NotificationsView'
-import RolesPermissionsView from './RolesPermissionsView'
 import GestionarUsuariosView from './GestionarUsuariosView'
 import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
 import { hasAnyPermission, hasPermission } from '../services/permissions'
@@ -80,7 +79,6 @@ const TAB_ROUTES = {
   'manage-providers': '/proveedores',
   settings: '/ajustes',
   notifications: '/notificaciones',
-  'roles-permissions': '/roles-permisos',
   'manage-accounts': '/gestionar-cuentas',
   'direct-purchases': '/compras-directas',
 }
@@ -993,9 +991,6 @@ useEffect(() => {
           )}
           {activeTab === 'notifications' && allowedTabs.includes('notifications') && (
             <NotificationsView currentUser={currentUserProfile} onAuthExpired={onAuthExpired} />
-          )}
-          {activeTab === 'roles-permissions' && allowedTabs.includes('roles-permissions') && (
-            <RolesPermissionsView />
           )}
           {activeTab === 'manage-accounts' && allowedTabs.includes('manage-accounts') && (
             <GestionarUsuariosView />

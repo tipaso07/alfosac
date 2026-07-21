@@ -46,7 +46,6 @@ export const modules = [
   { id: 10, name: 'Gestion de Proveedores', path: '/proveedores' },
   { id: 11, name: 'Ajustes', path: '/ajustes' },
   { id: 14, name: 'Notificaciones', path: '/notificaciones' },
-  { id: 15, name: 'Roles y Permisos', path: '/roles-permisos' },
   { id: 17, name: 'Gestionar Cuentas', path: '/gestionar-cuentas' },
   { id: 18, name: 'Compras Directas', path: '/compras-directas' },
 ]
@@ -65,7 +64,6 @@ export const TAB_BY_MODULE_ID = {
   10: 'manage-providers',
   11: 'settings',
   14: 'notifications',
-  15: 'roles-permissions',
   17: 'manage-accounts',
   18: 'direct-purchases',
 }
@@ -90,14 +88,13 @@ export const MODULE_ID_BY_PATH = {
   '/proveedores': 10,
   '/ajustes': 11,
   '/notificaciones': 14,
-  '/roles-permisos': 15,
   '/gestionar-cuentas': 17,
   '/compras-directas': 18,
 }
 
 const MODULES_BY_ROLE = {
   [ROLE_IDS.GERENTES]: [
-    12, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 18,
+    12, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 17, 18,
   ],
   [ROLE_IDS.SOLICITANTES]: [
     12, 2, 3, 4, 6, 13, 14,

@@ -197,7 +197,6 @@ function App() {
           <Route path="/proveedores" element={renderDashboard('manage-providers', 10)} />
           <Route path="/ajustes" element={renderDashboard('settings', 11)} />
           <Route path="/notificaciones" element={renderDashboard('notifications', 14)} />
-          <Route path="/roles-permisos" element={renderDashboard('roles-permissions', 15)} />
           <Route path="/gestionar-cuentas" element={renderDashboard('manage-accounts', 17)} />
           <Route path="/compras-directas" element={renderDashboard('direct-purchases', 18)} />
 
