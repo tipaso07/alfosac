@@ -10957,11 +10957,12 @@ app.get('/api/compras-directas', authMiddleware, async (req, res) => {
       SELECT
         cd.id,
         cd.proveedor_texto,
+        cd.tipo_pago,
+        cd.numero_comprobante,
         cd.fecha_compra,
-        cd.estado,
         cd.observaciones,
         cd.foto,
-        cd.fecha_creacion, 
+        cd.created_at AS fecha_creacion,
         cd.id_moneda,
         COALESCE(a.nombre, '') AS area_nombre,
         COALESCE(u.nombre, '') AS usuario_nombre,
@@ -10998,12 +10999,14 @@ app.get('/api/compras-directas/:id', authMiddleware, async (req, res) => {
         cd.id_usuario,
         cd.proveedor_texto,
         cd.id_area,
-        cd.estado,
+        cd.tipo_pago,
+        cd.numero_comprobante,
+        cd.total AS total_registro,
         cd.foto,
         cd.observaciones,
         cd.fecha_compra,
-        cd.fecha_creacion,
-        cd.fecha_actualizacion,
+        cd.created_at AS fecha_creacion,
+        cd.updated_at AS fecha_actualizacion,
         cd.id_moneda,
         COALESCE(a.nombre, '') AS area_nombre,
         COALESCE(u.nombre, '') AS usuario_nombre
@@ -11050,9 +11053,11 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
       proveedor_texto,
       id_area,
       fecha_compra,
+      tipo_pago,
+      numero_comprobante,
       foto,
       observaciones,
-      id_moneda,    
+      id_moneda,
       detalle = [],
     } = req.body;
 
@@ -11060,21 +11065,28 @@ app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMP
       return res.status(400).json({ error: 'Debe incluir al menos un detalle' });
     }
 
+    let totalCalculado = 0;
+    for (const item of detalle) {
+      totalCalculado += Number(item.cantidad || 0) * Number(item.precio_unitario || 0);
+    }
+
     await client.query('BEGIN');
 
     const headerInsert = await client.query(`
-      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, foto, observaciones, estado, id_moneda)
-      VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETADO', $7)
+      INSERT INTO compras_directas (id_usuario, proveedor_texto, id_area, fecha_compra, tipo_pago, numero_comprobante, foto, observaciones, total, id_moneda)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id
     `, [
       req.user.id,
       proveedor_texto || null,
       Number.isInteger(id_area) && id_area > 0 ? id_area : null,
       fecha_compra || new Date().toISOString().slice(0, 10),
+      tipo_pago || 'EFECTIVO',
+      numero_comprobante || null,
       foto || null,
       observaciones || null,
+      totalCalculado,
       Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
-
     ]);
 
     const idCompraDirecta = headerInsert.rows[0].id;
@@ -11136,11 +11148,24 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_C
       proveedor_texto,
       id_area,
       fecha_compra,
+      tipo_pago,
+      numero_comprobante,
       foto,
       observaciones,
       id_moneda,
       detalle = [],
     } = req.body;
+
+    let totalCalculado = 0;
+    if (Array.isArray(detalle)) {
+      for (const item of detalle) {
+        const cantidad = Number(item.cantidad || 0);
+        const precioUnitario = Number(item.precio_unitario || 0);
+        if (cantidad > 0) {
+          totalCalculado += cantidad * precioUnitario;
+        }
+      }
+    }
 
     await client.query('BEGIN');
 
@@ -11149,18 +11174,24 @@ app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_C
       SET proveedor_texto = $1,
           id_area = $2,
           fecha_compra = $3,
-          foto = $4,
-          observaciones = $5,
-          id_moneda = $6,
-          fecha_actualizacion = ${PET_SQL_NOW}
-      WHERE id = $7
+          tipo_pago = $4,
+          numero_comprobante = $5,
+          foto = $6,
+          observaciones = $7,
+          id_moneda = $8,
+          total = $9,
+          updated_at = ${PET_SQL_NOW}
+      WHERE id = $10
     `, [
       proveedor_texto || null,
       Number.isInteger(id_area) && id_area > 0 ? id_area : null,
       fecha_compra || null,
+      tipo_pago || 'EFECTIVO',
+      numero_comprobante || null,
       foto || null,
       observaciones || null,
       Number.isInteger(id_moneda) && id_moneda > 0 ? id_moneda : 1,
+      totalCalculado,
       id,
     ]);
 

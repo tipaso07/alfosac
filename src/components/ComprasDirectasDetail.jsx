@@ -32,7 +32,7 @@ export default function ComprasDirectasDetail({ idCompra, onBack, onEdit }) {
         <div><strong>Proveedor:</strong> {compra.proveedor_texto || '-'}</div>
         <div><strong>Área:</strong> {compra.area_nombre || '-'}</div>
         <div><strong>Fecha:</strong> {compra.fecha_compra ? compra.fecha_compra.slice(0, 10) : '-'}</div>
-        <div><strong>Estado:</strong> {compra.estado}</div>
+        <div><strong>Tipo pago:</strong> {compra.tipo_pago || 'EFECTIVO'}</div>
         <div><strong>Moneda:</strong> {compra.id_moneda === 2 ? 'USD' : 'PEN'}</div>
         <div><strong>Usuario:</strong> {compra.usuario_nombre || '-'}</div>
         <div className="cd-detail-full">
