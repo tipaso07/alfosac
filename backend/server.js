@@ -1587,6 +1587,7 @@ const rebuildServiceApprovalChain = async (client, referenciaId, dentroPlan = fa
 const fetchActionableApprovalReferenceIds = async (client, {
   tipo,
   roleId,
+  userId,
   referenceIds,
 }) => {
   const tableExists = await hasAprobacionesTable(client);
@@ -1596,20 +1597,34 @@ const fetchActionableApprovalReferenceIds = async (client, {
 
   const normalizedTipo = normalizeApprovalTipo(tipo);
   const role = Number(roleId || 0);
+  const actor = Number(userId || 0);
   const ids = Array.isArray(referenceIds)
     ? referenceIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
     : [];
 
-  if (!role || ids.length === 0) {
+  if ((!role && !actor) || ids.length === 0) {
     return new Set();
   }
+
+  const params = [normalizedTipo];
+  let paramIndex = 2;
+
+  if (actor > 0) {
+    params.push(actor);
+    paramIndex += 1;
+  } else {
+    params.push(role);
+    paramIndex += 1;
+  }
+
+  params.push(ids);
 
   const result = await client.query(
     `
       SELECT DISTINCT a.referencia_id
       FROM aprobaciones a
       WHERE upper(trim(a.tipo)) = $1
-        AND a.rol_aprobador = $2
+        AND ${actor > 0 ? `a.usuario_id = $2` : `a.rol_aprobador = $2`}
         AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
              OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         AND a.referencia_id = ANY($3::int[])
@@ -1622,7 +1637,7 @@ const fetchActionableApprovalReferenceIds = async (client, {
             AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
         )
     `,
-    [normalizedTipo, role, ids]
+    params
   );
 
   return new Set(result.rows.map((row) => Number(row.referencia_id)).filter((value) => Number.isInteger(value) && value > 0));
@@ -4009,6 +4024,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
     const actionableIds = await fetchActionableApprovalReferenceIds(pool, {
       tipo: 'SERVICIO',
       roleId: approvalRoleId,
+      userId: Number(options?.userId || 0),
       referenceIds,
     });
 
@@ -8932,6 +8948,7 @@ const fetchComprasRows = async (params = [], whereClause = '', options = {}) => 
     const actionableIds = await fetchActionableApprovalReferenceIds(pool, {
       tipo: 'COMPRA',
       roleId: approvalRoleId,
+      userId: Number(options?.userId || 0),
       referenceIds: compras.map((row) => Number(row.id || 0)),
     });
 
@@ -11224,7 +11241,7 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
     const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
     // Para usuarios autorizados, devolver los servicios (fetchServiciosRows incluye flags de aprobación)
-    const servicios = await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage });
+    const servicios = await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) });
     res.json(servicios);
   } catch (error) {
     res.status(500).json({ error: error.message });

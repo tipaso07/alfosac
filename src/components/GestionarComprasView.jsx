@@ -178,13 +178,29 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
       .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
   }, [baseFilteredCompras, currentUserArea, currentUserIsAreaRole, currentUserPendingStages, currentUserRoleId, currentUserAreaId])
 
-  const approved = useMemo(() => baseFilteredCompras
-    .filter((compra) => Boolean(compra.aprobado_por_usuario) || getStageStatus(compra) === 'APROBADO')
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
+  const approved = useMemo(() => {
+    const isGerente = Number(currentUserRoleId || 0) === 1
+    return baseFilteredCompras
+      .filter((compra) => {
+        if (isGerente && currentUserAreaId) {
+          if (Number(compra.id_area_solicitante || 0) !== Number(currentUserAreaId)) return false
+        }
+        return Boolean(compra.aprobado_por_usuario) || getStageStatus(compra) === 'APROBADO'
+      })
+      .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
+  }, [baseFilteredCompras, currentUserAreaId, currentUserRoleId])
 
-  const rejected = useMemo(() => baseFilteredCompras
-    .filter((compra) => ['RECHAZADO', 'RECHAZADA', 'RECHAZADOS'].includes(getStageStatus(compra)))
-    .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime()), [baseFilteredCompras])
+  const rejected = useMemo(() => {
+    const isGerente = Number(currentUserRoleId || 0) === 1
+    return baseFilteredCompras
+      .filter((compra) => {
+        if (isGerente && currentUserAreaId) {
+          if (Number(compra.id_area_solicitante || 0) !== Number(currentUserAreaId)) return false
+        }
+        return ['RECHAZADO', 'RECHAZADA', 'RECHAZADOS'].includes(getStageStatus(compra))
+      })
+      .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
+  }, [baseFilteredCompras, currentUserAreaId, currentUserRoleId])
 
   const config = {
     PENDIENTE: { label: 'Pendientes', data: pending, actions: true },
