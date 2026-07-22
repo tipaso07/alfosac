@@ -116,54 +116,6 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
     return filtered
   }, [servicios, currentUserIsServiceApprover, currentUserRoleId, currentUserAreaId])
 
-  const firstApproverRoleNames = useMemo(() => {
-    const flows = approvalConfig?.flujos || {}
-    const names = []
-    const addIf = (flowKey) => {
-      if (Array.isArray(flows[flowKey]) && flows[flowKey].length > 0) {
-        const rn = String(flows[flowKey][0]?.rol_nombre || '').trim()
-        if (rn) names.push(rn)
-      }
-    }
-    addIf('SERVICIO_DENTRO_PLAN')
-    addIf('SERVICIO_FUERA_PLAN')
-    return names
-  }, [approvalConfig])
-
-  const approvalPermissionByStage = useMemo(() => {
-    const map = {}
-    const flows = approvalConfig?.flujos || {}
-    Object.values(flows).forEach((arr) => {
-      if (!Array.isArray(arr)) return
-      arr.forEach((row) => {
-        const roleName = normalizeRoleName(row?.rol_nombre)
-        const stageKey = roleName.includes('FINANZAS')
-          ? 'PENDIENTE_FINANZAS'
-          : roleName.includes('GERENCIA') && roleName.includes('AREA')
-            ? 'PENDIENTE_GERENCIA'
-            : roleName.includes('JEFE') || roleName.includes('SUBGERENTE')
-              ? 'PENDIENTE_JEFE_AREA'
-              : roleName === 'ADMIN'
-                ? 'PENDIENTE_ADMIN'
-                : ''
-        const permissionKey = roleName.includes('FINANZAS')
-          ? 'APROBAR_FINANZAS'
-          : roleName.includes('GERENCIA') && roleName.includes('AREA')
-            ? 'APROBAR_GERENCIA_AREA'
-            : roleName.includes('JEFE') || roleName.includes('SUBGERENTE')
-              ? 'APROBAR_JEFE_AREA'
-              : roleName === 'ADMIN'
-                ? 'APROBAR_ADMIN'
-                : ''
-
-        if (stageKey && permissionKey) {
-          map[stageKey] = permissionKey
-        }
-      })
-    })
-    return map
-  }, [approvalConfig])
-
   // Para el primer aprobador, NUNCA asumir valor por defecto aunque venga como booleano
   const resolvePlanChoice = (servicio) => {
     const serviceId = Number(servicio?.id || 0)
@@ -198,23 +150,6 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
       ...prev,
       [id]: value,
     }))
-  }
-
-  const resolveFinancePlanChoice = (servicio) => {
-      const serviceId = Number(servicio?.id || 0)
-      if (serviceId > 0 && Object.prototype.hasOwnProperty.call(planChoiceByService, serviceId)) {
-        return Boolean(planChoiceByService[serviceId])
-      }
-      return isDentroPlanServicio(servicio)
-    }
-
-  const setFinancePlanChoice = (servicioId, value) => {
-      const id = Number(servicioId || 0)
-      if (!id) return
-      setPlanChoiceByService((prev) => ({
-        ...prev,
-        [id]: value,
-      }))
   }
 
   const sortByPriorityAndDate = (items) => [...items].sort((a, b) => {

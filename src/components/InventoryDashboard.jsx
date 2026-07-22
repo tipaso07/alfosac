@@ -20,7 +20,7 @@ import HistorialServiciosView from './HistorialServiciosView'
 import NotificationsView from './NotificationsView'
 import GestionarUsuariosView from './GestionarUsuariosView'
 import { buildAllowedModules, buildAllowedTabs, modules, TAB_BY_MODULE_ID } from '../services/moduleAccess'
-import { hasAnyPermission, hasPermission } from '../services/permissions'
+import { hasPermission } from '../services/permissions'
 import ComprasDirectasList from './ComprasDirectasList'
 import { fetchComprasDirectas, fetchAreas } from '../services/api'
 import {
@@ -154,12 +154,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const canEditMaterials = hasPermission(currentUserPermissions, 'EDITAR_INVENTARIO')
   const canAddManualInventory = hasPermission(currentUserPermissions, 'AGREGAR_INVENTARIO_MANUAL')
   const canManageServiceApprovals = useMemo(() => {
-    return hasAnyPermission(currentUserPermissions, [
-      'APROBAR_JEFE_AREA',
-      'APROBAR_GERENCIA_AREA',
-      'APROBAR_FINANZAS',
-      'APROBAR_ADMIN',
-    ])
+    return hasPermission(currentUserPermissions, 'GESTIONAR_SOLICITUDES')
   }, [currentUserPermissions])
 
   const loadOptionalData = useCallback(async (loader, fallbackValue) => {

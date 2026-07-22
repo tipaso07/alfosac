@@ -217,9 +217,6 @@ const canManageDeliveryRole = (role) => hasAnyRole(role, ['GERENTES', 'ALMACENER
 
 // Approval chains are hardcoded - role 1 = GERENTES approves all
 const APPROVAL_ROLES_BY_LEVEL = [1];
-const APPROVAL_CHAIN_COMPRA = [1];  // Cualquier GERENTES aprueba
-const APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN = [1];  // GERENTES de FINANZAS
-const APPROVAL_CHAIN_SERVICIO_FUERA_PLAN = [1, 1];  // FINANZAS → GERENCIA GENERAL
 let approvalsTableAvailableCache = null;
 let ROLE_NAME_BY_ID = new Map(); // Cache: roleId → roleName for generating PENDIENTE_* states
 let schemaMeta = {
@@ -284,64 +281,12 @@ const findAreaByNamePattern = async (client, pattern) => {
 
 const normalizeApprovalTipo = (value) => normalize(value).replace(/\s+/g, '_');
 
-const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
-  const normalizedTipo = normalizeApprovalTipo(tipo);
-  const creatorRole = Number(creatorRoleId || 0);
-
-  const skipCreatorAndEarlier = (chain) => {
-    const approvalChain = Array.isArray(chain) ? [...chain] : [];
-    if (approvalChain.length === 0) {
-      return [];
-    }
-
-    const creatorIndex = creatorRole > 0 ? approvalChain.indexOf(creatorRole) : -1;
-    if (creatorIndex >= 0) {
-      return approvalChain.slice(creatorIndex + 1);
-    }
-
-    return approvalChain;
-  };
-
-  if (normalizedTipo === 'COMPRA') {
-    return skipCreatorAndEarlier(APPROVAL_CHAIN_COMPRA);
-  }
-
-  if (normalizedTipo === 'SERVICIO') {
-    return skipCreatorAndEarlier(
-      dentroPlan
-        ? APPROVAL_CHAIN_SERVICIO_DENTRO_PLAN
-        : APPROVAL_CHAIN_SERVICIO_FUERA_PLAN
-    );
-  }
-
-  return [];
-};
-
 const isApprovalHierarchyRoleId = (roleId) => {
   const numericRoleId = Number(roleId || 0);
 
   // Solo permitir roles que estén en las cadenas de aprobación configuradas.
   return APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId);
 };
-
-const APPROVAL_PERMISSION_BY_ROLE_ID = new Map();
-
-const APPROVAL_PERMISSION_BY_STATE = new Map([
-  ['PENDIENTE_JEFE_DE_AREA_SUBGERENTE', 'APROBAR_JEFE_AREA'],
-  ['PENDIENTE_JEFE_AREA', 'APROBAR_JEFE_AREA'],
-  ['PENDIENTE_GERENCIA_DEL_AREA', 'APROBAR_GERENCIA_AREA'],
-  ['PENDIENTE_GERENCIA', 'APROBAR_GERENCIA_AREA'],
-  ['PENDIENTE_GERENCIA_DE_FINANZAS', 'APROBAR_FINANZAS'],
-  ['PENDIENTE_FINANZAS', 'APROBAR_FINANZAS'],
-  ['PENDIENTE_ADMIN', 'APROBAR_ADMIN'],
-]);
-
-const APPROVAL_STATE_BY_PERMISSION = new Map([
-  ['APROBAR_JEFE_AREA', 'PENDIENTE_JEFE_DE_AREA_SUBGERENTE'],
-  ['APROBAR_GERENCIA_AREA', 'PENDIENTE_GERENCIA_DEL_AREA'],
-  ['APROBAR_FINANZAS', 'PENDIENTE_GERENCIA_DE_FINANZAS'],
-  ['APROBAR_ADMIN', 'PENDIENTE_ADMIN'],
-]);
 
 const APPROVAL_PENDING_STATES = new Set(['PENDIENTE']);
 
@@ -465,12 +410,6 @@ const getRequiredApprovalPermissionByRoleId = (roleId) => {
     return `APROBAR_${normalizedName}`;
   }
 
-  // Fallback legacy para configuraciones antiguas.
-  const hardcodedPermission = APPROVAL_PERMISSION_BY_ROLE_ID.get(numericRoleId);
-  if (hardcodedPermission) {
-    return String(hardcodedPermission).trim().toUpperCase();
-  }
-
   // Fallback vacío si no se puede resolver dinámicamente
   return '';
 };
@@ -480,10 +419,6 @@ const getApprovalPermissionByState = (state) => {
   const roleId = getApprovalRoleIdFromState(normalizedState);
   if (roleId > 0) {
     return getRequiredApprovalPermissionByRoleId(roleId);
-  }
-
-  if (APPROVAL_PERMISSION_BY_STATE.has(normalizedState)) {
-    return APPROVAL_PERMISSION_BY_STATE.get(normalizedState);
   }
 
   if (!normalizedState.startsWith('PENDIENTE_')) {
@@ -505,11 +440,6 @@ const getApprovalPermissionByState = (state) => {
 
 const getApprovalStateByPermission = (permission) => {
   const normalizedPermission = normalizePermissionName(permission);
-  if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
-    const roleId = getApprovalRoleIdByPermission(normalizedPermission);
-    return getPendingStateByRoleId(roleId) || APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
-  }
-
   const roleId = getApprovalRoleIdByPermission(normalizedPermission);
   if (roleId > 0) {
     return getPendingStateByRoleId(roleId);
@@ -529,33 +459,11 @@ const getPendingStateByPermission = (permission) => {
     return `PENDIENTE_${normalizedPermission.replace(/^APROBAR_/, '')}`;
   }
 
-  if (APPROVAL_STATE_BY_PERMISSION.has(normalizedPermission)) {
-    const legacyState = APPROVAL_STATE_BY_PERMISSION.get(normalizedPermission);
-    return normalizeApprovalState(legacyState);
-  }
-
   return '';
 };
 
 const getApprovalRoleIdByPermission = (permission) => {
   const normalizedPermission = normalizePermissionName(permission);
-  
-  // Mapeo de permiso a nombre de rol esperado para compatibilidad con estados antiguos
-  let expectedRoleName = '';
-  if (normalizedPermission === 'APROBAR_ADMIN') expectedRoleName = 'ADMIN';
-  else if (normalizedPermission === 'APROBAR_FINANZAS') expectedRoleName = 'GERENCIA DE FINANZAS';
-  else if (normalizedPermission === 'APROBAR_GERENCIA_AREA') expectedRoleName = 'GERENCIA DEL AREA';
-  else if (normalizedPermission === 'APROBAR_JEFE_AREA') expectedRoleName = 'JEFE DE AREA';
-
-  if (expectedRoleName) {
-    const normalizedExpected = normalizeRoleName(expectedRoleName);
-    for (const [roleId, roleName] of ROLE_NAME_BY_ID.entries()) {
-      const normalizedCached = normalizeRoleName(roleName);
-      if (normalizedCached === normalizedExpected) {
-        return roleId;
-      }
-    }
-  }
 
   // Intentar resolver dinámicamente cualquier permiso APROBAR_<ROL>
   if (normalizedPermission.startsWith('APROBAR_')) {
@@ -567,7 +475,6 @@ const getApprovalRoleIdByPermission = (permission) => {
     }
   }
 
-  // No hay fallback harcodeado: solo roles reconocidos dinámicamente pueden resolverse.
   return 0;
 };
 
@@ -920,46 +827,6 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
   }
 };
 
-const resolveApprovalRoleIdByPermissions = (user) => {
-  const roleId = Number(user?.id_role || user?.rol_id || 0);
-  const hasDirectPermissions = Array.isArray(user?.permisos) && user.permisos.length > 0;
-  const directPermissions = hasDirectPermissions ? user.permisos : [];
-  const fallbackPermissions = typeof getPermissionsByRoleId === 'function'
-    ? getPermissionsByRoleId(roleId)
-    : [];
-  const permissionSet = new Set((hasDirectPermissions ? directPermissions : fallbackPermissions)
-    .map((perm) => String(perm || '').trim().toUpperCase())
-    .filter(Boolean));
-
-  const permissionToRoleName = new Map([
-    ['APROBAR_ADMIN', 'ADMIN'],
-    ['APROBAR_FINANZAS', 'GERENCIA DE FINANZAS'],
-    ['APROBAR_GERENCIA_AREA', 'GERENCIA DEL AREA'],
-    ['APROBAR_JEFE_AREA', 'JEFE DE AREA'],
-  ]);
-
-  for (const normalizedPermission of permissionSet) {
-    if (!normalizedPermission.startsWith('APROBAR_')) {
-      continue;
-    }
-
-    let expectedRoleName = permissionToRoleName.get(normalizedPermission);
-    if (!expectedRoleName) {
-      expectedRoleName = normalizedPermission.replace(/^APROBAR_/, '').replace(/_/g, ' ').trim();
-    }
-
-    for (const [roleIdFromCache, roleName] of ROLE_NAME_BY_ID.entries()) {
-      const normalizedCached = normalizeRoleName(roleName).replace(/[\s_]+/g, '');
-      const normalizedExpected = normalizeRoleName(expectedRoleName).replace(/[\s_]+/g, '');
-      if (normalizedCached === normalizedExpected) {
-        return roleIdFromCache;
-      }
-    }
-  }
-
-  return 0;
-};
-
 const getIntermediateApprovalStateByRoleId = (roleId) => {
   return getPendingStateByRoleId(roleId);
 };
@@ -1043,11 +910,6 @@ const parseReceiptInfo = (value) => {
 };
 
 const resolveApprovalRoleId = (user) => {
-  const roleByPermission = resolveApprovalRoleIdByPermissions(user);
-  if (roleByPermission > 0) {
-    return roleByPermission;
-  }
-
   const numericRoleId = Number(user?.id_role || user?.rol_id || 0);
   if (isApprovalHierarchyRoleId(numericRoleId)) {
     return numericRoleId;
@@ -1578,11 +1440,6 @@ const isApprovalRoleIdConfigured = async (roleId) => {
   }
   // Approval roles are now hardcoded - only GERENTES (1) approves
   return APPROVAL_ROLES_BY_LEVEL.includes(numericRoleId);
-};
-
-const hasApprovalPermissions = (user) => {
-  const permissions = Array.isArray(user?.permisos) ? user.permisos : [];
-  return permissions.some((perm) => normalizePermissionName(perm).startsWith('APROBAR_'));
 };
 
 const canAccessManageRequestsModule = async (user) => {
