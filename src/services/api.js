@@ -622,6 +622,27 @@ export const guardarCalificacionProveedor = async (id, payload) => {
   return response.json();
 };
 
+export const calificarRequerimiento = async (idRequerimiento, payload) => {
+  const response = await fetch(`${API_BASE_URL}/requerimientos/${idRequerimiento}/calificacion`, {
+    method: 'POST',
+    headers: buildHeaders({ includeJson: true }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let msg = 'Error al calificar requerimiento';
+    try {
+      const data = await response.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  return response.json();
+};
+
 export const actualizarCalificacionProveedor = async (idProveedor, idCalificacion, payload) => {
   const response = await fetch(`${API_BASE_URL}/proveedores/${idProveedor}/calificaciones/${idCalificacion}`, {
     method: 'PATCH',

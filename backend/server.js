@@ -4331,6 +4331,26 @@ const ensureRequerimientosColumns = async () => {
   `);
 
   await pool.query(`
+    ALTER TABLE requerimientos
+    ADD COLUMN IF NOT EXISTS calificacion INTEGER;
+  `);
+
+  await pool.query(`
+    ALTER TABLE requerimientos
+    ADD COLUMN IF NOT EXISTS calificacion_comentario TEXT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE requerimientos
+    ADD COLUMN IF NOT EXISTS calificacion_usuario INTEGER REFERENCES usuarios(id);
+  `);
+
+  await pool.query(`
+    ALTER TABLE requerimientos
+    ADD COLUMN IF NOT EXISTS calificacion_fecha TIMESTAMP;
+  `);
+
+  await pool.query(`
     UPDATE requerimientos
     SET prioridad = 'MEDIA'
     WHERE prioridad IS NULL OR trim(prioridad) = '';
@@ -5798,6 +5818,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
           COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'email', to_jsonb(u)->>'correo', '')), ''), '') AS correo,
           u.id_area,
           COALESCE(a.nombre, '') AS area,
+          COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'sub_area', '')), ''), '') AS sub_area,
           ${getUserRoleIdExpr('u')} AS rol_id,
           ${getUserRoleIdExpr('u')} AS id_role,
           COALESCE(r.nombre, '') AS rol,
@@ -5834,6 +5855,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
       email: profile.correo || req.user.correo || '',
       id_area: profile.id_area,
       area: profile.area || req.user.area || '',
+      sub_area: profile.sub_area || '',
       rol_id: profile.rol_id,
       id_role: profile.id_role,
       rol: profile.rol || req.user.rol || '',
@@ -6592,7 +6614,11 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
           r.fecha_creacion,
           dr.id_material,
           m.nombre AS material,
-          dr.cantidad
+          dr.cantidad,
+          r.calificacion,
+          COALESCE(r.calificacion_comentario, '') AS calificacion_comentario,
+          r.calificacion_usuario,
+          r.calificacion_fecha
         FROM requerimientos r
         JOIN usuarios u ON u.id = r.id_usuario
         LEFT JOIN areas a ON a.id = u.id_area
@@ -6620,6 +6646,8 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
           usuario: row.usuario,
           area: row.area,
           fecha_creacion: row.fecha_creacion,
+          calificacion: row.calificacion ?? null,
+          calificacion_comentario: row.calificacion_comentario || '',
           items: [],
         };
       }
@@ -8566,6 +8594,43 @@ app.get('/api/requerimientos/:id/receptores', authMiddleware, async (req, res) =
     })));
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/requerimientos/:id/calificacion', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const puntuacion = Number(req.body?.puntuacion || 0);
+    const comentario = String(req.body?.comentario || '').trim();
+
+    if (!Number.isInteger(puntuacion) || puntuacion < 1 || puntuacion > 5) {
+      return res.status(400).json({ error: 'puntuacion debe ser un entero entre 1 y 5' });
+    }
+
+    const existing = await client.query(
+      'SELECT id, estado_entrega FROM requerimientos WHERE id = $1',
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Requerimiento no encontrado' });
+    }
+    if (normalize(existing.rows[0].estado_entrega) !== 'ENTREGADO') {
+      return res.status(400).json({ error: 'Solo se puede calificar requerimientos entregados' });
+    }
+
+    await client.query(
+      `UPDATE requerimientos
+       SET calificacion = $1, calificacion_comentario = $2, calificacion_usuario = $3, calificacion_fecha = NOW()
+       WHERE id = $4`,
+      [puntuacion, comentario, req.user.id, id]
+    );
+
+    res.json({ ok: true, puntuacion, comentario });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

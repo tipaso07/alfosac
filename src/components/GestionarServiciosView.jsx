@@ -68,7 +68,7 @@ const isServiceItemInFlow = (servicio) => {
   return raw !== ''
 }
 
-export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], currentUserRoleId = null, onChangeAprobacion }) {
+export default function GestionarServiciosView({ servicios = [], currentUserPermissions = [], currentUserRoleId = null, currentUserAreaId = null, onChangeAprobacion }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [activePriority, setActivePriority] = useState('TODAS')
   const [planChoiceByService, setPlanChoiceByService] = useState({})
@@ -108,8 +108,13 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
 
   const visibleServicios = useMemo(() => {
     if (!currentUserIsServiceApprover) return []
-    return servicios.filter(isServiceItemInFlow)
-  }, [servicios, currentUserIsServiceApprover])
+    let filtered = servicios.filter(isServiceItemInFlow)
+    // Gerentes solo ven servicios de su área
+    if (Number(currentUserRoleId || 0) === 1 && currentUserAreaId) {
+      filtered = filtered.filter((s) => Number(s.area_id || 0) === Number(currentUserAreaId))
+    }
+    return filtered
+  }, [servicios, currentUserIsServiceApprover, currentUserRoleId, currentUserAreaId])
 
   const firstApproverRoleNames = useMemo(() => {
     const flows = approvalConfig?.flujos || {}

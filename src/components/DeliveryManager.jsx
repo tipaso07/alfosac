@@ -6,6 +6,7 @@ import {
   fetchReceptoresByCompra,
   fetchReceptoresByRequerimiento,
   guardarCalificacionProveedor,
+  calificarRequerimiento,
 } from '../services/api'
 
 const normalize = (value) => String(value || '').trim().toUpperCase()
@@ -81,6 +82,11 @@ export default function DeliveryManager({
   const [ratingSaving, setRatingSaving] = useState(false)
   const [ratingError, setRatingError] = useState('')
   const [ratingNotice, setRatingNotice] = useState('')
+  const [ratingRequerimiento, setRatingRequerimiento] = useState(null)
+  const [ratingReqForm, setRatingReqForm] = useState({ puntuacion: 5, comentario: '' })
+  const [ratingReqSaving, setRatingReqSaving] = useState(false)
+  const [ratingReqError, setRatingReqError] = useState('')
+  const [ratingReqNotice, setRatingReqNotice] = useState('')
 
   const openRatingModal = (compra) => {
     setRatingCompra(compra)
@@ -125,6 +131,43 @@ export default function DeliveryManager({
       setRatingSaving(false)
     }
   }
+
+  const openRatingReqModal = (req) => {
+    setRatingRequerimiento(req)
+    setRatingReqForm({ puntuacion: 5, comentario: '' })
+    setRatingReqError('')
+    setRatingReqNotice('')
+  }
+
+  const closeRatingReqModal = () => {
+    setRatingRequerimiento(null)
+    setRatingReqForm({ puntuacion: 5, comentario: '' })
+    setRatingReqError('')
+    setRatingReqNotice('')
+  }
+
+  const submitReqRating = async (event) => {
+    event.preventDefault()
+    if (!ratingRequerimiento) return
+
+    setRatingReqSaving(true)
+    setRatingReqError('')
+    setRatingReqNotice('')
+
+    try {
+      await calificarRequerimiento(Number(ratingRequerimiento.id || 0), {
+        puntuacion: Number(ratingReqForm.puntuacion || 0),
+        comentario: String(ratingReqForm.comentario || '').trim(),
+      })
+      setRatingReqNotice('Calificacion guardada correctamente')
+      setTimeout(() => closeRatingReqModal(), 1200)
+    } catch (err) {
+      setRatingReqError(err?.message || 'Error al guardar calificacion')
+    } finally {
+      setRatingReqSaving(false)
+    }
+  }
+
   const getCompraDeliveryState = useCallback((compra) => normalize(compra?.estado_pedido || compra?.estado), [])
 
   useEffect(() => {
@@ -500,6 +543,20 @@ export default function DeliveryManager({
 
       <p className="delivery-summary-line"><strong>Recibido por:</strong> {req.nombre_receptor || 'N/D'}</p>
       <p className="delivery-summary-line"><strong>Descripcion:</strong> {req.descripcion || 'Sin descripcion'}</p>
+
+      {req.calificacion ? (
+        <p className="delivery-summary-line"><strong>Calificacion:</strong> {'★'.repeat(req.calificacion)}{'☆'.repeat(5 - req.calificacion)} ({req.calificacion}/5){req.calificacion_comentario ? ` - ${req.calificacion_comentario}` : ''}</p>
+      ) : (
+        <div className="delivery-actions">
+          <button
+            type="button"
+            className="btn-delivery-rate"
+            onClick={() => openRatingReqModal(req)}
+          >
+            Calificar entrega
+          </button>
+        </div>
+      )}
     </article>
   )
 
@@ -909,6 +966,71 @@ export default function DeliveryManager({
               <div className="provider-modal-actions">
                 <button type="button" onClick={closeRatingModal} disabled={ratingSaving}>Omitir</button>
                 <button type="submit" disabled={ratingSaving}>{ratingSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {ratingRequerimiento && (
+        <div className="provider-modal-backdrop" onClick={closeRatingReqModal}>
+          <div className="provider-modal provider-rating-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="provider-modal-head">
+              <h2>Calificar entrega</h2>
+              <button type="button" onClick={closeRatingReqModal} disabled={ratingReqSaving}>×</button>
+            </div>
+            <div className="provider-rating-header">
+              <h3>Requerimiento #{ratingRequerimiento.id}</h3>
+              <p>Completa una calificacion breve de los materiales recibidos.</p>
+            </div>
+
+            {ratingReqError ? <p className="providers-error">{ratingReqError}</p> : null}
+            {ratingReqNotice ? <p className="providers-success">{ratingReqNotice}</p> : null}
+
+            <form className="provider-rating-form" onSubmit={submitReqRating}>
+              <div className="provider-rating-stars-picker" aria-label="Selecciona puntuacion">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    className={`rating-star-btn ${Number(ratingReqForm.puntuacion || 0) >= score ? 'active' : ''}`}
+                    onClick={() => setRatingReqForm((prev) => ({ ...prev, puntuacion: score }))}
+                    disabled={ratingReqSaving}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+
+              <label>
+                Puntuacion
+                <select
+                  value={ratingReqForm.puntuacion}
+                  onChange={(event) => setRatingReqForm((prev) => ({ ...prev, puntuacion: Number(event.target.value) }))}
+                  disabled={ratingReqSaving}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label>
+                Comentario
+                <textarea
+                  value={ratingReqForm.comentario}
+                  onChange={(event) => setRatingReqForm((prev) => ({ ...prev, comentario: event.target.value }))}
+                  placeholder="Comentario opcional"
+                  rows={4}
+                  disabled={ratingReqSaving}
+                />
+              </label>
+
+              <div className="provider-modal-actions">
+                <button type="button" onClick={closeRatingReqModal} disabled={ratingReqSaving}>Omitir</button>
+                <button type="submit" disabled={ratingReqSaving}>{ratingReqSaving ? 'Guardando...' : 'Guardar calificacion'}</button>
               </div>
             </form>
           </div>

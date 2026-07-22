@@ -31,7 +31,7 @@ const getStageStatus = (compra) => {
   return normalizeStage(compra?.estado || compra?.estado_pedido)
 }
 
-export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserRoleName = '', currentUserPermissions = [], currentUserArea = '', onChangeEstado }) {
+export default function GestionarComprasView({ compras = [], currentUserRoleId = null, currentUserRoleName = '', currentUserPermissions = [], currentUserArea = '', currentUserAreaId = null, onChangeEstado }) {
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
   const [approvalConfig, setApprovalConfig] = useState([])
   const [userQuery, setUserQuery] = useState('')
@@ -154,6 +154,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }, [compras, userQuery, materialQuery, dateFrom, dateTo])
 
   const pending = useMemo(() => {
+    const isGerente = Number(currentUserRoleId || 0) === 1
     const currentAreaTerm = currentUserIsAreaRole && currentUserArea ? normalizeSearch(currentUserArea) : ''
 
     return baseFilteredCompras
@@ -161,6 +162,11 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
         const stage = getStageStatus(compra)
         if (!isPendingFlowStage(stage)) return false
         if (!isCurrentUserPendingStage(stage)) return false
+
+        // Gerentes solo ven compras de su área
+        if (isGerente && currentUserAreaId) {
+          if (Number(compra.id_area_solicitante || 0) !== Number(currentUserAreaId)) return false
+        }
 
         if (currentAreaTerm) {
           const areaText = normalizeSearch([compra.area_solicitante, compra.area_final].filter(Boolean).join(' '))
@@ -170,7 +176,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
         return true
       })
       .sort((a, b) => new Date(b.fecha_creacion || 0).getTime() - new Date(a.fecha_creacion || 0).getTime())
-  }, [baseFilteredCompras, currentUserArea, currentUserIsAreaRole, currentUserPendingStages])
+  }, [baseFilteredCompras, currentUserArea, currentUserIsAreaRole, currentUserPendingStages, currentUserRoleId, currentUserAreaId])
 
   const approved = useMemo(() => baseFilteredCompras
     .filter((compra) => Boolean(compra.aprobado_por_usuario) || getStageStatus(compra) === 'APROBADO')

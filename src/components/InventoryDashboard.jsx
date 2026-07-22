@@ -118,6 +118,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [currentUserName, setCurrentUserName] = useState('')
   const [currentUserArea, setCurrentUserArea] = useState('')
   const [currentUserAreaId, setCurrentUserAreaId] = useState(null)
+  const [currentUserSubArea, setCurrentUserSubArea] = useState('')
   const [currentUserRoleId, setCurrentUserRoleId] = useState(null)
   const [currentUserProfile, setCurrentUserProfile] = useState(null)
   const [categorias, setCategorias] = useState([])
@@ -204,6 +205,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setCurrentUserName(currentUser?.nombre || 'Usuario')
       setCurrentUserArea(currentUser?.area || 'Sin area')
       setCurrentUserAreaId(Number(currentUser?.id_area || 0) || null)
+      setCurrentUserSubArea(currentUser?.sub_area || '')
       const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
       const runtimePermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
       console.log('Rol usuario:', currentUser?.rol_id ?? currentUser?.id_role)
@@ -905,6 +907,7 @@ useEffect(() => {
                   currentUserRoleName={currentUserProfile?.rol || ''}
                   currentUserPermissions={currentUserPermissions}
                   currentUserArea={currentUserArea}
+                  currentUserAreaId={currentUserAreaId}
                   onChangeEstado={handleCompraStatus}
                 />
               )}
@@ -913,6 +916,7 @@ useEffect(() => {
                   servicios={servicios}
                   currentUserPermissions={currentUserPermissions}
                   currentUserRoleId={currentUserRoleId}
+                  currentUserAreaId={currentUserAreaId}
                   onChangeAprobacion={handleServicioAprobacion}
                 />
               )}
@@ -977,6 +981,7 @@ useEffect(() => {
               servicios={servicios}
               currentUserRoleId={currentUserRoleId}
               currentUserPermissions={currentUserPermissions}
+              currentUserSubArea={currentUserSubArea}
             />
           )}
           {activeTab === 'movements' && allowedTabs.includes('movements') && (

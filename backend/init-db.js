@@ -171,6 +171,10 @@ CREATE TABLE IF NOT EXISTS requerimientos (
   estado_entrega VARCHAR(30),
   nombre_receptor VARCHAR(120),
   dni_receptor VARCHAR(20),
+  calificacion INTEGER,
+  calificacion_comentario TEXT,
+  calificacion_usuario INTEGER REFERENCES usuarios(id),
+  calificacion_fecha TIMESTAMP,
   created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );

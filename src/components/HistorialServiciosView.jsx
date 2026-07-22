@@ -26,7 +26,7 @@ const parseDate = (value) => {
   return Number.isFinite(parsed.getTime()) ? parsed : null
 }
 
-export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null, currentUserPermissions = [] }) {
+export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null, currentUserPermissions = [], currentUserSubArea = '' }) {
   const [serviciosLocal, setServiciosLocal] = useState(servicios)
   const [areaFilter, setAreaFilter] = useState('TODAS')
   const [prioridadFilter, setPrioridadFilter] = useState('TODAS')
@@ -113,6 +113,10 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
         .map((value) => String(value || '').toLowerCase())
         .join(' ')
 
+      // Filtrar por sub-área del usuario (solicitantes ven servicios de su sub-área)
+      if (currentUserSubArea) {
+        if (area !== currentUserSubArea) return false
+      }
       if (areaFilter !== 'TODAS' && area !== areaFilter) return false
       if (prioridadFilter !== 'TODAS' && prioridad !== prioridadFilter) return false
       if (Number.isFinite(fromTime) && createdAt < fromTime) return false
@@ -120,7 +124,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       if (term && !haystack.includes(term)) return false
       return true
     })
-  }, [serviciosHistorial, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
+  }, [serviciosHistorial, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm, currentUserSubArea])
 
   const openRatingModal = (servicio) => {
     if (!canCurrentUserRate || isRated(servicio, ratedByServiceId)) return
