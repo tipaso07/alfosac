@@ -26,10 +26,10 @@ export const hasPermission = (sourcePermissions, permission) => {
 
 export const ROLE_IDS = {
   GERENTES: 1,
-  SOLICITANTES: 2,
+  COMPRAS: 2,
   ALMACENERO: 3,
-  COMPRAS: 4,
-  SERVICIOS_GENERALES: 5,
+  SOLICITANTES: 4,
+  SERVICIOS_GENERALES: 8,
 }
 
 export const modules = [
@@ -97,16 +97,16 @@ const MODULES_BY_ROLE = {
     12, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 17, 18,
   ],
   [ROLE_IDS.SOLICITANTES]: [
-    12, 2, 3, 4, 6, 13, 14,
+    1, 2, 3, 8, 11, 13,
   ],
   [ROLE_IDS.ALMACENERO]: [
-    12, 1, 7, 8, 14,
+    1, 7, 8, 11,
   ],
   [ROLE_IDS.COMPRAS]: [
-    12, 1, 3, 5, 6, 7, 10, 14, 18,
+    12, 1, 2, 3, 6, 8, 10, 11, 14, 17,
   ],
   [ROLE_IDS.SERVICIOS_GENERALES]: [
-    12, 4, 5, 7, 13, 14,
+    1, 4, 8, 11,
   ],
 }
 
