@@ -256,6 +256,32 @@ const loadRoleNamesCache = async () => {
   }
 };
 
+// Find the GERENTES user in a specific area (by area ID)
+const findGerenteByArea = async (client, areaId) => {
+  const numericAreaId = Number(areaId || 0);
+  if (!numericAreaId) return 0;
+
+  const result = await client.query(
+    `SELECT u.id FROM usuarios u
+     INNER JOIN roles r ON u.id_role = r.id
+     WHERE u.id_area = $1
+       AND upper(trim(r.nombre)) = 'GERENTES'
+       AND upper(trim(COALESCE(u.sub_area, ''))) = 'GERENTE'
+     LIMIT 1`,
+    [numericAreaId]
+  );
+  return Number(result.rows[0]?.id || 0);
+};
+
+// Find area ID by name pattern (case-insensitive LIKE)
+const findAreaByNamePattern = async (client, pattern) => {
+  const result = await client.query(
+    `SELECT id FROM areas WHERE upper(trim(nombre)) LIKE $1 LIMIT 1`,
+    [`%${String(pattern).trim().toUpperCase()}%`]
+  );
+  return Number(result.rows[0]?.id || 0);
+};
+
 const normalizeApprovalTipo = (value) => normalize(value).replace(/\s+/g, '_');
 
 const getApprovalChainForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
@@ -343,6 +369,12 @@ const getPendingStateByRoleId = (roleId) => {
 
 const getApprovalRoleIdFromState = (state) => {
   const normalizedState = normalizeApprovalState(state);
+  
+  const usuarioMatch = normalizedState.match(/^PENDIENTE_USUARIO_(\d+)$/);
+  if (usuarioMatch) {
+    return Number(usuarioMatch[1] || 0);
+  }
+
   const pendingMatch = normalizedState.match(/^PENDIENTE_(\d+)$/);
   if (pendingMatch) {
     return Number(pendingMatch[1] || 0);
@@ -355,12 +387,11 @@ const getApprovalRoleIdFromState = (state) => {
     }
   }
 
-  // Legacy states for backward compatibility with old data
   const legacyStateToRoleId = new Map([
-    ['PENDIENTE_JEFE_AREA', 1],      // old role 5 → now GERENTES (1)
-    ['PENDIENTE_GERENCIA', 1],       // old role 6 → now GERENTES (1)
-    ['PENDIENTE_FINANZAS', 1],       // old role 7 → now GERENTES (1)
-    ['PENDIENTE_ADMIN', 1],          // old role 8 → now GERENTES (1)
+    ['PENDIENTE_JEFE_AREA', 1],
+    ['PENDIENTE_GERENCIA', 1],
+    ['PENDIENTE_FINANZAS', 1],
+    ['PENDIENTE_ADMIN', 1],
   ]);
 
   return Number(legacyStateToRoleId.get(normalizedState) || 0);
@@ -566,44 +597,31 @@ const getApprovalStageRoleIdForUser = (usuario) => {
 };
 
 const getApprovalStageStateForUser = (usuario) => {
+  const userId = Number(usuario?.id || 0);
+  if (userId > 0) {
+    return `PENDIENTE_USUARIO_${userId}`;
+  }
   const roleId = getApprovalStageRoleIdForUser(usuario);
   return roleId > 0 ? getPendingStateByRoleId(roleId) : '';
 };
 
 const getNextApprovalState = ({ tipo, currentState, dentroPlan }) => {
   const normalizedState = normalizeApprovalState(currentState);
-  const approvalChain = getApprovalChainForEntity({ tipo, dentroPlan });
   const currentRoleId = getApprovalRoleIdFromState(normalizedState);
 
-  if (normalizedState === 'PENDIENTE') {
-    const firstRoleId = Number(approvalChain[0] || 0);
-    if (!firstRoleId) {
-      return {
-        roleId: 0,
-        state: normalizedState,
-      };
-    }
-
-    return {
-      roleId: firstRoleId,
-      state: getPendingStateByRoleId(firstRoleId),
-    };
-  }
-
-  const currentIndex = approvalChain.indexOf(currentRoleId);
-  if (currentIndex >= 0) {
-    const nextRoleId = Number(approvalChain[currentIndex + 1] || 0);
-    if (!nextRoleId) {
+  if (normalizedState === 'PENDIENTE' || normalizedState.startsWith('PENDIENTE_USUARIO_') || normalizedState.startsWith('PENDIENTE_')) {
+    if (normalizedState === 'PENDIENTE') {
       return {
         roleId: currentRoleId,
-        state: 'APROBADO',
+        state: normalizedState,
+        pendingNext: true,
       };
     }
 
-    const nextState = getPendingStateByRoleId(nextRoleId);
     return {
       roleId: currentRoleId,
-      state: nextState || 'PENDIENTE',
+      state: normalizedState,
+      pendingNext: true,
     };
   }
 
@@ -696,68 +714,39 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
     const stageRoleId = Number(flow.roleId || getApprovalRoleIdFromState(estadoAnterior) || 0);
     const estadoNuevo = normalizedDecision === 'RECHAZADO' ? 'RECHAZADO' : flow.state;
 
-    if (!stageRoleId || !estadoNuevo) {
+    if (!estadoNuevo) {
       throw new Error('No fue posible determinar el siguiente estado del flujo');
     }
 
-    if (resolveApprovalRoleId(usuario) !== stageRoleId) {
-      throw new Error(`No tienes permiso para aprobar en la etapa ${estadoAnterior}`);
-    }
-
-    if (normalizedTipo === 'SERVICIO' && isGerentesRole(usuario?.rol)) {
-      const userAreaId = Number(usuario?.id_area || 0);
-      const finanzasArea = await client.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%FINANZAS%' LIMIT 1");
-      const gerenciaArea = await client.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%GERENCIA GENERAL%' OR upper(trim(nombre)) LIKE '%GERENCIA%GENERAL%' LIMIT 1");
-      const idFinanzas = Number(finanzasArea.rows[0]?.id || 0);
-      const idGerencia = Number(gerenciaArea.rows[0]?.id || 0);
-
-      const pendingApprovalOrden = await client.query(
-        `
-          SELECT orden
-          FROM aprobaciones
-          WHERE upper(trim(tipo)) = $1
-            AND referencia_id = $2
-            AND rol_aprobador = $3
-            AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
-                 OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
-          ORDER BY orden ASC
-          LIMIT 1
-        `,
-        [normalizedTipo, referenceId, stageRoleId]
-      );
-
-      const currentOrden = Number(pendingApprovalOrden.rows[0]?.orden || 0);
-
-      if (currentOrden === 1 && idFinanzas && userAreaId !== idFinanzas) {
-        throw new Error('Solo un GERENTE del area de FINANZAS puede aprobar la primera etapa del servicio');
-      }
-
-      if (currentOrden === 2 && idGerencia && userAreaId !== idGerencia) {
-        throw new Error('Solo un GERENTE del area de GERENCIA GENERAL puede aprobar la segunda etapa del servicio');
-      }
-    }
-
-    const approvalRow = await client.query(
+    const currentUserId = Number(usuario?.id || 0);
+    const pendingApproval = await client.query(
       `
-        SELECT id, orden, rol_aprobador, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
+        SELECT id, orden, rol_aprobador, usuario_id, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
         FROM aprobaciones
         WHERE upper(trim(tipo)) = $1
           AND referencia_id = $2
-          AND rol_aprobador = $3
+          AND (upper(trim(COALESCE(estado, 'PENDIENTE'))) = 'PENDIENTE'
+               OR upper(trim(COALESCE(estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
         ORDER BY orden ASC
         LIMIT 1
         FOR UPDATE
       `,
-      [normalizedTipo, referenceId, stageRoleId]
+      [normalizedTipo, referenceId]
     );
 
-    if (approvalRow.rows.length === 0) {
+    if (pendingApproval.rows.length === 0) {
       throw new Error('No existe una aprobacion pendiente para esta etapa');
     }
 
-    const currentApproval = approvalRow.rows[0];
-    if (normalize(currentApproval.estado) === 'APROBADO') {
-      throw new Error('Esta etapa ya fue aprobada');
+    const currentApproval = pendingApproval.rows[0];
+    const approvalUserId = Number(currentApproval.usuario_id || 0);
+
+    if (approvalUserId > 0 && approvalUserId !== currentUserId) {
+      throw new Error('No tienes permiso para aprobar en esta etapa');
+    }
+
+    if (approvalUserId === 0 && resolveApprovalRoleId(usuario) !== Number(currentApproval.rol_aprobador || 0)) {
+      throw new Error('No tienes permiso para aprobar en esta etapa');
     }
 
     const normalizedEstado = normalize(currentApproval.estado);
@@ -826,9 +815,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         const hasPendingNext = !!nextPendingRow;
         
         if (hasPendingNext) {
-          // Si hay pendientes posteriores, actualizar a PENDIENTE_<ID_DEL_ROL>
+          const nextUserId = Number(nextPendingRow.usuario_id || 0);
           const nextRoleId = Number(nextPendingRow.rol_aprobador || 0);
-          const nextEstado = getPendingStateByRoleId(nextRoleId);
+          const nextEstado = nextUserId > 0 ? `PENDIENTE_USUARIO_${nextUserId}` : getPendingStateByRoleId(nextRoleId);
           
           await client.query(
             `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
@@ -899,9 +888,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
             [estadoNuevo, newFlow, referenceId]
           );
         } else {
-          // Si hay aprobaciones pendientes posteriores, actualizar estado_aprobacion a PENDIENTE_<ID_DEL_ROL>
+          const nextUserId = Number(nextPendingRow.usuario_id || 0);
           const nextRoleId = Number(nextPendingRow.rol_aprobador || 0);
-          const nextEstado = getPendingStateByRoleId(nextRoleId);
+          const nextEstado = nextUserId > 0 ? `PENDIENTE_USUARIO_${nextUserId}` : getPendingStateByRoleId(nextRoleId);
           
           await client.query(
             `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
@@ -980,15 +969,7 @@ const generatePendingStateByRoleId = (roleId) => {
 };
 
 const getInitialApprovalStateForEntity = ({ tipo, dentroPlan = false, creatorRoleId = 0 } = {}) => {
-  const normalizedTipo = normalizeApprovalTipo(tipo);
-  const roleChain = getApprovalChainForEntity({ tipo, dentroPlan, creatorRoleId });
-  const firstRole = Number(roleChain[0] || 0);
-  if (!firstRole) {
-    return 'APROBADA';
-  }
-
-  const mapped = generatePendingStateByRoleId(firstRole);
-  return mapped || 'PENDIENTE';
+  return 'PENDIENTE';
 };
 
 const getApprovalStageKeyByRoleId = (roleId) => {
@@ -1109,6 +1090,7 @@ const hasAprobacionesTable = async (client = pool) => {
 const fetchPendingApprovalReferenceIdsByRole = async (client, {
   tipo,
   roleId,
+  userId,
 }) => {
   const tableExists = await hasAprobacionesTable(client);
   if (!tableExists) {
@@ -1117,30 +1099,42 @@ const fetchPendingApprovalReferenceIdsByRole = async (client, {
 
   const normalizedTipo = normalizeApprovalTipo(tipo);
   const role = Number(roleId || 0);
-  if (!role) {
+  const actor = Number(userId || 0);
+  if (!role && !actor) {
     return [];
   }
 
-  const result = await client.query(
-    `
-      SELECT DISTINCT a.referencia_id
-      FROM aprobaciones a
-      WHERE upper(trim(a.tipo)) = $1
-        AND a.rol_aprobador = $2
-        AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
-             OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
-        AND NOT EXISTS (
-          SELECT 1
-          FROM aprobaciones prev
-          WHERE upper(trim(prev.tipo)) = upper(trim(a.tipo))
-            AND prev.referencia_id = a.referencia_id
-            AND prev.orden < a.orden
-            AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
-        )
-      ORDER BY a.referencia_id DESC
-    `,
-    [normalizedTipo, role]
-  );
+  let query = `
+    SELECT DISTINCT a.referencia_id
+    FROM aprobaciones a
+    WHERE upper(trim(a.tipo)) = $1
+      AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
+           OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM aprobaciones prev
+        WHERE upper(trim(prev.tipo)) = upper(trim(a.tipo))
+          AND prev.referencia_id = a.referencia_id
+          AND prev.orden < a.orden
+          AND upper(trim(COALESCE(prev.estado, 'PENDIENTE'))) <> 'APROBADO'
+      )
+  `;
+  const params = [normalizedTipo];
+  let paramIndex = 2;
+
+  if (actor > 0) {
+    query += ` AND a.usuario_id = $${paramIndex}`;
+    params.push(actor);
+    paramIndex += 1;
+  } else if (role > 0) {
+    query += ` AND a.rol_aprobador = $${paramIndex}`;
+    params.push(role);
+    paramIndex += 1;
+  }
+
+  query += ` ORDER BY a.referencia_id DESC`;
+
+  const result = await client.query(query, params);
 
   return result.rows
     .map((row) => Number(row.referencia_id || 0))
@@ -1624,6 +1618,8 @@ const createApprovalRowsForEntity = async (client, {
   referenciaId,
   dentroPlan = false,
   creatorRoleId = 0,
+  creatorUserId = 0,
+  creatorAreaId = 0,
 }) => {
   const tableExists = await hasAprobacionesTable(client);
   if (!tableExists) {
@@ -1632,63 +1628,102 @@ const createApprovalRowsForEntity = async (client, {
 
   const normalizedTipo = normalizeApprovalTipo(tipo);
   const reference = Number(referenciaId || 0);
-  const roleChain = getApprovalChainForEntity({ tipo: normalizedTipo, dentroPlan, creatorRoleId });
+  const gerentesRoleId = Number((await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1")).rows[0]?.id || 1);
 
   if (!reference) {
     throw new Error('referencia_id invalido para crear aprobaciones');
   }
 
-  if (roleChain.length === 0) {
-    if (normalizedTipo === 'COMPRA' && Number(creatorRoleId || 0) > 0 && APPROVAL_CHAIN_COMPRA.includes(Number(creatorRoleId || 0))) {
+  await client.query('DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2', [normalizedTipo, reference]);
+
+  if (normalizedTipo === 'COMPRA') {
+    const requesterAreaId = Number(creatorAreaId || 0);
+    if (!requesterAreaId) {
+      throw new Error('No se pudo determinar el area del solicitante para la aprobacion');
+    }
+
+    const gerenteId = await findGerenteByArea(client, requesterAreaId);
+
+    if (!gerenteId) {
+      throw new Error('No se encontro un gerente de area para aprobar esta compra');
+    }
+
+    if (Number(creatorUserId || 0) === gerenteId) {
       return { usesApprovalTable: true, autoApproved: true };
     }
 
-    throw new Error(`No se pudo resolver la cadena de aprobaciones para tipo ${normalizedTipo}`);
-  }
-
-  await client.query('DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2', [normalizedTipo, reference]);
-
-  for (let idx = 0; idx < roleChain.length; idx += 1) {
-    const roleId = roleChain[idx];
-    const pendingState = generatePendingStateByRoleId(roleId);
+    const pendingState = `PENDIENTE_USUARIO_${gerenteId}`;
     await client.query(
-      `
-        INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, estado)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [normalizedTipo, reference, idx + 1, roleId, pendingState]
+      `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+       VALUES ($1, $2, 1, $3, $4, $5)`,
+      [normalizedTipo, reference, gerentesRoleId, gerenteId, pendingState]
     );
+
+    return { usesApprovalTable: true, autoApproved: false };
   }
 
-  return { usesApprovalTable: true, autoApproved: false };
+  if (normalizedTipo === 'SERVICIO') {
+    const finanzasAreaId = await findAreaByNamePattern(client, 'ADMINISTRACION Y FINANZAS');
+    if (!finanzasAreaId) {
+      throw new Error('No se encontro el area de Administracion y Finanzas');
+    }
+
+    const gerenteFinanzasId = await findGerenteByArea(client, finanzasAreaId);
+    if (!gerenteFinanzasId) {
+      throw new Error('No se encontro un gerente en el area de Administracion y Finanzas');
+    }
+
+    const pendingStateFinanzas = `PENDIENTE_USUARIO_${gerenteFinanzasId}`;
+    await client.query(
+      `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+       VALUES ($1, $2, 1, $3, $4, $5)`,
+      [normalizedTipo, reference, gerentesRoleId, gerenteFinanzasId, pendingStateFinanzas]
+    );
+
+    if (!dentroPlan) {
+      const gerenciaAreaId = await findAreaByNamePattern(client, 'GERENCIA GENERAL');
+      if (gerenciaAreaId) {
+        const gerenteGerenciaId = await findGerenteByArea(client, gerenciaAreaId);
+        if (gerenteGerenciaId) {
+          const pendingStateGerencia = `PENDIENTE_USUARIO_${gerenteGerenciaId}`;
+          await client.query(
+            `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+             VALUES ($1, $2, 2, $3, $4, $5)`,
+            [normalizedTipo, reference, gerentesRoleId, gerenteGerenciaId, pendingStateGerencia]
+          );
+        }
+      }
+    }
+
+    return { usesApprovalTable: true, autoApproved: false };
+  }
+
+  throw new Error(`Tipo de entidad no soportado para aprobaciones: ${normalizedTipo}`);
 };
 
 const rebuildServiceApprovalChain = async (client, referenciaId, dentroPlan = false, creatorRoleId = 0) => {
   const normalizedTipo = 'SERVICIO';
   const currentOrder = 1;
-  const roleChain = getApprovalChainForEntity({ tipo: normalizedTipo, dentroPlan, creatorRoleId });
-  if (!Array.isArray(roleChain) || roleChain.length <= currentOrder) {
-    await client.query(
-      `DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2 AND orden > $3`,
-      [normalizedTipo, Number(referenciaId), currentOrder]
-    );
-    return;
-  }
+  const gerentesRoleId = Number((await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1")).rows[0]?.id || 1);
 
   await client.query(
     `DELETE FROM aprobaciones WHERE upper(trim(tipo)) = $1 AND referencia_id = $2 AND orden > $3`,
     [normalizedTipo, Number(referenciaId), currentOrder]
   );
 
-  const pendingRoles = roleChain.slice(currentOrder);
-  for (let idx = 0; idx < pendingRoles.length; idx += 1) {
-    const roleId = pendingRoles[idx];
-    const pendingState = generatePendingStateByRoleId(roleId);
-    await client.query(
-      `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, estado)
-        VALUES ($1, $2, $3, $4, $5)`,
-      [normalizedTipo, Number(referenciaId), currentOrder + idx + 1, roleId, pendingState]
-    );
+  if (!dentroPlan) {
+    const gerenciaAreaId = await findAreaByNamePattern(client, 'GERENCIA GENERAL');
+    if (gerenciaAreaId) {
+      const gerenteGerenciaId = await findGerenteByArea(client, gerenciaAreaId);
+      if (gerenteGerenciaId) {
+        const pendingStateGerencia = `PENDIENTE_USUARIO_${gerenteGerenciaId}`;
+        await client.query(
+          `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [normalizedTipo, Number(referenciaId), currentOrder + 1, gerentesRoleId, gerenteGerenciaId, pendingStateGerencia]
+        );
+      }
+    }
   }
 };
 
@@ -4875,10 +4910,9 @@ const ROLE_PERMISSION_NAMES_BY_ID = new Map([
     'VER_DASHBOARD', 'VER_INVENTARIO', 'CREAR_REQUERIMIENTO',
     'CREAR_SOLICITUD_COMPRA', 'CREAR_SOLICITUD_SERVICIO',
   ]],
-  [5, [ // SERVICIOS GENERALES
-    'VER_DASHBOARD', 'VER_INVENTARIO', 'CREAR_SOLICITUD_SERVICIO',
-    'GESTIONAR_ENTREGAS', 'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
-    'CAMBIAR_ESTADO_SERVICIO',
+  [8, [ // SERVICIOS GENERALES
+    'VER_INVENTARIO', 'CREAR_SOLICITUD_SERVICIO',
+    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
   ]],
 ]);
 
@@ -9436,6 +9470,8 @@ app.post('/api/compras', authMiddleware, requirePermissions('CREAR_SOLICITUD_COM
       tipo: 'COMPRA',
       referenciaId: idCompra,
       creatorRoleId: Number(req.user?.id_role || req.user?.rol_id || 0),
+      creatorUserId: Number(req.user?.id || 0),
+      creatorAreaId: Number(req.user?.id_area || 0),
     });
 
     if (approvalSetup.autoApproved) {
@@ -11286,6 +11322,7 @@ app.get('/api/mis-servicios', authMiddleware, async (req, res) => {
       const pendingReferenceIds = await fetchPendingApprovalReferenceIdsByRole(pool, {
         tipo: 'SERVICIO',
         roleId,
+        userId: Number(req.user?.id || 0),
       });
       const referenceIds = [...new Set(pendingReferenceIds)];
 
@@ -11463,16 +11500,54 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
 
 app.get('/api/aprobaciones/config', authMiddleware, async (req, res) => {
   try {
-    // Approval chains are now hardcoded - return them directly
-    const gerentesRole = await pool.query("SELECT id, nombre FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1");
-    const gerentes = gerentesRole.rows[0] || { id: 1, nombre: 'GERENTES' };
+    const gerentesRoleId = Number((await pool.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1")).rows[0]?.id || 1);
+
+    const finanzasAreaId = await (async () => {
+      const result = await pool.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%ADMINISTRACION Y FINANZAS%' LIMIT 1");
+      return Number(result.rows[0]?.id || 0);
+    })();
+
+    const gerenciaAreaId = await (async () => {
+      const result = await pool.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%GERENCIA GENERAL%' LIMIT 1");
+      return Number(result.rows[0]?.id || 0);
+    })();
+
+    const gerenteFinanzas = finanzasAreaId ? await (async () => {
+      const result = await pool.query(
+        `SELECT u.id, u.nombre, u.email FROM usuarios u
+         INNER JOIN roles r ON u.id_role = r.id
+         WHERE u.id_area = $1 AND r.id = $2
+           AND upper(trim(COALESCE(u.sub_area, ''))) = 'GERENTE'
+         LIMIT 1`,
+        [finanzasAreaId, gerentesRoleId]
+      );
+      return result.rows[0] || null;
+    })() : null;
+
+    const gerenteGerencia = gerenciaAreaId ? await (async () => {
+      const result = await pool.query(
+        `SELECT u.id, u.nombre, u.email FROM usuarios u
+         INNER JOIN roles r ON u.id_role = r.id
+         WHERE u.id_area = $1 AND r.id = $2
+           AND upper(trim(COALESCE(u.sub_area, ''))) = 'GERENTE'
+         LIMIT 1`,
+        [gerenciaAreaId, gerentesRoleId]
+      );
+      return result.rows[0] || null;
+    })() : null;
 
     const flujos = {
-      COMPRA: [{ rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre }],
-      SERVICIO_DENTRO_PLAN: [{ rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre }],
+      COMPRA: 'Dinamico por area del solicitante',
+      SERVICIO_DENTRO_PLAN: gerenteFinanzas
+        ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, orden: 1 }]
+        : [],
       SERVICIO_FUERA_PLAN: [
-        { rol_id: gerentes.id, orden: 1, rol_nombre: gerentes.nombre },
-        { rol_id: gerentes.id, orden: 2, rol_nombre: gerentes.nombre },
+        ...(gerenteFinanzas
+          ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, orden: 1 }]
+          : []),
+        ...(gerenteGerencia
+          ? [{ usuario_id: gerenteGerencia.id, nombre: gerenteGerencia.nombre, orden: 2 }]
+          : []),
       ],
     };
 
@@ -11587,6 +11662,8 @@ app.post('/api/servicios', authMiddleware, requirePermissions('CREAR_SOLICITUD_S
       referenciaId: servicioId,
       dentroPlan,
       creatorRoleId,
+      creatorUserId: Number(req.user?.id || 0),
+      creatorAreaId: Number(req.user?.id_area || 0),
     });
 
     if (approvalSetup.autoApproved) {
