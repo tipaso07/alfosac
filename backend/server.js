@@ -4366,6 +4366,36 @@ const ensureComprasColumns = async () => {
   await loadSchemaMeta();
 };
 
+const ensureProveedoresColumns = async () => {
+  const statements = [
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS nombre VARCHAR(200);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS razon_social VARCHAR(200);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS ruc VARCHAR(11);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS direccion VARCHAR(255);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS distrito VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS correo VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS persona_responsable VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS telefono VARCHAR(50);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS condiciones_pago VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS banco VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS numero_cuenta VARCHAR(50);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS cci VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS id_moneda INTEGER;`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS id_area_destino INTEGER;`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS descripcion TEXT;`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS retencion VARCHAR(10);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS categoria VARCHAR(100);`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS descuento NUMERIC(5,2) DEFAULT 0;`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) DEFAULT 'BIEN';`,
+    `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS tipo_retencion VARCHAR(20) DEFAULT 'RETENCION';`,
+  ];
+  for (const sql of statements) {
+    await pool.query(sql);
+  }
+  schemaMeta.loaded = false;
+  await loadSchemaMeta();
+};
+
 const ensureMovimientosColumns = async () => {
   await pool.query(`
     ALTER TABLE movimientos
@@ -13017,6 +13047,7 @@ const startServer = async () => {
   }
 
   await loadSchemaMeta();
+  await ensureProveedoresColumns();
   await ensureCoreApprovalPermissions();
   await loadRoleNamesCache();
   if (String(process.env.RUN_DEMO_SEED || 'false').toLowerCase() === 'true') {
