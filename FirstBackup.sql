@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5qg7rKi5G4tPv3MT8Dv9D9b0rYkpzpaWmzLm40Ci81kTsdHlJQUaq6YTGBrrcwZ
+\restrict V36Nx5FAaVdztMJ9tkj6zUJN4oWZi3PmP4ayrfkKdutFmKa5IM0EH2HqXZTDvxB
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.4
@@ -1030,7 +1030,11 @@ CREATE TABLE public.requerimientos (
     fecha_creacion timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     estado_entrega character varying(50),
     nombre_receptor character varying(120),
-    dni_receptor character varying(20)
+    dni_receptor character varying(20),
+    calificacion integer,
+    calificacion_comentario text,
+    calificacion_usuario integer,
+    calificacion_fecha timestamp without time zone
 );
 
 
@@ -1492,6 +1496,7 @@ COPY public.almacenes (id, nombre, ubicacion, encargado) FROM stdin;
 --
 
 COPY public.aprobaciones (id, tipo, referencia_id, orden, rol_aprobador, estado, usuario_id, fecha, created_at) FROM stdin;
+62	COMPRA	15	1	1	PENDIENTE_USUARIO_6	6	\N	2026-07-22 12:40:12.972809
 \.
 
 
@@ -1500,12 +1505,12 @@ COPY public.aprobaciones (id, tipo, referencia_id, orden, rol_aprobador, estado,
 --
 
 COPY public.areas (id, nombre, descripcion) FROM stdin;
-1	ADMINISTRACIÓN	Área administrativa
-2	OPERACIONES	Área de operaciones
-3	VENTAS	Área de ventas
-4	ALMACÉN	Área de almacén
-10	GERENCIA GENERAL	Gerencia General
-11	FINANZAS	Área de Finanzas
+1	GERENCIA GENERAL	Gerencia General de la empresa
+2	AREA DE OPERACIONES	Área de Operaciones
+3	AREA DE ADMINISTRACIÓN Y FINANZAS	Área de Administración y Finanzas
+4	AREA COMERCIAL	Área Comercial
+5	AREA DE CAPITAL HUMANO	Área de Capital Humano
+6	ALMACEN	Almacén de la empresa
 \.
 
 
@@ -1552,6 +1557,7 @@ COPY public.comentarios (id, id_usuario, tipo_entidad, id_entidad, contenido, fe
 --
 
 COPY public.compras (id, numero_compra, id_usuario, id_area_solicitante, id_area_final, id_usuario_solicita, id_usuario_aprueba, id_proveedor, id_area, fecha_solicitud, fecha_aprobacion, fecha_creacion, fecha_actualizacion, estado, proveedor, ruc, direccion, distrito, correo, persona_responsable, telefono, contacto_proveedor, banco, numero_cuenta, cuenta, cci, retencion, descuento, aplica_retencion, tipo, tipo_retencion, importe_final, condiciones_pago, monto_total, subtotal, costo_envio, otros_costos, igv, total, moneda, id_moneda, numero_orden, comentarios, created_at, updated_at, estado_pedido, detalle, tipo_cambio, id_unidad) FROM stdin;
+15	\N	7	2	\N	\N	\N	\N	\N	\N	\N	2026-07-22 12:40:12.972809	2026-07-22 12:40:12.972809	PENDIENTE	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	f	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	[[ITEM_CATEGORIAS:eyJhZXJlbyBtYXRlcmlhbCI6IkxJTVBJRVpBIn0=]]	2026-07-22 12:40:12.972809	2026-07-22 12:40:12.972809	PENDIENTE	\N	\N	2
 \.
 
 
@@ -1568,6 +1574,7 @@ COPY public.compras_directas (id, id_usuario, id_area, proveedor_texto, tipo_pag
 --
 
 COPY public.detalle_compras (id, id_compra, id_material, descripcion, cantidad, precio_unitario, total, categoria, id_unidad) FROM stdin;
+114	15	\N	aereo material	11	0	0	LIMPIEZA	2
 \.
 
 
@@ -1658,6 +1665,8 @@ COPY public.notificaciones (id, id_usuario, mensaje, leido, fecha) FROM stdin;
 --
 
 COPY public.proveedores (id, nombre, razon_social, contacto, direccion, distrito, ruc, email, correo, persona_responsable, telefono, condiciones_pago, banco, numero_cuenta, cci, id_moneda, id_area_destino, descripcion, retencion, categoria, descuento, tipo, tipo_retencion, estado, fecha_creacion, created_at, updated_at, moneda_nombre) FROM stdin;
+3	a	a S.A.C.	\N	Av. Petit Thouars 1545	Lince	20655343321	\N	ventas@comercialandina.pe	Andrea Paredes	987654123	15 días	BBVA	1245678912345670	1100124567891230000	1	\N	Suministro de materiales de oficina	SI	Suministros	8.00	BIEN	DETRACCION	t	2026-07-22 12:03:53.988661	2026-07-22 12:03:53.988661	2026-07-22 12:03:53.988661	\N
+4	b	b S.R.L.	\N	Av. El Derby 850	Surco	20544132211	\N	contacto@ingglobal.pe	Fernando Chávez	945678912	60 días	Interbank	2009876543210	320098765432109000	2	6	Servicios de ingeniería y supervisión técnica	NO	Ingeniería	5.00	BIEN	RETENCION	t	2026-07-22 12:03:53.988661	2026-07-22 12:03:53.988661	2026-07-22 12:03:53.988661	\N
 \.
 
 
@@ -1673,7 +1682,7 @@ COPY public.requerimiento_productos (id, id_requerimiento, id_material, cantidad
 -- Data for Name: requerimientos; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-COPY public.requerimientos (id, estado, prioridad, descripcion, id_usuario, fecha_creacion, estado_entrega, nombre_receptor, dni_receptor) FROM stdin;
+COPY public.requerimientos (id, estado, prioridad, descripcion, id_usuario, fecha_creacion, estado_entrega, nombre_receptor, dni_receptor, calificacion, calificacion_comentario, calificacion_usuario, calificacion_fecha) FROM stdin;
 \.
 
 
@@ -1758,14 +1767,30 @@ COPY public.unidades (id, nombre) FROM stdin;
 --
 
 COPY public.usuarios (id, email, password_hash, nombre, dni, foto, imagen, id_role, id_area, estado, created_at, updated_at, telefono, sub_area) FROM stdin;
-2	compras@alfosac.pe	admin	compras	00000002	\N	\N	2	4	ACTIVO	2026-05-13 00:08:35.818594	2026-05-13 00:08:35.818594		
-3	almacenero@alfosac.pe	admin	almacenero	00000003	\N	\N	3	2	ACTIVO	2026-05-13 00:12:27.763847	2026-05-13 00:12:27.763847		
-4	solicitante@alfosac.pe	admin	solicitante	00000004	\N	\N	4	3	ACTIVO	2026-05-13 00:12:48.866684	2026-05-13 00:12:48.866684		
-8	servicios@alfosac.pe	admin	SERVICIOS	00000008	\N	\N	8	1	ACTIVO	2026-05-13 23:45:32.097833	2026-05-13 23:45:32.097833		
-5	jefe@alfosac.pe	admin	Jefe De Area	00000005	\N	\N	1	1	ACTIVO	2026-05-13 00:14:18.162503	2026-05-13 00:14:18.162503		ADMINISTRACIÓN
-6	gerencia@alfosac.pe	admin	gerencia	00000006	\N	\N	1	10	ACTIVO	2026-05-13 00:15:46.646235	2026-05-13 00:15:46.646235		GERENCIA GENERAL
-7	finanzas@alfosac.pe	admin	finanzas	00000007	\N	\N	1	11	ACTIVO	2026-05-13 00:16:04.726214	2026-05-13 00:16:04.726214		FINANZAS
-1	admin@alfosac.pe	admin	admin	00000001	\N	\N	1	10	ACTIVO	2026-05-13 00:02:26.995437	2026-05-13 00:02:26.995437		GERENCIA GENERAL
+1	gerente.gerencia@alfosac.pe	admin	Gerente Gerencia General	00000001	\N	\N	1	1	ACTIVO	2026-07-22 04:33:51.955111	2026-07-22 04:33:51.955111		GERENTE
+2	planeamiento@alfosac.pe	admin	Planeamiento	00000002	\N	\N	4	1	ACTIVO	2026-07-22 04:33:51.955111	2026-07-22 04:33:51.955111		Planeamiento
+3	seguimiento@alfosac.pe	admin	Seguimiento	00000003	\N	\N	4	1	ACTIVO	2026-07-22 04:33:51.955111	2026-07-22 04:33:51.955111		Seguimiento
+4	marketing@alfosac.pe	admin	Marketing	00000004	\N	\N	4	1	ACTIVO	2026-07-22 04:33:51.955111	2026-07-22 04:33:51.955111		Marketing
+5	sistema@alfosac.pe	admin	Sistema	00000005	\N	\N	4	1	ACTIVO	2026-07-22 04:33:51.955111	2026-07-22 04:33:51.955111		Sistema
+6	gerente.operaciones@alfosac.pe	admin	Gerente Operaciones	00000006	\N	\N	1	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		GERENTE
+7	aereo@alfosac.pe	admin	Aereo	00000007	\N	\N	4	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		Aereo
+8	fcl@alfosac.pe	admin	FCL	00000008	\N	\N	4	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		FCL
+9	lcl@alfosac.pe	admin	LCL	00000009	\N	\N	4	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		LCL
+10	transp@alfosac.pe	admin	Transporte	00000010	\N	\N	4	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		Transp.
+11	manif@alfosac.pe	admin	Manifiesto	00000011	\N	\N	4	2	ACTIVO	2026-07-22 04:33:56.480066	2026-07-22 04:33:56.480066		Manif.
+12	gerente.admin.finanzas@alfosac.pe	admin	Gerente Admin Finanzas	00000012	\N	\N	1	3	ACTIVO	2026-07-22 04:34:01.148079	2026-07-22 04:34:01.148079		GERENTE
+14	finco@alfosac.pe	admin	Finco	00000014	\N	\N	4	3	ACTIVO	2026-07-22 04:34:01.148079	2026-07-22 04:34:01.148079		Finco
+15	compras@alfosac.pe	admin	Compras	00000015	\N	\N	2	3	ACTIVO	2026-07-22 04:34:01.148079	2026-07-22 04:34:01.148079		Compras
+16	gerente.comercial@alfosac.pe	admin	Gerente Comercial	00000016	\N	\N	1	4	ACTIVO	2026-07-22 04:34:05.739318	2026-07-22 04:34:05.739318		GERENTE
+17	ventas@alfosac.pe	admin	Ventas	00000017	\N	\N	4	4	ACTIVO	2026-07-22 04:34:05.739318	2026-07-22 04:34:05.739318		Ventas
+18	atc@alfosac.pe	admin	ATC	00000018	\N	\N	4	4	ACTIVO	2026-07-22 04:34:05.739318	2026-07-22 04:34:05.739318		ATC
+19	fact@alfosac.pe	admin	Facturación	00000019	\N	\N	4	4	ACTIVO	2026-07-22 04:34:05.739318	2026-07-22 04:34:05.739318		Fact.
+20	gerente.capital.humano@alfosac.pe	admin	Gerente Capital Humano	00000020	\N	\N	1	5	ACTIVO	2026-07-22 04:34:12.281047	2026-07-22 04:34:12.281047		GERENTE
+21	topico@alfosac.pe	admin	Tópico	00000021	\N	\N	4	5	ACTIVO	2026-07-22 04:34:12.281047	2026-07-22 04:34:12.281047		Tópico
+22	bp@alfosac.pe	admin	BP	00000022	\N	\N	4	5	ACTIVO	2026-07-22 04:34:12.281047	2026-07-22 04:34:12.281047		BP
+23	ssoma@alfosac.pe	admin	SSOMA	00000023	\N	\N	4	5	ACTIVO	2026-07-22 04:34:12.281047	2026-07-22 04:34:12.281047		SSOMA
+24	almacenero@alfosac.pe	admin	Almacenero	00000024	\N	\N	3	6	ACTIVO	2026-07-22 04:34:17.248725	2026-07-22 04:34:17.248725		Almacen
+13	ssgg@alfosac.pe	admin	Servicios Generales	00000013	\N	\N	8	3	ACTIVO	2026-07-22 04:34:01.148079	2026-07-22 04:34:01.148079		SSGG
 \.
 
 
@@ -1780,14 +1805,14 @@ SELECT pg_catalog.setval('public.almacenes_id_seq', 1, true);
 -- Name: aprobaciones_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.aprobaciones_id_seq', 61, true);
+SELECT pg_catalog.setval('public.aprobaciones_id_seq', 62, true);
 
 
 --
 -- Name: areas_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.areas_id_seq', 11, true);
+SELECT pg_catalog.setval('public.areas_id_seq', 1, false);
 
 
 --
@@ -1822,7 +1847,7 @@ SELECT pg_catalog.setval('public.compras_directas_id_seq', 1, false);
 -- Name: compras_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.compras_id_seq', 14, true);
+SELECT pg_catalog.setval('public.compras_id_seq', 15, true);
 
 
 --
@@ -1836,7 +1861,7 @@ SELECT pg_catalog.setval('public.detalle_compras_directas_id_seq', 1, false);
 -- Name: detalle_compras_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.detalle_compras_id_seq', 113, true);
+SELECT pg_catalog.setval('public.detalle_compras_id_seq', 114, true);
 
 
 --
@@ -1906,7 +1931,7 @@ SELECT pg_catalog.setval('public.notificaciones_id_seq', 1, false);
 -- Name: proveedores_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.proveedores_id_seq', 2, true);
+SELECT pg_catalog.setval('public.proveedores_id_seq', 4, true);
 
 
 --
@@ -1962,7 +1987,7 @@ SELECT pg_catalog.setval('public.unidades_id_seq', 7, true);
 -- Name: usuarios_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.usuarios_id_seq', 11, true);
+SELECT pg_catalog.setval('public.usuarios_id_seq', 25, true);
 
 
 --
@@ -2620,6 +2645,14 @@ ALTER TABLE ONLY public.requerimiento_productos
 
 
 --
+-- Name: requerimientos requerimientos_calificacion_usuario_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.requerimientos
+    ADD CONSTRAINT requerimientos_calificacion_usuario_fkey FOREIGN KEY (calificacion_usuario) REFERENCES public.usuarios(id);
+
+
+--
 -- Name: servicios servicios_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2679,5 +2712,5 @@ ALTER TABLE ONLY public.usuarios
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5qg7rKi5G4tPv3MT8Dv9D9b0rYkpzpaWmzLm40Ci81kTsdHlJQUaq6YTGBrrcwZ
+\unrestrict V36Nx5FAaVdztMJ9tkj6zUJN4oWZi3PmP4ayrfkKdutFmKa5IM0EH2HqXZTDvxB
 
