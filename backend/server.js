@@ -4812,30 +4812,31 @@ const BASE_PERMISSION_NAMES = [
 const ROLE_PERMISSION_NAMES_BY_ID = new Map([
   [1, [ // GERENTES
     'VER_DASHBOARD', 'VER_INVENTARIO', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL',
-    'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA', 'CREAR_SOLICITUD_SERVICIO',
+    'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
     'GESTIONAR_SOLICITUDES', 'GESTIONAR_COMPRAS', 'GESTIONAR_ENTREGAS',
-    'GESTIONAR_PROVEEDORES', 'GESTIONAR_ROLES', 'GESTIONAR_CUENTAS',
-    'VER_MOVIMIENTOS', 'VER_AJUSTES', 'VER_NOTIFICACIONES_PROVEEDOR',
-    'VER_HISTORIAL_SERVICIOS', 'VER_HISTORIAL_COMPRAS_DIRECTAS', 'CREAR_COMPRA_DIRECTA',
-    'COMPLETAR_REQUERIMIENTO', 'CAMBIAR_ESTADO_SERVICIO',
-    'APROBAR_REQUERIMIENTO', 'GESTIONAR_ORDENES_COMPRA',
+    'GESTIONAR_PROVEEDORES', 'VER_MOVIMIENTOS', 'VER_AJUSTES',
+    'VER_HISTORIAL_COMPRAS_DIRECTAS', 'APROBAR_REQUERIMIENTO',
+    'GESTIONAR_ORDENES_COMPRA', 'CAMBIAR_ESTADO_SERVICIO',
   ]],
   [2, [ // COMPRAS
-    'VER_DASHBOARD', 'VER_INVENTARIO', 'GESTIONAR_COMPRAS', 'GESTIONAR_PROVEEDORES',
-    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS', 'VER_NOTIFICACIONES_PROVEEDOR',
+    'VER_DASHBOARD', 'VER_INVENTARIO', 'EDITAR_INVENTARIO', 'AGREGAR_INVENTARIO_MANUAL',
+    'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
+    'GESTIONAR_COMPRAS', 'GESTIONAR_PROVEEDORES', 'GESTIONAR_CUENTAS',
+    'VER_MOVIMIENTOS', 'VER_AJUSTES', 'VER_NOTIFICACIONES_PROVEEDOR',
     'VER_HISTORIAL_COMPRAS_DIRECTAS', 'CREAR_COMPRA_DIRECTA', 'GESTIONAR_ORDENES_COMPRA',
   ]],
   [3, [ // ALMACENERO
-    'VER_DASHBOARD', 'VER_INVENTARIO', 'GESTIONAR_ENTREGAS',
-    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
+    'VER_INVENTARIO', 'GESTIONAR_ENTREGAS',
+    'VER_MOVIMIENTOS', 'VER_AJUSTES',
   ]],
   [4, [ // SOLICITANTES
-    'VER_DASHBOARD', 'VER_INVENTARIO', 'CREAR_REQUERIMIENTO',
-    'CREAR_SOLICITUD_COMPRA', 'CREAR_SOLICITUD_SERVICIO',
+    'VER_INVENTARIO', 'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
+    'VER_MOVIMIENTOS', 'VER_AJUSTES', 'VER_HISTORIAL_SERVICIOS',
+    'CAMBIAR_ESTADO_SERVICIO',
   ]],
   [8, [ // SERVICIOS GENERALES
-    'VER_INVENTARIO', 'CREAR_SOLICITUD_SERVICIO',
-    'VER_MOVIMIENTOS', 'VER_HISTORIAL_SERVICIOS',
+    'VER_INVENTARIO', 'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
+    'CREAR_SOLICITUD_SERVICIO', 'VER_MOVIMIENTOS', 'VER_AJUSTES',
   ]],
 ]);
 
@@ -5358,7 +5359,7 @@ app.post('/api/roles', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
+app.get('/api/usuarios', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const userRoleExpr = getUserRoleIdExpr('usuarios');
     const userEmailExpr = getUserEmailExpr('usuarios');
@@ -5388,7 +5389,7 @@ app.get('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
+app.post('/api/usuarios', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const { nombre, email, dni, id_role, id_area, estado, password, foto } = req.body;
     const userRoleColumn = getUserRoleIdColumn();
@@ -5466,7 +5467,7 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
+app.put('/api/usuarios/:id', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, email, dni, id_role, id_area, estado, foto } = req.body;
@@ -5587,7 +5588,7 @@ app.put('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/usuarios/:id/password', authMiddleware, requireAdmin, async (req, res) => {
+app.put('/api/usuarios/:id/password', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const { id } = req.params;
     const { password } = req.body;
@@ -5676,7 +5677,7 @@ app.put('/api/me/cambiar-contrasena', authMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/usuarios/:id', authMiddleware, requireAdmin, async (req, res) => {
+app.delete('/api/usuarios/:id', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -6717,7 +6718,7 @@ app.get('/api/areas', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/areas', authMiddleware, requireAdmin, async (req, res) => {
+app.post('/api/areas', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
   try {
     const { nombre, descripcion } = req.body;
     
@@ -8537,7 +8538,7 @@ app.post('/api/requerimientos/:id/calificacion', authMiddleware, async (req, res
   }
 });
 
-app.post('/api/movimientos', authMiddleware, requireAdmin, async (req, res) => {
+app.post('/api/movimientos', authMiddleware, requireRoles('GERENTES', 'ALMACENERO'), async (req, res) => {
   const client = await pool.connect();
 
   try {

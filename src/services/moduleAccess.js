@@ -94,7 +94,7 @@ export const MODULE_ID_BY_PATH = {
 
 const MODULES_BY_ROLE = {
   [ROLE_IDS.GERENTES]: [
-    12, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 17, 18,
+    12, 1, 2, 3, 5, 6, 7, 8, 10, 11, 13, 18,
   ],
   [ROLE_IDS.SOLICITANTES]: [
     1, 2, 3, 8, 11, 13,
@@ -106,7 +106,7 @@ const MODULES_BY_ROLE = {
     12, 1, 2, 3, 6, 8, 10, 11, 14, 17,
   ],
   [ROLE_IDS.SERVICIOS_GENERALES]: [
-    1, 4, 8, 11,
+    1, 2, 3, 4, 8, 11,
   ],
 }
 

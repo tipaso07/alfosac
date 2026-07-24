@@ -20,7 +20,7 @@ FROM nginx:1.27-alpine
 
 # Add health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost/index.html || exit 1
+  CMD nginx -t 2>/dev/null && test -f /usr/share/nginx/html/index.html || exit 1
 
 # Copy nginx config and build artifacts
 COPY nginx.conf /etc/nginx/conf.d/default.conf
