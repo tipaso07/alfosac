@@ -213,7 +213,7 @@ const isValidPhotoValue = (value) => isValidUrlValue(value) || isValidBase64Imag
 
 const canManageRequirementsRole = (role) => hasAnyRole(role, ['GERENTES', 'COMPRAS', 'SOLICITANTES']);
 const canManagePurchasesRole = (role) => hasAnyRole(role, ['GERENTES', 'COMPRAS']);
-const canManageDeliveryRole = (role) => hasAnyRole(role, ['GERENTES', 'ALMACENERO']);
+const canManageDeliveryRole = (role) => hasAnyRole(role, ['ALMACENERO']);
 
 // Approval chains are hardcoded - role 1 = GERENTES approves all
 const APPROVAL_ROLES_BY_LEVEL = [1];
@@ -12255,7 +12255,7 @@ app.get('/api/compras/:id/pdf', authMiddleware, async (req, res) => {
 
     const compra = compras[0];
 
-    const canOperateCompra = isComprasOperatorUser(req.user) || canManageDeliveryRole(req.user?.rol);
+    const canOperateCompra = isComprasOperatorUser(req.user) || canManageDeliveryRole(req.user?.rol) || canManagePurchasesRole(req.user?.rol);
     const isOwner = Number(compra.id_usuario) === Number(req.user.id);
 
     if (!isOwner && !canOperateCompra) {
