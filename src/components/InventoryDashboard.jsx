@@ -11,7 +11,6 @@ import GestionarComprasView from './GestionarComprasView'
 import GestionarServiciosView from './GestionarServiciosView'
 import GestionarProveedoresView from './GestionarProveedoresView'
 import DeliveryManager from './DeliveryManager'
-import RequerimientosManager from './RequerimientosManager'
 import MisOrdenesCompraView from './MisOrdenesCompraView'
 import MisOrdenesServiciosView from './MisOrdenesServiciosView'
 import MovimientosView from './MovimientosView'
@@ -51,7 +50,6 @@ import {
   confirmarRecepcionCompra,
   confirmarEntregaAreaCompra,
   marcarRecibidoEnAlmacen,
-  updateRequerimientoEstado,
   updateRequerimientoEntrega,
   fetchCurrentUser,
   fetchCategorias,
@@ -405,21 +403,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       }
       console.error('Error actualizando estado de compra:', err)
       setError(err.message || 'Error al actualizar estado de compra')
-      throw err
-    }
-  }
-
-  const handleRequerimientoStatus = async (id, estado) => {
-    try {
-      await updateRequerimientoEstado(id, estado)
-      await loadData()
-    } catch (err) {
-      if (isUnauthorizedError(err)) {
-        if (onAuthExpired) onAuthExpired()
-        return
-      }
-      console.error('Error actualizando estado de requerimiento:', err)
-      setError(err.message || 'Error al actualizar estado de requerimiento')
       throw err
     }
   }
@@ -911,11 +894,6 @@ useEffect(() => {
                     Servicios
                   </button>
                 )}
-                {canManageServiceApprovals && (
-                  <button type="button" className={activeRequestsView === 'requerimientos' ? 'active' : ''} onClick={() => setActiveRequestsView('requerimientos')}>
-                    Requerimientos
-                  </button>
-                )}
               </div>
               {activeRequestsView === 'compras' && (
                 <GestionarComprasView
@@ -937,12 +915,6 @@ useEffect(() => {
                   onChangeAprobacion={handleServicioAprobacion}
                 />
               )}
-              {canManageServiceApprovals && activeRequestsView === 'requerimientos' && (
-                <RequerimientosManager
-                  requerimientos={requerimientos}
-                  onChangeEstado={handleRequerimientoStatus}
-                />
-              )}
             </div>
           )}
           {activeTab === 'my-purchase-orders' && allowedTabs.includes('my-purchase-orders') && (
@@ -958,7 +930,7 @@ useEffect(() => {
 
               {activeOrdersView === 'compras' && (
                 <MisOrdenesCompraView
-                  compras={misCompras}
+                  compras={compras}
                   currentUserRoleId={currentUserRoleId}
                   currentUserPermissions={currentUserPermissions}
                   unidades={unidades}
@@ -973,7 +945,7 @@ useEffect(() => {
 
               {activeOrdersView === 'servicios' && (
                 <MisOrdenesServiciosView
-                  servicios={misServicios}
+                  servicios={servicios}
                   proveedores={proveedores}
                   monedas={monedas}
                   currentUserRoleId={currentUserRoleId}
