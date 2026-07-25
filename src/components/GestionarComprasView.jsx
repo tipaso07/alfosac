@@ -203,7 +203,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }, [baseFilteredCompras, currentUserAreaId, currentUserRoleId])
 
   const config = {
-    PENDIENTE: { label: 'Pendientes', data: pending, actions: true },
+    PENDIENTE: { label: 'Pendientes', data: pending, actions: Number(currentUserRoleId || 0) !== 4 },
     APROBADA: { label: 'Aprobadas', data: approved, actions: false },
     RECHAZADA: { label: 'Rechazadas', data: rejected, actions: false },
   }
