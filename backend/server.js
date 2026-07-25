@@ -637,8 +637,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
     }
 
     const currentUserId = Number(usuario?.id || 0);
-    const pendingApproval = await client.query(
-      `
+    const PENDING_APPROVAL_QUERY = `
         SELECT id, orden, rol_aprobador, usuario_id, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado
         FROM aprobaciones
         WHERE upper(trim(tipo)) = $1
@@ -648,9 +647,35 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         ORDER BY orden ASC
         LIMIT 1
         FOR UPDATE
-      `,
-      [normalizedTipo, referenceId]
-    );
+      `;
+    let pendingApproval = await client.query(PENDING_APPROVAL_QUERY, [normalizedTipo, referenceId]);
+
+    if (pendingApproval.rows.length === 0 && normalizedTipo === 'REQUERIMIENTO') {
+      const creatorRes = await client.query('SELECT id_usuario, id_area FROM requerimientos r JOIN usuarios u ON u.id = r.id_usuario WHERE r.id = $1', [referenceId]);
+      if (creatorRes.rows.length > 0) {
+        const creatorUserId = Number(creatorRes.rows[0].id_usuario || 0);
+        const creatorAreaId = Number(creatorRes.rows[0].id_area || 0);
+        if (creatorUserId && creatorAreaId) {
+          const gerenteId = await findGerenteByArea(client, creatorAreaId);
+          if (gerenteId && gerenteId !== creatorUserId) {
+            const gerentesRoleId = Number((await client.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1")).rows[0]?.id || 1);
+            await client.query(
+              `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+               VALUES ($1, $2, 1, $3, $4, $5)
+               ON CONFLICT (tipo, referencia_id, orden) DO UPDATE SET usuario_id = $4, estado = $5`,
+              [normalizedTipo, referenceId, gerentesRoleId, gerenteId, `PENDIENTE_USUARIO_${gerenteId}`]
+            );
+            pendingApproval = await client.query(PENDING_APPROVAL_QUERY, [normalizedTipo, referenceId]);
+          } else if (gerenteId && gerenteId === creatorUserId) {
+            await client.query(
+              `UPDATE requerimientos SET estado = 'APROBADO', estado_entrega = 'POR_RECOGER' WHERE id = $1 AND upper(trim(estado)) = 'PENDIENTE'`,
+              [referenceId]
+            );
+            return { estado: 'APROBADO', message: 'Requerimiento auto-aprobado (creador es gerente)' };
+          }
+        }
+      }
+    }
 
     if (pendingApproval.rows.length === 0) {
       throw new Error('No existe una aprobacion pendiente para esta etapa');
