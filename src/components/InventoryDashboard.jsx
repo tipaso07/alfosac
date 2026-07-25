@@ -145,13 +145,6 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       ? currentUserProfile.permisos
       : []
   }, [currentUserProfile])
-  const allowedModules = useMemo(() => {
-    return buildAllowedModules(currentUserRoleId, currentUserPermissions)
-  }, [currentUserPermissions, currentUserRoleId])
-  const visibleModules = useMemo(() => {
-    return modules.filter((mod) => allowedModules.includes(mod.id))
-  }, [allowedModules])
-  const allowedTabs = useMemo(() => buildAllowedTabs(currentUserRoleId, currentUserPermissions), [currentUserPermissions, currentUserRoleId])
   const canReturnHomeFromError = useMemo(() => String(error || '').toLowerCase().includes('no autorizado'), [error])
   const canEditMaterials = hasPermission(currentUserPermissions, 'EDITAR_INVENTARIO')
   const canAddManualInventory = hasPermission(currentUserPermissions, 'AGREGAR_INVENTARIO_MANUAL')
@@ -166,6 +159,31 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     }
     return false
   }, [currentUserRoleId, currentUserArea])
+  const canSeeDashboard = useMemo(() => {
+    if (currentUserRoleId === 2) return true
+    if (currentUserRoleId === 1) {
+      const areaUpper = String(currentUserArea || '').toUpperCase()
+      return areaUpper.includes('GERENCIA') && areaUpper.includes('GENERAL')
+    }
+    return false
+  }, [currentUserRoleId, currentUserArea])
+  const allowedModules = useMemo(() => {
+    return buildAllowedModules(currentUserRoleId, currentUserPermissions)
+  }, [currentUserPermissions, currentUserRoleId])
+  const visibleModules = useMemo(() => {
+    const mods = modules.filter((mod) => allowedModules.includes(mod.id))
+    if (canSeeDashboard && !mods.find((m) => m.id === 12)) {
+      mods.unshift(modules.find((m) => m.id === 12))
+    }
+    return mods
+  }, [allowedModules, canSeeDashboard])
+  const allowedTabs = useMemo(() => {
+    const tabs = buildAllowedTabs(currentUserRoleId, currentUserPermissions)
+    if (canSeeDashboard && !tabs.includes('admin-dashboard')) {
+      tabs.push('admin-dashboard')
+    }
+    return tabs
+  }, [currentUserPermissions, currentUserRoleId, canSeeDashboard])
 
   const loadOptionalData = useCallback(async (loader, fallbackValue) => {
     try {
