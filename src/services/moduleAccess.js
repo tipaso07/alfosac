@@ -97,7 +97,7 @@ const MODULES_BY_ROLE = {
     12, 1, 2, 3, 5, 8, 11, 18,
   ],
   [ROLE_IDS.SOLICITANTES]: [
-    1, 2, 3, 8, 11, 13,
+    1, 2, 3, 6, 8, 11, 13,
   ],
   [ROLE_IDS.ALMACENERO]: [
     1, 7, 8, 11,
