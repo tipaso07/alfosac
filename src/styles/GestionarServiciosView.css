@@ -169,6 +169,14 @@
   background: var(--danger-color);
 }
 
+.btn-approve:hover {
+  background: #059669;
+}
+
+.btn-reject:hover {
+  background: #dc2626;
+}
+
 .empty-state {
   padding: 18px;
   border: 1px solid var(--border);

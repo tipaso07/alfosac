@@ -131,10 +131,10 @@ export default function RequerimientosManager({
         <div className="purchase-actions">
           {req.puede_aprobar ? (
             <>
-              <button className="btn-primary" onClick={() => onChangeEstado(req.id, 'APROBADO')}>
+              <button className="btn-approve" onClick={() => onChangeEstado(req.id, 'APROBADO')}>
                 Aprobar
               </button>
-              <button className="btn-secondary" onClick={() => onChangeEstado(req.id, 'RECHAZADO')}>
+              <button className="btn-reject" onClick={() => onChangeEstado(req.id, 'RECHAZADO')}>
                 Rechazar
               </button>
             </>

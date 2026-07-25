@@ -228,6 +228,14 @@
   background: var(--danger-color);
 }
 
+.btn-approve:hover {
+  background: #059669;
+}
+
+.btn-reject:hover {
+  background: #dc2626;
+}
+
 .purchase-alert-warning,
 .purchase-alert-critical {
   margin: 6px 0 0;

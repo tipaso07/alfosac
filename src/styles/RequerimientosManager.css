@@ -296,6 +296,14 @@
   color: #fff;
 }
 
+.btn-approve:hover {
+  background: #059669;
+}
+
+.btn-reject:hover {
+  background: #dc2626;
+}
+
 .btn-delivery {
   border: none;
   border-radius: 6px;
