@@ -546,7 +546,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
     ? options.dentro_plan
     : null;
 
-  if (!['COMPRA', 'SERVICIO'].includes(normalizedTipo)) {
+  if (!['COMPRA', 'SERVICIO', 'REQUERIMIENTO'].includes(normalizedTipo)) {
     throw new Error('Tipo de entidad invalido');
   }
 
@@ -570,6 +570,13 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
         stateColumn: 'estado',
         selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE_5'))) AS estado, FALSE AS dentro_plan FROM compras WHERE id = $1 FOR UPDATE`,
         updateQuery: `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
+      }
+      : normalizedTipo === 'REQUERIMIENTO'
+      ? {
+        tableName: 'requerimientos',
+        stateColumn: 'estado',
+        selectQuery: `SELECT id, upper(trim(COALESCE(estado, 'PENDIENTE'))) AS estado, FALSE AS dentro_plan FROM requerimientos WHERE id = $1 FOR UPDATE`,
+        updateQuery: `UPDATE requerimientos SET estado = $1::text, estado_entrega = CASE WHEN $1 = 'APROBADO' THEN 'POR_RECOGER' ELSE estado_entrega END WHERE id = $2`,
       }
       : {
         tableName: 'servicios',
@@ -619,7 +626,11 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
 
     const flow = getNextApprovalState({ tipo: normalizedTipo, currentState: estadoAnterior, dentroPlan });
     const stageRoleId = Number(flow.roleId || getApprovalRoleIdFromState(estadoAnterior) || 0);
-    const estadoNuevo = normalizedDecision === 'RECHAZADO' ? 'RECHAZADO' : flow.state;
+    const estadoNuevo = normalizedDecision === 'RECHAZADO'
+      ? 'RECHAZADO'
+      : normalizedTipo === 'REQUERIMIENTO'
+        ? 'APROBADO'
+        : flow.state;
 
     if (!estadoNuevo) {
       throw new Error('No fue posible determinar el siguiente estado del flujo');
@@ -1459,7 +1470,11 @@ const filterUserPermissions = async (permissions, user) => {
     .filter(Boolean))];
 
   if (!await canAccessManageRequestsModule(user)) {
-    return normalizedPermissions.filter((perm) => perm !== 'GESTIONAR_SOLICITUDES');
+    const isSolicitante = Number(user?.id_role || user?.rol_id || 0) === 4;
+    return normalizedPermissions.filter((perm) => {
+      if (perm === 'GESTIONAR_SOLICITUDES' && isSolicitante) return true;
+      return perm !== 'GESTIONAR_SOLICITUDES';
+    });
   }
 
   return normalizedPermissions;
@@ -1551,6 +1566,32 @@ const createApprovalRowsForEntity = async (client, {
         }
       }
     }
+
+    return { usesApprovalTable: true, autoApproved: false };
+  }
+
+  if (normalizedTipo === 'REQUERIMIENTO') {
+    const requesterAreaId = Number(creatorAreaId || 0);
+    if (!requesterAreaId) {
+      throw new Error('No se pudo determinar el area del solicitante para la aprobacion del requerimiento');
+    }
+
+    const gerenteId = await findGerenteByArea(client, requesterAreaId);
+
+    if (!gerenteId) {
+      throw new Error('No se encontro un gerente de area para aprobar este requerimiento');
+    }
+
+    if (Number(creatorUserId || 0) === gerenteId) {
+      return { usesApprovalTable: true, autoApproved: true };
+    }
+
+    const pendingState = `PENDIENTE_USUARIO_${gerenteId}`;
+    await client.query(
+      `INSERT INTO aprobaciones (tipo, referencia_id, orden, rol_aprobador, usuario_id, estado)
+       VALUES ($1, $2, 1, $3, $4, $5)`,
+      [normalizedTipo, reference, gerentesRoleId, gerenteId, pendingState]
+    );
 
     return { usesApprovalTable: true, autoApproved: false };
   }
@@ -4831,6 +4872,7 @@ const ROLE_PERMISSION_NAMES_BY_ID = new Map([
   ]],
   [4, [ // SOLICITANTES
     'VER_INVENTARIO', 'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
+    'GESTIONAR_SOLICITUDES',
     'VER_MOVIMIENTOS', 'VER_AJUSTES', 'VER_HISTORIAL_SERVICIOS',
     'CAMBIAR_ESTADO_SERVICIO',
   ]],
@@ -6499,8 +6541,31 @@ app.get('/api/stock', authMiddleware, async (req, res) => {
 
 app.get('/api/requerimientos', authMiddleware, async (req, res) => {
   try {
+    const userRole = String(req.user?.rol || '');
     const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+    const userId = Number(req.user?.id || 0);
+    const isGerente = roleId === 1;
+    const isSolicitante = roleId === 4;
     const descripcionExpr = getRequerimientoDescripcionExpr('r');
+
+    let areaFilter = '';
+    let userFilter = '';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (isGerente) {
+      const userAreaId = Number(req.user?.id_area || 0);
+      if (userAreaId > 0) {
+        areaFilter = `AND u.id_area = $${paramIndex}`;
+        queryParams.push(userAreaId);
+        paramIndex += 1;
+      }
+    } else if (isSolicitante) {
+      userFilter = `AND r.id_usuario = $${paramIndex}`;
+      queryParams.push(userId);
+      paramIndex += 1;
+    }
+
     const result = await pool.query(
       `
         SELECT
@@ -6528,8 +6593,10 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
         LEFT JOIN areas a ON a.id = u.id_area
         LEFT JOIN detalle_requerimiento dr ON dr.id_requerimiento = r.id
         LEFT JOIN materiales m ON m.id = dr.id_material
+        WHERE TRUE ${areaFilter} ${userFilter}
         ORDER BY r.fecha_creacion DESC, r.id DESC
-      `
+      `,
+      queryParams
     );
 
     const grouped = result.rows.reduce((acc, row) => {
@@ -6578,12 +6645,22 @@ app.get('/api/requerimientos', authMiddleware, async (req, res) => {
       row.comentarios_historial = commentsByReq.get(Number(row.id || 0)) || [];
     });
 
-    if (roleId > 0) {
-      list.forEach((row) => {
-        row.puede_aprobar = false;
-        row.puede_rechazar = false;
-      });
-    }
+    const actionableIds = await fetchActionableApprovalReferenceIds(pool, {
+      tipo: 'REQUERIMIENTO',
+      roleId,
+      userId,
+      referenceIds: list.map((row) => Number(row.id || 0)),
+    });
+
+    const hasApprovalPermission = await hasPermission(userId, 'APROBAR_REQUERIMIENTO');
+
+    list.forEach((row) => {
+      const refId = Number(row.id || 0);
+      const isPending = isPendingApprovalState(row.estado);
+      const canApprove = hasApprovalPermission && actionableIds.has(refId) && isPending;
+      row.puede_aprobar = canApprove;
+      row.puede_rechazar = canApprove;
+    });
 
     res.json(list);
   } catch (error) {
@@ -8146,21 +8223,39 @@ app.post('/api/requerimientos', authMiddleware, requirePermissions('CREAR_REQUER
       }
     }
 
-    const reqApprovalColumn = getRequerimientoApprovalColumn();
-    const approvalSetFragment = reqApprovalColumn ? `, ${quoteIdentifier(reqApprovalColumn)} = $3` : '';
-    const approvalParams = reqApprovalColumn
-      ? ['APROBADO', 'POR_RECOGER', 'APROBADO', idRequerimiento]
-      : ['APROBADO', 'POR_RECOGER', idRequerimiento];
+    const approvalResult = await createApprovalRowsForEntity(client, {
+      tipo: 'REQUERIMIENTO',
+      referenciaId: idRequerimiento,
+      creatorUserId: req.user.id,
+      creatorAreaId: req.user.id_area,
+    });
 
-    await client.query(
-      `
-        UPDATE requerimientos
-        SET estado = $1,
-            estado_entrega = $2${approvalSetFragment}
-        WHERE id = $${reqApprovalColumn ? 4 : 3}
-      `,
-      approvalParams
-    );
+    const reqApprovalColumn = getRequerimientoApprovalColumn();
+    const isAutoApproved = Boolean(approvalResult?.autoApproved);
+    const newEstado = isAutoApproved ? 'APROBADO' : 'PENDIENTE';
+
+    if (reqApprovalColumn) {
+      await client.query(
+        `
+          UPDATE requerimientos
+          SET estado = $1,
+              estado_entrega = CASE WHEN $1 = 'APROBADO' THEN 'POR_RECOGER' ELSE estado_entrega END,
+              ${quoteIdentifier(reqApprovalColumn)} = $2
+          WHERE id = $3
+        `,
+        [newEstado, isAutoApproved ? 'APROBADO' : null, idRequerimiento]
+      );
+    } else {
+      await client.query(
+        `
+          UPDATE requerimientos
+          SET estado = $1,
+              estado_entrega = CASE WHEN $1 = 'APROBADO' THEN 'POR_RECOGER' ELSE estado_entrega END
+          WHERE id = $2
+        `,
+        [newEstado, idRequerimiento]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -8210,7 +8305,10 @@ app.patch('/api/requerimientos/:id/estado', authMiddleware, async (req, res) => 
     const hasCompleteProc = await dbFunctionExists('sp_completar_requerimiento(integer,integer)');
 
     if (estado === 'APROBADO' || estado === 'RECHAZADO') {
-      throw new Error('Los requerimientos se aprueban automaticamente y no admiten aprobacion/rechazo manual');
+      await client.query('COMMIT');
+      client.release();
+      const approved = await aprobarEntidad(req.user, 'REQUERIMIENTO', id, estado);
+      return res.json(approved);
     } else if (estado === 'COMPLETADO') {
       const canComplete = await hasPermission(req.user.id, 'COMPLETAR_REQUERIMIENTO');
       if (!canComplete && !canManageRequirementsRole(req.user?.rol)) {
@@ -11259,19 +11357,30 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
       return res.json([]);
     }
 
-    // Restringir acceso: solo usuarios que pueden gestionar solicitudes (miembros de flujo de aprobaciones)
+    const userRoleId = Number(req.user?.id_role || req.user?.rol_id || 0);
+    const isSolicitante = userRoleId === 4;
+
     const canManage = await canAccessManageRequestsModule(req.user)
       || canAccessPurchaseOrdersModule(req.user)
       || isComprasOperatorUser(req.user)
       || canAccessServicesHistoryModule(req.user);
-    if (!canManage) {
+    if (!canManage && !isSolicitante) {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
     const roleId = resolveApprovalRoleId(req.user);
     const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
-    // Para usuarios autorizados, devolver los servicios (fetchServiciosRows incluye flags de aprobación)
+    if (isSolicitante) {
+      const userIdColumn = getServicioUserIdColumn();
+      const servicios = await fetchServiciosRows(
+        [req.user.id],
+        `WHERE NULLIF(COALESCE(to_jsonb(s)->>'${userIdColumn}', to_jsonb(s)->>'usuario_id', ''), '')::int = $1`,
+        { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) }
+      );
+      return res.json(servicios);
+    }
+
     const servicios = await fetchServiciosRows([], '', { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) });
     res.json(servicios);
   } catch (error) {
@@ -11445,7 +11554,7 @@ app.get('/api/aprobaciones/pendientes', authMiddleware, async (req, res) => {
           upper(trim(COALESCE(a.estado, 'PENDIENTE'))) AS estado,
           a.fecha
         FROM aprobaciones a
-        WHERE upper(trim(a.tipo)) IN ('COMPRA', 'SERVICIO')
+        WHERE upper(trim(a.tipo)) IN ('COMPRA', 'SERVICIO', 'REQUERIMIENTO')
           AND a.rol_aprobador = $1
           AND (upper(trim(COALESCE(a.estado, 'PENDIENTE'))) = 'PENDIENTE'
                OR upper(trim(COALESCE(a.estado, 'PENDIENTE'))) LIKE 'PENDIENTE_%')
