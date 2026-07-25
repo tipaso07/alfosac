@@ -12807,7 +12807,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
               ), 0)
               FROM compras_directas cd
               LEFT JOIN (
-                SELECT id_compra_directa, SUM(subtotal) AS total_monto
+                SELECT id_compra_directa, SUM(total) AS total_monto
                 FROM detalle_compras_directas
                 GROUP BY id_compra_directa
               ) d ON d.id_compra_directa = cd.id
@@ -13037,7 +13037,7 @@ app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) =
           FROM compras_directas cd
           LEFT JOIN areas a ON a.id = NULLIF(to_jsonb(cd)->>'id_area', '')::int
           LEFT JOIN (
-            SELECT id_compra_directa, SUM(subtotal) AS total_monto
+            SELECT id_compra_directa, SUM(total) AS total_monto
             FROM detalle_compras_directas
             GROUP BY id_compra_directa
           ) d ON d.id_compra_directa = cd.id
