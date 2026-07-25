@@ -158,6 +158,14 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const canManageServiceApprovals = useMemo(() => {
     return hasPermission(currentUserPermissions, 'GESTIONAR_SOLICITUDES')
   }, [currentUserPermissions])
+  const canSeeServiciosTab = useMemo(() => {
+    if (currentUserRoleId === 8) return true
+    if (currentUserRoleId === 1) {
+      const areaUpper = String(currentUserArea || '').toUpperCase()
+      return areaUpper.includes('ADMINISTRACION') && areaUpper.includes('FINANZAS')
+    }
+    return false
+  }, [currentUserRoleId, currentUserArea])
 
   const loadOptionalData = useCallback(async (loader, fallbackValue) => {
     try {
@@ -172,6 +180,12 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   useEffect(() => {
     setActiveTab(initialTab)
   }, [initialTab])
+
+  useEffect(() => {
+    if (activeRequestsView === 'servicios' && !canSeeServiciosTab) {
+      setActiveRequestsView('compras')
+    }
+  }, [activeRequestsView, canSeeServiciosTab])
 
   useEffect(() => {
     const targetPath = TAB_ROUTES[activeTab]
@@ -906,7 +920,7 @@ useEffect(() => {
                 <button type="button" className={activeRequestsView === 'compras' ? 'active' : ''} onClick={() => setActiveRequestsView('compras')}>
                   Compras
                 </button>
-                {canManageServiceApprovals && (
+                {canSeeServiciosTab && (
                   <button type="button" className={activeRequestsView === 'servicios' ? 'active' : ''} onClick={() => setActiveRequestsView('servicios')}>
                     Servicios
                   </button>
@@ -928,7 +942,7 @@ useEffect(() => {
                   onChangeEstado={handleCompraStatus}
                 />
               )}
-              {canManageServiceApprovals && activeRequestsView === 'servicios' && (
+              {canSeeServiciosTab && activeRequestsView === 'servicios' && (
                 <GestionarServiciosView
                   servicios={servicios}
                   currentUserPermissions={currentUserPermissions}

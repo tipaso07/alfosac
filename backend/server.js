@@ -1471,8 +1471,9 @@ const filterUserPermissions = async (permissions, user) => {
 
   if (!await canAccessManageRequestsModule(user)) {
     const isSolicitante = Number(user?.id_role || user?.rol_id || 0) === 4;
+    const isSsgg = Number(user?.id_role || user?.rol_id || 0) === 8;
     return normalizedPermissions.filter((perm) => {
-      if (perm === 'GESTIONAR_SOLICITUDES' && isSolicitante) return true;
+      if (perm === 'GESTIONAR_SOLICITUDES' && (isSolicitante || isSsgg)) return true;
       return perm !== 'GESTIONAR_SOLICITUDES';
     });
   }
@@ -4878,7 +4879,7 @@ const ROLE_PERMISSION_NAMES_BY_ID = new Map([
   ]],
   [8, [ // SERVICIOS GENERALES
     'VER_INVENTARIO', 'CREAR_REQUERIMIENTO', 'CREAR_SOLICITUD_COMPRA',
-    'CREAR_SOLICITUD_SERVICIO', 'VER_MOVIMIENTOS', 'VER_AJUSTES',
+    'CREAR_SOLICITUD_SERVICIO', 'GESTIONAR_SOLICITUDES', 'VER_MOVIMIENTOS', 'VER_AJUSTES',
   ]],
 ]);
 
@@ -11359,12 +11360,13 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
 
     const userRoleId = Number(req.user?.id_role || req.user?.rol_id || 0);
     const isSolicitante = userRoleId === 4;
+    const isSsgg = userRoleId === 8;
 
     const canManage = await canAccessManageRequestsModule(req.user)
       || canAccessPurchaseOrdersModule(req.user)
       || isComprasOperatorUser(req.user)
       || canAccessServicesHistoryModule(req.user);
-    if (!canManage && !isSolicitante) {
+    if (!canManage && !isSolicitante && !isSsgg) {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
@@ -11372,6 +11374,16 @@ app.get('/api/servicios', authMiddleware, async (req, res) => {
     const canApproveInCurrentStage = canApproveApprovalRole(req.user, roleId);
 
     if (isSolicitante) {
+      const userIdColumn = getServicioUserIdColumn();
+      const servicios = await fetchServiciosRows(
+        [req.user.id],
+        `WHERE NULLIF(COALESCE(to_jsonb(s)->>'${userIdColumn}', to_jsonb(s)->>'usuario_id', ''), '')::int = $1`,
+        { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) }
+      );
+      return res.json(servicios);
+    }
+
+    if (isSsgg) {
       const userIdColumn = getServicioUserIdColumn();
       const servicios = await fetchServiciosRows(
         [req.user.id],

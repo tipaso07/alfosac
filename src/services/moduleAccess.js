@@ -106,7 +106,7 @@ const MODULES_BY_ROLE = {
     12, 1, 2, 3, 6, 8, 10, 11, 14, 17,
   ],
   [ROLE_IDS.SERVICIOS_GENERALES]: [
-    1, 2, 3, 4, 8, 11,
+    1, 2, 3, 4, 5, 8, 11,
   ],
 }
 
