@@ -14,6 +14,7 @@ const normalizeSearch = (value) => String(value || '')
 export default function RequerimientosManager({
   requerimientos,
   onChangeEstado,
+  currentUserRoleId = null,
 }) {
   const formatPriority = (value) => {
     const normalized = normalize(value)
@@ -145,8 +146,10 @@ export default function RequerimientosManager({
     </article>
   )
 
+  const isSolicitante = Number(currentUserRoleId || 0) === 4
+
   const config = {
-    PENDIENTE: { label: 'Pendientes', data: pendientes, actions: true },
+    PENDIENTE: { label: 'Pendientes', data: pendientes, actions: !isSolicitante },
     APROBADO: { label: 'Aprobados', data: aprobados, actions: false },
     RECHAZADO: { label: 'Rechazados', data: rechazados, actions: false },
   }

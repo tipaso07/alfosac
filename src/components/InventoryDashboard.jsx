@@ -972,6 +972,7 @@ useEffect(() => {
               {canManageServiceApprovals && activeRequestsView === 'requerimientos' && (
                 <RequerimientosManager
                   requerimientos={requerimientos}
+                  currentUserRoleId={currentUserRoleId}
                   onChangeEstado={handleRequerimientoStatus}
                 />
               )}

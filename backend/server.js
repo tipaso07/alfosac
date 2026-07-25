@@ -760,6 +760,9 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
           ['RECHAZADO', referenceId]
         );
       }
+    } else if (normalizedTipo === 'REQUERIMIENTO') {
+      const reqEstado = normalizedDecision === 'APROBADO' ? 'APROBADO' : 'RECHAZADO';
+      await client.query(entityConfig.updateQuery, [reqEstado, referenceId]);
     } else {
       const serviceStateColumn = getServicioApprovalColumn();
       const serviceFlowColumn = getServicioStatusColumn();
@@ -7143,8 +7146,11 @@ app.get('/api/proveedores/calificaciones/promedios', authMiddleware, async (_req
         if (hasDirectReference) {
           if (!canRateCompra(req.user)) {
             return res.status(403).json({ error: 'No autorizado' });
-          }
-        } else {
+      }
+    } else if (normalizedTipo === 'REQUERIMIENTO') {
+      const reqEstado = normalizedDecision === 'APROBADO' ? 'APROBADO' : 'RECHAZADO';
+      await client.query(entityConfig.updateQuery, [reqEstado, referenceId]);
+    } else {
           if (!Number.isInteger(idMovimiento) || idMovimiento <= 0) {
             return res.status(400).json({ error: 'id_movimiento invalido para calificar entrega' });
           }
