@@ -130,7 +130,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
-  ? Number((totalBase * retencionPct).toFixed(2))
+  ? Number((totalBase * (retencionPct / 100)).toFixed(2))
   : 0
   const totalFinal = aplicaRetencion
     ? Number((totalBase - montoRetencion).toFixed(2))

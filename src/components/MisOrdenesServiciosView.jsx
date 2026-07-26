@@ -64,7 +64,7 @@ const computeRetentionData = ({ subtotal, igv, costoEnvio, otrosCostos, moneda, 
   const providerAllowsRetention = Boolean(retencionFlag) && Number.isFinite(retencionPct) && retencionPct > 0
   const aplicaRetencion = providerAllowsRetention && superaUmbral
   const montoRetencion = aplicaRetencion
-    ? Number((totalBase * (retencionPct)).toFixed(2))
+    ? Number((totalBase * (retencionPct / 100)).toFixed(2))
     : 0
   const totalFinal = aplicaRetencion
     ? Number((totalBase - montoRetencion).toFixed(2))
@@ -714,7 +714,7 @@ export default function MisOrdenesServiciosView({
               {providerIsUsd && <p><strong>Tasa de cambio:</strong> {Number(draft.tipo_cambio || 0) > 0 ? Number(draft.tipo_cambio).toFixed(2) : '3.40'}</p>}
               <p><strong>Total base:</strong> {formatMoney(retentionData.totalBase)}</p>
               <p><strong>Retencion Aplicada:</strong> {retentionData.aplicaRetencion ? 'SI' : 'NO'}</p>
-              {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> { (retencionPct * 100).toFixed(2)}%</p>}
+              {retentionData.aplicaRetencion && <p><strong>Porcentaje:</strong> {retencionPct.toFixed(2)}%</p>}
               {retentionData.aplicaRetencion && <p><strong>Monto retenido:</strong> {retentionData.montoRetencion.toFixed(2)}</p>}
               <p><strong>TOTAL FINAL:</strong> {retentionData.totalFinal.toFixed(2)}</p>
               {!retencionFlag && <p><strong>Tipo retención:</strong> -</p>}
