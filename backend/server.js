@@ -770,7 +770,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
           // Si no hay pendientes, marcar como APROBADO y registrar estado_pedido
           await client.query(
             `UPDATE compras SET estado = $1::text, fecha_actualizacion = ${PET_SQL_NOW} WHERE id = $2`,
-            [estadoNuevo, referenceId]
+            ['APROBADO', referenceId]
           );
           
           await client.query(
@@ -846,7 +846,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       } else {
         await client.query(
           `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
-          [estadoNuevo, referenceId]
+          ['APROBADO', referenceId]
         );
       }
     }
