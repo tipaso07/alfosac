@@ -113,7 +113,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   // VENDEDOR block
   const vendorEndY = drawSectionBar(doc, { title: 'VENDEDOR', x: left, y: blocksY, width: leftColW });
   const vendorRows = [
-    [servicio.proveedor, ''],
+    ['Razón Social', servicio.proveedor],
     ['RUC', servicio.proveedor_ruc],
     ['Dirección', servicio.proveedor_direccion],
     ['Banco', servicio.proveedor_banco],
@@ -126,8 +126,9 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   // ENVÍE A block
   const shipBarY = blocksY;
   const shipEndY = drawSectionBar(doc, { title: 'ENVÍE A', x: left + leftColW + colGap, y: shipBarY, width: rightColW });
+  const areaName = servicio.area || servicio.area_destino;
   const shipRows = [
-    [servicio.area || servicio.area_destino, ''],
+    ...(areaName ? [[areaName, '']] : []),
     ['Solicitante', servicio.usuario],
     ['Moneda', currencyLabel],
     ['', 'Av. Nestor Gambetta N° 4783 - Callao'],
@@ -230,7 +231,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.font('Helvetica').fontSize(7.2).fillColor(PDF_BRAND_COLORS.textPrimary);
   doc.text('Importe:', left + 6, importeY + 4, { width: 80, align: 'left', lineBreak: false });
   doc.font('Helvetica-Bold').fontSize(14).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text(formatMoney(totalFinal), left + 90, importeY + 3, { width: adminLeftW - 96, align: 'right', lineBreak: false });
+  doc.text(formatMoney(totalFinal, currencyLabel), left + 90, importeY + 3, { width: adminLeftW - 96, align: 'right', lineBreak: false });
 
   // Version bar
   const versionBarY = importeY + importeBarH + 6;
@@ -248,10 +249,10 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     ['IMPUESTO IGV', igv],
     ['ENVÍO', costoEnvio],
     ['OTRO', otrosCostos],
-    ['TOTAL', totalFinal],
+    ['TOTAL', totalBase],
   ];
 
-  drawTotalsBlock(doc, { rows: totalsRows, x: totalsX, y: totalsY, width: adminRightW });
+  drawTotalsBlock(doc, { rows: totalsRows, x: totalsX, y: totalsY, width: adminRightW, currency: currencyLabel });
 
   // --- Contact footer ---
 
