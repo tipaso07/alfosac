@@ -72,7 +72,9 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const rawPct = Number(compra.descuento || 0);
   const porcentajeRetencion = rawPct > 100 ? rawPct / 100 : rawPct;
   const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
-  const totalFinal = Number(compra.importe_final || compra.total || totalBase);
+  const totalFinal = aplicaRetencion
+    ? Number((totalBase - montoRetenido).toFixed(2))
+    : totalBase;
 
   const currencyLabel = compra.moneda || 'PEN';
   const normCurrency = String(currencyLabel).trim().toUpperCase();
