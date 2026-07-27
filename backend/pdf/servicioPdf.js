@@ -259,7 +259,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     email: servicio.usuario_email || 'compras@alfosac.pe',
     phone: servicio.usuario_telefono || '+51 978772509',
     left,
-    bottomLimit,
+    y: versionBarY + 22,
     usableWidth,
   });
 
