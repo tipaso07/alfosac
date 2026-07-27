@@ -130,6 +130,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     [servicio.area || servicio.area_destino, ''],
     ['Solicitante', servicio.usuario],
     ['Moneda', currencyLabel],
+    ['', 'Av. Nestor Gambetta N° 4783 - Callao'],
   ].filter((r) => r[1]);
   const shipFieldEndY = drawFieldRows(doc, { rows: shipRows, x: left + leftColW + colGap, y: shipEndY + 2, width: rightColW, labelWidth: 50 });
 
@@ -208,7 +209,7 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
     ['Estado', estadoServicio],
     ['Estado aprobación', servicio.estado_aprobacion],
     ['Correo', servicio.correo],
-    ['Retención', aplicaRetencion ? `${porcentajeRetencion.toFixed(2)}%` : '-'],
+    ['Retención/Detracción', aplicaRetencion ? `${porcentajeRetencion.toFixed(2)}% SI APLICA ${servicio.tipo_retencion || 'RETENCIÓN'}` : '-'],
   ].filter((r) => r[1]);
 
   if (comentario) {
@@ -255,8 +256,8 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   // --- Contact footer ---
 
   drawContactFooter(doc, {
-    email: 'compras@alfosac.pe',
-    phone: '+51 978772509',
+    email: servicio.usuario_email || 'compras@alfosac.pe',
+    phone: servicio.usuario_telefono || '+51 978772509',
     left,
     bottomLimit,
     usableWidth,
