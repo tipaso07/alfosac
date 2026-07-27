@@ -1,8 +1,7 @@
 const { PET_SQL_NOW } = require('../utils/datetime');
-const { pickExistingColumn, schemaMeta } = require('../db/pool');
 
 module.exports = function(app, deps) {
-  const { pool, authMiddleware, requireAdmin } = deps;
+  const { pool, authMiddleware, requireCompras } = deps;
 
   app.get('/api/stats', authMiddleware, async (req, res) => {
     try {
@@ -37,10 +36,8 @@ module.exports = function(app, deps) {
     }
   });
 
-  app.get('/api/admin-dashboard', authMiddleware, requireAdmin, async (req, res) => {
+  app.get('/api/admin-dashboard', authMiddleware, requireCompras, async (req, res) => {
     try {
-      const USD_TO_PEN_RATE = 3.4;
-      
       const fechaInicioRaw = String(req.query?.fecha_inicio || '').trim();
       const fechaFinRaw = String(req.query?.fecha_fin || '').trim();
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -177,64 +174,182 @@ module.exports = function(app, deps) {
         }
       }
 
-      const params = areaIds && areaIds.length > 0 ? [areaIds] : [];
-      const comprasWhere = areaIds && areaIds.length > 0
-        ? `WHERE COALESCE(NULLIF(to_jsonb(c)->>'id_area_final', '')::int, NULLIF(to_jsonb(c)->>'id_area_solicitante', '')::int) = ANY($1::int[])`
-        : '';
-      const reqWhere = areaIds && areaIds.length > 0
-        ? `WHERE COALESCE(NULLIF(to_jsonb(r)->>'id_area', '')::int, u.id_area) = ANY($1::int[])`
-        : '';
-      const servWhere = areaIds && areaIds.length > 0
-        ? `WHERE NULLIF(COALESCE(to_jsonb(s)->>'id_area', to_jsonb(s)->>'area_id', ''), '')::int = ANY($1::int[])`
-        : '';
-      const comprasDirectasWhere = areaIds && areaIds.length > 0
-        ? `WHERE NULLIF(to_jsonb(cd)->>'id_area', '')::int = ANY($1::int[])`
-        : '';
+      const dateCond = (col) => {
+        if (!fechaInicio && !fechaFin) return 'TRUE';
+        const parts = [];
+        if (fechaInicio) parts.push(`${col} >= '${fechaInicio}'::date`);
+        if (fechaFin) parts.push(`${col} <= '${fechaFin}'::date`);
+        return parts.join(' AND ');
+      };
 
-      const materialPrecioColumn = pickExistingColumn(schemaMeta.materialesColumns, ['costo_unitario', 'precio_unitario', 'costo']);
-      const materialPrecioExpr = materialPrecioColumn
-        ? `COALESCE(NULLIF(to_jsonb(mat)->>'${materialPrecioColumn}', '')::numeric, 0)`
-        : '0::numeric';
-      const servicioMontoColumn = pickExistingColumn(schemaMeta.serviciosColumns, ['total', 'subtotal', 'costo', 'importe', 'monto']);
-      const servicioMontoExpr = servicioMontoColumn
-        ? `COALESCE(NULLIF(to_jsonb(s)->>'${servicioMontoColumn}', '')::numeric, 0)`
-        : '0::numeric';
+      const areaFilter = areaIds && areaIds.length > 0;
+      const comprasAreaFilter = areaFilter ? `AND COALESCE(c.id_area_final, c.id_area_solicitante) = ANY($1::int[])` : '';
+      const servAreaFilter = areaFilter ? `AND s.area_id = ANY($1::int[])` : '';
+      const cdAreaFilter = areaFilter ? `AND cd.id_area = ANY($1::int[])` : '';
+      const reqAreaFilter = areaFilter ? `AND u.id_area = ANY($1::int[])` : '';
+      const mvAreaFilter = areaFilter ? `AND u2.id_area = ANY($1::int[])` : '';
 
-      // For now, return a simplified dashboard
-      // The full dashboard query is very complex and would need to be ported from the original server.js
+      const [comprasRes, servRes, reqRes, cdRes, mvRes, matRes, califRes] = await Promise.all([
+        pool.query(`
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            COUNT(*)::int AS total,
+            COALESCE(SUM(COALESCE(c.importe_final, c.total,
+              (COALESCE(c.subtotal,0)+COALESCE(c.igv,0)+COALESCE(c.costo_envio,0)+COALESCE(c.otros_costos,0))
+            )::numeric), 0)::numeric AS monto_total,
+            COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'PENDIENTE')::int AS pendientes,
+            COUNT(*) FILTER (WHERE upper(trim(c.estado)) = 'APROBADA' OR upper(trim(c.estado_pedido)) = 'APROBADO')::int AS aprobadas,
+            COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'POR_RECIBIR')::int AS por_recibir,
+            COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'POR_ENTREGAR')::int AS por_entregar,
+            COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'ENTREGADO' OR upper(trim(c.estado)) = 'ENTREGADO')::int AS entregadas
+          FROM compras c
+          LEFT JOIN areas a ON a.id = COALESCE(c.id_area_final, c.id_area_solicitante)
+          WHERE ${dateCond('COALESCE(c.fecha_creacion::date, c.created_at::date)', 'c')}
+          ${comprasAreaFilter}
+          GROUP BY a.nombre
+          ORDER BY monto_total DESC
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            COUNT(*)::int AS total,
+            COALESCE(SUM(COALESCE(s.total, 0)::numeric), 0)::numeric AS monto_total,
+            COUNT(*) FILTER (WHERE upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) = 'PENDIENTE')::int AS pendientes,
+            COUNT(*) FILTER (WHERE upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) IN ('REALIZADO', 'COMPLETADO', 'APROBADO'))::int AS realizados
+          FROM servicios s
+          LEFT JOIN areas a ON a.id = s.area_id
+          WHERE ${dateCond('COALESCE(s.fecha::date, s.created_at::date)', 's')}
+          ${servAreaFilter}
+          GROUP BY a.nombre
+          ORDER BY monto_total DESC
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE upper(trim(r.estado_entrega)) = 'POR_RECOGER')::int AS pendientes,
+            COUNT(*) FILTER (WHERE upper(trim(r.estado_entrega)) = 'ENTREGADO')::int AS completados
+          FROM requerimientos r
+          LEFT JOIN usuarios u ON u.id = r.id_usuario
+          LEFT JOIN areas a ON a.id = u.id_area
+          WHERE ${dateCond('r.fecha_creacion::date', 'r')}
+          ${reqAreaFilter}
+          GROUP BY a.nombre
+          ORDER BY total DESC
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            COUNT(*)::int AS total,
+            COALESCE(SUM(COALESCE(cd.total, 0)::numeric), 0)::numeric AS monto_total
+          FROM compras_directas cd
+          LEFT JOIN areas a ON a.id = cd.id_area
+          WHERE ${dateCond('COALESCE(cd.fecha_compra::date, cd.created_at::date)', 'cd')}
+          ${cdAreaFilter}
+          GROUP BY a.nombre
+          ORDER BY monto_total DESC
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            COALESCE(a.nombre, 'Sin area') AS area,
+            m.tipo,
+            COUNT(*)::int AS total
+          FROM movimientos m
+          LEFT JOIN usuarios u2 ON u2.id = m.id_usuario
+          LEFT JOIN areas a ON a.id = u2.id_area
+          WHERE ${dateCond('m.fecha::date', 'm')}
+          ${mvAreaFilter}
+          GROUP BY a.nombre, m.tipo
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            COALESCE(mt.nombre, 'Sin material') AS material,
+            COALESCE(SUM(dm.cantidad), 0)::int AS cantidad_total_salida
+          FROM detalle_movimientos dm
+          INNER JOIN movimientos m ON m.id = dm.id_movimiento
+          LEFT JOIN materiales mt ON mt.id = dm.id_material
+          LEFT JOIN usuarios u2 ON u2.id = m.id_usuario
+          WHERE upper(trim(m.tipo)) = 'SALIDA'
+            AND ${dateCond('m.fecha::date', 'm')}
+            ${mvAreaFilter}
+          GROUP BY mt.nombre
+          ORDER BY cantidad_total_salida DESC
+          LIMIT 10
+        `, areaFilter ? [areaIds] : []),
+
+        pool.query(`
+          SELECT
+            cp.id_proveedor,
+            COALESCE(p.razon_social, p.nombre, 'Proveedor') AS proveedor,
+            COUNT(*)::int AS total_calificaciones,
+            ROUND(AVG(cp.puntuacion)::numeric, 1) AS promedio_puntuacion
+          FROM calificaciones_proveedor cp
+          LEFT JOIN proveedores p ON p.id = cp.id_proveedor
+          GROUP BY cp.id_proveedor, p.razon_social, p.nombre
+          HAVING COUNT(*) > 0
+          ORDER BY promedio_puntuacion DESC
+          LIMIT 5
+        `),
+      ]);
+
+      const resumen = {
+        total_compras: comprasRes.rows.reduce((s, r) => s + r.total, 0),
+        total_requerimientos: reqRes.rows.reduce((s, r) => s + r.total, 0),
+        total_servicios: servRes.rows.reduce((s, r) => s + r.total, 0),
+        monto_total_compras: Number(comprasRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+        monto_total_requerimientos: 0,
+        monto_total_servicios: Number(servRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+        monto_total_consumo: 0,
+        total_entradas_movimientos: mvRes.rows.filter(r => r.tipo === 'ENTRADA').reduce((s, r) => s + r.total, 0),
+        total_salidas_movimientos: mvRes.rows.filter(r => r.tipo === 'SALIDA').reduce((s, r) => s + r.total, 0),
+        total_compras_pendientes: comprasRes.rows.reduce((s, r) => s + r.pendientes, 0),
+        total_compras_aprobadas: comprasRes.rows.reduce((s, r) => s + r.aprobadas, 0),
+        total_compras_por_recibir: comprasRes.rows.reduce((s, r) => s + r.por_recibir, 0),
+        total_compras_por_entregar: comprasRes.rows.reduce((s, r) => s + r.por_entregar, 0),
+        total_compras_entregadas: comprasRes.rows.reduce((s, r) => s + r.entregadas, 0),
+        total_servicios_pendientes: servRes.rows.reduce((s, r) => s + r.pendientes, 0),
+        total_servicios_realizados: servRes.rows.reduce((s, r) => s + r.realizados, 0),
+        total_compras_directas: cdRes.rows.reduce((s, r) => s + r.total, 0),
+        monto_total_compras_directas: Number(cdRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+      };
+      resumen.monto_total_consumo = Number((resumen.monto_total_compras + resumen.monto_total_requerimientos + resumen.monto_total_servicios).toFixed(2));
+
+      const gastoSalidaPorArea = mvRes.rows
+        .filter(r => r.tipo === 'SALIDA')
+        .map(r => ({ area: r.area, total_gastado: r.total }));
+
+      const distribucionSalidaPorArea = mvRes.rows
+        .filter(r => r.tipo === 'SALIDA')
+        .map(r => ({ area: r.area, total: r.total }));
+
       res.json({
         filtro_fechas: {
           fecha_inicio: fechaInicio || '',
           fecha_fin: fechaFin || '',
         },
-        resumen: {
-          total_compras: 0,
-          total_requerimientos: 0,
-          total_servicios: 0,
-          monto_total_compras: 0,
-          monto_total_requerimientos: 0,
-          monto_total_servicios: 0,
-          monto_total_consumo: 0,
-          total_entradas_movimientos: 0,
-          total_salidas_movimientos: 0,
-          total_compras_pendientes: 0,
-          total_compras_aprobadas: 0,
-          total_compras_por_recibir: 0,
-          total_compras_por_entregar: 0,
-          total_compras_entregadas: 0,
-          total_servicios_pendientes: 0,
-          total_servicios_realizados: 0,
-        },
-        compras_por_area: [],
-        requerimientos_por_area: [],
-        servicios_por_area: [],
-        materiales_mas_utilizados: [],
-        distribucion_salida_por_area: [],
-        gasto_salida_por_area: [],
+        resumen,
+        compras_por_area: comprasRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
+        requerimientos_por_area: reqRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: 0 })),
+        servicios_por_area: servRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
+        materiales_mas_utilizados: matRes.rows.map(r => ({ material: r.material, cantidad_total_salida: r.cantidad_total_salida })),
+        distribucion_salida_por_area: distribucionSalidaPorArea,
+        gasto_salida_por_area: gastoSalidaPorArea,
         cantidad_materiales_recibidos_por_area: [],
-        total_compras_directas: 0,
-        monto_total_compras_directas: 0,
-        compras_directas_por_area: [],
+        total_compras_directas: resumen.total_compras_directas,
+        monto_total_compras_directas: resumen.monto_total_compras_directas,
+        compras_directas_por_area: cdRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
+        proveedores_top_rated: califRes.rows.map(r => ({
+          id_proveedor: r.id_proveedor,
+          proveedor: r.proveedor,
+          total_calificaciones: r.total_calificaciones,
+          promedio_puntuacion: Number(r.promedio_puntuacion || 0),
+        })),
+        proveedores_worst_rated: [],
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
