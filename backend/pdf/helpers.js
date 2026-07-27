@@ -62,15 +62,18 @@ const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN_BOTTOM;
 
 const safeText = (value) => String(value || '').replace(/\s+/g, ' ').trim() || 'N/D';
 
-const formatMoney = (value) => {
+const formatMoney = (value, currency = 'PEN') => {
   const num = Number(value || 0);
   const fixed = num.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `S/ ${withCommas}.${decPart}`;
+  const norm = String(currency || '').trim().toUpperCase();
+  const isUSD = norm.includes('USD') || norm.includes('DOLAR') || norm.includes('DÓLAR');
+  const symbol = isUSD ? '$' : 'S/';
+  return `${symbol} ${withCommas}.${decPart}`;
 };
 
-const formatCurrency = (value, currency = 'PEN') => formatMoney(value);
+const formatCurrency = (value, currency = 'PEN') => formatMoney(value, currency);
 
 const PET_TIME_ZONE = 'America/Lima';
 
@@ -335,7 +338,7 @@ const drawFieldRows = (doc, { rows, x, y, width, labelWidth }) => {
  * Column TOTAL always has a #F4F4F4 background band.
  * Returns the Y after the table.
  */
-const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSpaceFn, drawHeaderFn }) => {
+const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSpaceFn, drawHeaderFn, currency }) => {
   const headerHeight = 18;
   let rowY = y;
 
@@ -357,8 +360,9 @@ const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSp
   ensureSpaceFn(headerHeight + 50);
   rowY = drawTableHeader(rowY);
 
-  const formatCell = (value, col) => {
-    if (col.format === 'money') return formatMoney(value);
+  const formatCell = (value, col, currency) => {
+    if (col.format === 'money') return formatMoney(value, currency);
+    if (value === 0 || value === '0') return '0';
     return String(value || '');
   };
 
@@ -367,7 +371,7 @@ const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSp
     let maxHeight = 28;
     let cx = x;
     const cellTexts = columns.map((col, ci) => {
-      const text = formatCell(rowData[ci], col);
+      const text = formatCell(rowData[ci], col, currency);
       const h = doc.heightOfString(text, { width: col.width - 10 }) + 8;
       if (h > maxHeight) maxHeight = h;
       cx += col.width;
@@ -413,12 +417,16 @@ const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSp
  * Draw the totals block (right-aligned).
  * Returns the Y after the block.
  */
-const drawTotalsBlock = (doc, { rows, x, y, width }) => {
+const drawTotalsBlock = (doc, { rows, x, y, width, currency }) => {
   const labelW = 66;
   const symbolW = 18;
   const valueW = width - labelW - symbolW;
   const rowH = 19;
   let curY = y;
+
+  const norm = String(currency || '').trim().toUpperCase();
+  const isUSD = norm.includes('USD') || norm.includes('DOLAR') || norm.includes('DÓLAR');
+  const symbol = isUSD ? '$' : 'S/';
 
   // Separator line before TOTAL
   const totalRowIndex = rows.length - 1;
@@ -445,14 +453,14 @@ const drawTotalsBlock = (doc, { rows, x, y, width }) => {
 
     // Symbol
     doc.font(font).fontSize(fontSize)
-      .text('S/', x + labelW + 2, curY + 5, { width: symbolW, align: 'center', lineBreak: false });
+      .text(symbol, x + labelW + 2, curY + 5, { width: symbolW, align: 'center', lineBreak: false });
 
     // Value
     const displayValue = (value === 0 || value === '0' || value === '-' || value === 'S/ 0.00') && !isTotal
       ? '-'
-      : formatMoney(value);
+      : formatMoney(value, currency);
     doc.font(isTotal ? 'Helvetica-Bold' : 'Helvetica').fontSize(isTotal ? 9 : 7.5)
-      .text(displayValue.replace('S/ ', ''), x + labelW + symbolW + 2, curY + 4, {
+      .text(displayValue.replace(/^(S\/|\$)\s+/, ''), x + labelW + symbolW + 2, curY + 4, {
         width: valueW - 6, align: 'right', lineBreak: false,
       });
 
