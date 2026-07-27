@@ -143,15 +143,11 @@ module.exports = function(app, deps) {
     const client = await pool.connect();
     try {
       const {
-        razon_social,
-        nombre,
-        ruc,
-        direccion,
-        telefono,
-        email,
-        contacto,
-        id_moneda,
-        estado,
+        razon_social, nombre, ruc, direccion, distrito, correo,
+        persona_responsable, telefono, condiciones_pago, banco,
+        id_moneda, numero_cuenta, cci, id_area_destino, descripcion,
+        retencion, categoria, descuento, tipo, tipo_retencion,
+        contacto, estado,
       } = req.body;
 
       const razonSocialNorm = String(razon_social || nombre || '').trim();
@@ -165,69 +161,79 @@ module.exports = function(app, deps) {
         return res.status(400).json({ error: 'RUC es requerido' });
       }
 
-      const razonSocialCol = getProveedorColumn('razon_social');
-      const nombreCol = getProveedorColumn('nombre');
-      const rucCol = getProveedorColumn('ruc');
-
       await client.query('BEGIN');
 
       const insertColumns = [];
       const insertValues = [];
-      let paramCount = 1;
 
-      if (razonSocialCol) {
-        insertColumns.push(razonSocialCol);
-        insertValues.push(razonSocialNorm);
-        paramCount += 1;
-      }
+      const addCol = (key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        insertColumns.push(col);
+        insertValues.push(String(value).trim());
+      };
 
-      if (nombreCol) {
-        insertColumns.push(nombreCol);
-        insertValues.push(String(nombre || razon_social || '').trim() || razonSocialNorm);
-        paramCount += 1;
-      }
+      const addColLower = (key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        insertColumns.push(col);
+        insertValues.push(String(value).trim().toLowerCase());
+      };
 
-      if (rucCol) {
-        insertColumns.push(rucCol);
-        insertValues.push(rucNorm);
-        paramCount += 1;
-      }
+      const addColUpper = (key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        insertColumns.push(col);
+        insertValues.push(String(value).trim().toUpperCase());
+      };
 
-      if (direccion) {
-        insertColumns.push('direccion');
-        insertValues.push(String(direccion).trim());
-        paramCount += 1;
-      }
+      const addColNum = (key, value) => {
+        if (value === undefined || value === '' || value === null) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        insertColumns.push(col);
+        insertValues.push(Number(value));
+      };
 
-      if (telefono) {
-        insertColumns.push('telefono');
-        insertValues.push(String(telefono).trim());
-        paramCount += 1;
-      }
+      const addColNumNull = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        insertColumns.push(col);
+        insertValues.push(value === '' || value === null ? null : Number(value));
+      };
 
-      if (email) {
-        insertColumns.push('email');
-        insertValues.push(String(email).trim().toLowerCase());
-        paramCount += 1;
-      }
+      const razonSocialCol = getProveedorColumn('razon_social');
+      if (razonSocialCol) { insertColumns.push(razonSocialCol); insertValues.push(razonSocialNorm); }
 
-      if (contacto) {
-        insertColumns.push('contacto');
-        insertValues.push(String(contacto).trim());
-        paramCount += 1;
-      }
+      const nombreCol = getProveedorColumn('nombre');
+      if (nombreCol) { insertColumns.push(nombreCol); insertValues.push(String(nombre || razon_social || '').trim() || razonSocialNorm); }
 
-      if (id_moneda) {
-        insertColumns.push('id_moneda');
-        insertValues.push(Number(id_moneda));
-        paramCount += 1;
-      }
+      const rucCol = getProveedorColumn('ruc');
+      if (rucCol) { insertColumns.push(rucCol); insertValues.push(rucNorm); }
 
-      if (estado) {
-        insertColumns.push('estado');
-        insertValues.push(String(estado).trim().toUpperCase());
-        paramCount += 1;
-      }
+      addCol('direccion', direccion);
+      addCol('distrito', distrito);
+      addColLower('correo', correo);
+      addCol('persona_responsable', persona_responsable);
+      addCol('telefono', telefono);
+      addCol('condiciones_pago', condiciones_pago);
+      addCol('banco', banco);
+      addColNum('id_moneda', id_moneda);
+      addCol('numero_cuenta', numero_cuenta);
+      addCol('cci', cci);
+      addColNumNull('id_area_destino', id_area_destino);
+      addCol('descripcion', descripcion);
+      addColUpper('retencion', retencion);
+      addCol('categoria', categoria);
+      addColNum('descuento', descuento);
+      addColUpper('tipo', tipo);
+      addColUpper('tipo_retencion', tipo_retencion);
+      addCol('contacto', contacto);
+      addColUpper('estado', estado);
 
       const placeholders = insertValues.map((_, idx) => `$${idx + 1}`);
 
@@ -266,83 +272,84 @@ module.exports = function(app, deps) {
       }
 
       const {
-        razon_social,
-        nombre,
-        ruc,
-        direccion,
-        telefono,
-        email,
-        contacto,
-        id_moneda,
-        estado,
+        razon_social, nombre, ruc, direccion, distrito, correo,
+        persona_responsable, telefono, condiciones_pago, banco,
+        id_moneda, numero_cuenta, cci, id_area_destino, descripcion,
+        retencion, categoria, descuento, tipo, tipo_retencion,
+        contacto, estado,
       } = req.body;
 
       const updates = [];
       const values = [];
       let paramCount = 1;
 
-      if (razon_social !== undefined) {
-        const col = getProveedorColumn('razon_social');
-        if (col) {
-          updates.push(`"${col}" = $${paramCount}`);
-          values.push(String(razon_social).trim());
-          paramCount += 1;
-        }
-      }
-
-      if (nombre !== undefined) {
-        const col = getProveedorColumn('nombre');
-        if (col) {
-          updates.push(`"${col}" = $${paramCount}`);
-          values.push(String(nombre).trim());
-          paramCount += 1;
-        }
-      }
-
-      if (ruc !== undefined) {
-        const col = getProveedorColumn('ruc');
-        if (col) {
-          updates.push(`"${col}" = $${paramCount}`);
-          values.push(String(ruc).trim());
-          paramCount += 1;
-        }
-      }
-
-      if (direccion !== undefined) {
-        updates.push(`direccion = $${paramCount}`);
-        values.push(String(direccion).trim());
+      const addStr = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        updates.push(`"${col}" = $${paramCount}`);
+        values.push(String(value).trim());
         paramCount += 1;
-      }
+      };
 
-      if (telefono !== undefined) {
-        updates.push(`telefono = $${paramCount}`);
-        values.push(String(telefono).trim());
+      const addStrLower = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        updates.push(`"${col}" = $${paramCount}`);
+        values.push(String(value).trim().toLowerCase());
         paramCount += 1;
-      }
+      };
 
-      if (email !== undefined) {
-        updates.push(`email = $${paramCount}`);
-        values.push(String(email).trim().toLowerCase());
+      const addStrUpper = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        updates.push(`"${col}" = $${paramCount}`);
+        values.push(String(value).trim().toUpperCase());
         paramCount += 1;
-      }
+      };
 
-      if (contacto !== undefined) {
-        updates.push(`contacto = $${paramCount}`);
-        values.push(String(contacto).trim());
+      const addNum = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        updates.push(`"${col}" = $${paramCount}`);
+        values.push(Number(value));
         paramCount += 1;
-      }
+      };
 
-      if (id_moneda !== undefined) {
-        updates.push(`id_moneda = $${paramCount}`);
-        values.push(Number(id_moneda));
+      const addNumNull = (key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        updates.push(`"${col}" = $${paramCount}`);
+        values.push(value === '' || value === null ? null : Number(value));
         paramCount += 1;
-      }
+      };
 
-      if (estado !== undefined) {
-        updates.push(`estado = $${paramCount}`);
-        values.push(String(estado).trim().toUpperCase());
-        paramCount += 1;
-      }
+      addStr('razon_social', razon_social);
+      addStr('nombre', nombre);
+      addStr('ruc', ruc);
+      addStr('direccion', direccion);
+      addStr('distrito', distrito);
+      addStrLower('correo', correo);
+      addStr('persona_responsable', persona_responsable);
+      addStr('telefono', telefono);
+      addStr('condiciones_pago', condiciones_pago);
+      addStr('banco', banco);
+      addNum('id_moneda', id_moneda);
+      addStr('numero_cuenta', numero_cuenta);
+      addStr('cci', cci);
+      addNumNull('id_area_destino', id_area_destino);
+      addStr('descripcion', descripcion);
+      addStrUpper('retencion', retencion);
+      addStr('categoria', categoria);
+      addNum('descuento', descuento);
+      addStrUpper('tipo', tipo);
+      addStrUpper('tipo_retencion', tipo_retencion);
+      addStr('contacto', contacto);
+      addStrUpper('estado', estado);
 
       if (updates.length === 0) {
         return res.status(400).json({ error: 'No hay campos para actualizar' });
