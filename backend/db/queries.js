@@ -1,16 +1,11 @@
-const { pool, schemaMeta, loadSchemaMeta, getServicioStatusColumn, getServicioUserIdColumn, getServicioAreaIdColumn, getServicioDescriptionColumn, getServicioNameColumn, getServicioPriorityColumn, getServicioDentroPlanColumn, getServicioApprovalColumn, getServicioProviderIdColumn, getServicioSubtotalColumn, getServicioIgvColumn, getServicioCostoEnvioColumn, getServicioOtrosCostosColumn, getServicioTotalColumn, getServicioAplicaRetencionColumn, getServicioRetencionColumn, getServicioTipoRetencionColumn, getServicioTipoCambioColumn, getServicioCurrencyIdColumn, getUserRoleIdExpr, quoteIdentifier, proveedorFieldCandidates, getProveedorColumn, buildProveedorSelectExpressions, getRequerimientoApprovalColumn } = require('./pool');
-const { normalize, normalizeRoleName, normalizePermissionName } = require('../utils/normalize');
+const { pool, getServicioStatusColumn, getUserRoleIdExpr } = require('./pool');
+const { normalize } = require('../utils/normalize');
 const { isWarehouseAreaName } = require('../config/constants');
-const { formatPetDateTime, PET_SQL_NOW } = require('../utils/datetime');
+const { formatPetDateTime } = require('../utils/datetime');
 
 // ---------------------------------------------------------------------------
 // Embedded comment parsing (purchase-specific)
 // ---------------------------------------------------------------------------
-
-const RECEIPT_NOTE_PREFIX = '[[RECIBIDO_POR:';
-const ITEM_CATEGORY_NOTE_PREFIX = '[[ITEM_CATEGORIAS:';
-const AREA_DELIVERY_NOTE_PREFIX = '[[ENTREGA_AREA:';
-const COMMENT_THREAD_NOTE_PREFIX = '[[COMENTARIOS_HIST:']];
 
 const normalizeItemCategoryKey = (value) => String(value || '').trim().toLowerCase();
 
