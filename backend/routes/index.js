@@ -1,0 +1,37 @@
+const authRoutes = require('./auth');
+const rolesRoutes = require('./roles');
+const usuariosRoutes = require('./usuarios');
+const areasRoutes = require('./areas');
+const materialesRoutes = require('./materiales');
+const requerimientosRoutes = require('./requerimientos');
+const movimientosRoutes = require('./movimientos');
+const proveedoresRoutes = require('./proveedores');
+const comprasRoutes = require('./compras');
+const comprasDirectasRoutes = require('./comprasDirectas');
+const serviciosRoutes = require('./servicios');
+const aprobacionesRoutes = require('./aprobaciones');
+const dashboardRoutes = require('./dashboard');
+const uploadRoutes = require('./upload');
+const healthRoutes = require('./health');
+const meRoutes = require('./me');
+const notificacionesRoutes = require('./notificaciones');
+
+module.exports = function registerRoutes(app, deps) {
+  healthRoutes(app, deps);
+  authRoutes(app, deps);
+  meRoutes(app, deps);
+  rolesRoutes(app, deps);
+  usuariosRoutes(app, deps);
+  areasRoutes(app, deps);
+  materialesRoutes(app, deps);
+  requerimientosRoutes(app, deps);
+  movimientosRoutes(app, deps);
+  proveedoresRoutes(app, deps);
+  comprasRoutes(app, deps);
+  comprasDirectasRoutes(app, deps);
+  serviciosRoutes(app, deps);
+  aprobacionesRoutes(app, deps);
+  dashboardRoutes(app, deps);
+  uploadRoutes(app, deps);
+  notificacionesRoutes(app, deps);
+};
