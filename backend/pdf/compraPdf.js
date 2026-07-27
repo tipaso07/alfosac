@@ -122,17 +122,18 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       { header: 'TOTAL', width: 75, align: 'right', isTotal: true, format: 'money' },
     ];
 
+    const totalCantidad = items.reduce((sum, it) => sum + Number(it.cantidad || 0), 0);
+    const puUnit = totalCantidad > 0 ? subtotal / totalCantidad : 0;
+
     const tableRows = items.map((item, i) => {
       const qty = Number(item.cantidad || 0);
-      const precio = Number(item.precio_unitario || item.precio || 0);
-      const total = Number(item.total || qty * precio || 0);
-      const pu = qty > 0 ? total / qty : precio;
+      const itemTotal = puUnit * qty;
       return [
         String(i + 1),
         safeText(item.material || item.descripcion || item.nombre),
         String(qty),
-        pu,
-        total,
+        puUnit,
+        itemTotal,
       ];
     });
 
