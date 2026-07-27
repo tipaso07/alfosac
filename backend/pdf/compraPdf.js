@@ -69,9 +69,14 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const otrosCostos = Number(compra.otros_costos || 0);
   const totalBase = Number((subtotal + igv + costoEnvio + otrosCostos).toFixed(2));
   const aplicaRetencion = Boolean(compra.aplica_retencion);
-  const porcentajeRetencion = Number(compra.descuento || 0);
+  const rawPct = Number(compra.descuento || 0);
+  const porcentajeRetencion = rawPct > 100 ? rawPct / 100 : rawPct;
   const montoRetenido = aplicaRetencion ? Number((totalBase * (porcentajeRetencion / 100)).toFixed(2)) : 0;
   const totalFinal = Number(compra.importe_final || compra.total || totalBase);
+
+  const currencyLabel = compra.moneda || 'PEN';
+  const normCurrency = String(currencyLabel).trim().toUpperCase();
+  const isUSD = normCurrency.includes('USD') || normCurrency.includes('DOLAR') || normCurrency.includes('DÓLAR');
 
   // --- Section: VENDEDOR / ENVÍE A ---
 
@@ -84,7 +89,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   // VENDEDOR block
   const vendorEndY = drawSectionBar(doc, { title: 'VENDEDOR', x: left, y: blocksY, width: leftColW });
   const vendorRows = [
-    [compra.razon_social || compra.proveedor, ''],
+    ['Razón Social', compra.razon_social || compra.proveedor],
     ['Dirección', compra.direccion],
     ['Ciudad', compra.distrito],
     ['RUC', compra.ruc],
@@ -94,8 +99,9 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   // ENVÍE A block
   const shipBarY = blocksY;
   const shipEndY = drawSectionBar(doc, { title: 'ENVÍE A', x: left + leftColW + colGap, y: shipBarY, width: rightColW });
+  const areaName = compra.area_final || compra.area_solicitante;
   const shipRows = [
-    [compra.area_final || compra.area_solicitante, ''],
+    ...(areaName ? [[areaName, '']] : []),
     ['Solicitante', compra.usuario],
     ['Área', compra.area_solicitante],
     ['', 'Av. Nestor Gambetta N° 4783 - Callao'],
@@ -112,19 +118,20 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       { header: 'ARTÍCULO #', width: 58, align: 'left' },
       { header: 'DESCRIPCIÓN', width: usableWidth - 58 - 50 - 70 - 75, align: 'left' },
       { header: 'CANT', width: 50, align: 'center' },
-      { header: 'P/U', width: 70, align: 'right' },
-      { header: 'TOTAL', width: 75, align: 'right', isTotal: true },
+      { header: 'P/U', width: 70, align: 'right', format: 'money' },
+      { header: 'TOTAL', width: 75, align: 'right', isTotal: true, format: 'money' },
     ];
 
     const tableRows = items.map((item, i) => {
       const qty = Number(item.cantidad || 0);
       const precio = Number(item.precio_unitario || item.precio || 0);
       const total = Number(item.total || qty * precio || 0);
+      const pu = qty > 0 ? total / qty : precio;
       return [
         String(i + 1),
         safeText(item.material || item.descripcion || item.nombre),
         String(qty),
-        precio,
+        pu,
         total,
       ];
     });
@@ -139,6 +146,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
       bottomLimit,
       ensureSpaceFn: ensureSpace,
       drawHeaderFn: drawHeader,
+      currency: currencyLabel,
     });
   }
 
@@ -169,7 +177,6 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     ['Banco', compra.banco],
     ['Moneda', compra.moneda || 'PEN'],
     ['N.º CTA', compra.numero_cuenta || compra.cuenta],
-    ['Área solicitante', compra.area_solicitante],
     ['Área Final', compra.area_final],
   ].filter((r) => r[1]);
 
@@ -187,7 +194,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   doc.font('Helvetica').fontSize(7.2).fillColor(PDF_BRAND_COLORS.textPrimary);
   doc.text('Importe:', left + 6, importeY + 4, { width: 80, align: 'left', lineBreak: false });
   doc.font('Helvetica-Bold').fontSize(14).fillColor(PDF_BRAND_COLORS.textPrimary);
-  doc.text(formatMoney(totalFinal), left + 90, importeY + 3, { width: adminLeftW - 96, align: 'right', lineBreak: false });
+  doc.text(formatMoney(totalFinal, currencyLabel), left + 90, importeY + 3, { width: adminLeftW - 96, align: 'right', lineBreak: false });
 
   // Format code
   doc.font('Helvetica-Bold').fontSize(7).fillColor(PDF_BRAND_COLORS.textPrimary);
@@ -209,10 +216,10 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     ['IMPUESTO IGV', igv],
     ['ENVÍO', costoEnvio],
     ['OTRO', otrosCostos],
-    ['TOTAL', totalFinal],
+    ['TOTAL', totalBase],
   ];
 
-  drawTotalsBlock(doc, { rows: totalsRows, x: totalsX, y: totalsY, width: adminRightW });
+  drawTotalsBlock(doc, { rows: totalsRows, x: totalsX, y: totalsY, width: adminRightW, currency: currencyLabel });
 
   // --- Contact footer ---
 
