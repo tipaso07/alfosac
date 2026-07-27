@@ -473,12 +473,12 @@ const drawTwoColumnAdmin = (doc, { leftRows, rightRows, x, y, leftWidth, rightWi
 };
 
 /**
- * Draw the contact footer centered at the bottom.
+ * Draw the contact footer centered at the given Y position.
  */
-const drawContactFooter = (doc, { email, phone, left, bottomLimit, usableWidth }) => {
+const drawContactFooter = (doc, { email, phone, left, y, usableWidth }) => {
   const text = `Si tienes dudas sobre la orden, contactar a:\n${email || 'compras@alfosac.pe'}\n${phone || '+51 978772509'}`;
   doc.font('Helvetica-Oblique').fontSize(6.5).fillColor(PDF_BRAND_COLORS.textSecondary);
-  doc.text(text, left, bottomLimit - 18, { width: usableWidth, align: 'center', lineBreak: false });
+  doc.text(text, left, y, { width: usableWidth, align: 'center', lineBreak: false });
 };
 
 /**
