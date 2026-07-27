@@ -1,125 +1,54 @@
 const PDFDocument = require('pdfkit');
 const {
   PDF_BRAND_COLORS,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARGIN_LEFT,
+  MARGIN_RIGHT,
+  USABLE_WIDTH,
+  BOTTOM_LIMIT,
   safeText,
-  formatCurrency,
+  formatMoney,
   formatPetDateTime,
   currentPetDateTime,
   normalize,
   normalizeRoleName,
   buildPdfApprovalEntries,
   drawHeader: sharedDrawHeader,
+  drawSectionBar,
+  drawFieldRows,
+  drawItemsTable,
+  drawTotalsBlock,
+  drawContactFooter,
   ensureSpace: sharedEnsureSpace,
-  drawSectionTitle,
-  drawInfoBlock,
-  drawFooter,
 } = require('./helpers');
 
 const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
-  const doc = new PDFDocument({ margin: 36, size: 'A4', bufferPages: true });
+  const doc = new PDFDocument({ margin: MARGIN_LEFT, size: 'A4', bufferPages: true });
   const chunks = [];
 
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const left = 36;
-  const right = 36;
-  const usableWidth = pageWidth - left - right;
-  const bottomLimit = pageHeight - 72;
+  const left = MARGIN_LEFT;
+  const usableWidth = USABLE_WIDTH;
+  const bottomLimit = BOTTOM_LIMIT;
 
   const currencyLabel = safeText(servicio.moneda || servicio.proveedor_moneda || 'PEN');
-  const money = (value, currency = currencyLabel) => formatCurrency(value, currency);
   const companyAddress = 'Av Nestor Gambeta N°4783 Callao - Callao';
   const companyRuc = '20606777257';
   const companyWeb = 'www.alfosac.pe';
 
-  const headerOpts = { companyAddress, companyRuc, companyWeb, pageWidth, left, right, usableWidth };
-
-  const drawHeader = () => sharedDrawHeader(doc, { title: 'ORDEN DE SERVICIO', ...headerOpts });
+  const drawHeader = () => sharedDrawHeader(doc, {
+    title: 'ORDEN DE SERVICIO',
+    companyAddress,
+    companyRuc,
+    companyWeb,
+    controlFecha: String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0],
+    controlNumero: servicio.numero_orden || `OS-${servicio.id}`,
+    left,
+    pageWidth: PAGE_WIDTH,
+    usableWidth,
+  });
 
   const ensureSpace = (needed = 24) => sharedEnsureSpace(doc, { bottomLimit, drawHeaderFn: drawHeader }, needed);
-
-  const writeSectionTitle = (title) => {
-    ensureSpace(28);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor(PDF_BRAND_COLORS.primaryDark).text(title, left, doc.y, { width: usableWidth });
-    doc.moveDown(0.2);
-    doc.moveTo(left, doc.y).lineTo(pageWidth - right, doc.y).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.8).stroke();
-    doc.moveDown(0.5);
-  };
-
-  const colorCodedSectionTitle = (title, badgeColor = PDF_BRAND_COLORS.primary) => {
-    drawSectionTitle(doc, {
-      title,
-      badgeColor,
-      left,
-      right,
-      pageWidth,
-      usableWidth,
-      ensureSpaceFn: ensureSpace,
-    });
-  };
-
-  const infoBlock = ({ title, rows, x, y, width }) => drawInfoBlock(doc, { title, rows, x, y, width });
-
-  const estimateBlockHeight = (rows = []) => {
-    const measureRowHeight = (label, value, labelWidth, valueWidth) => {
-      const textLabel = `${safeText(label)}:`;
-      const textValue = safeText(value);
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-      doc.font('Helvetica').fontSize(8.5);
-      const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-      return Math.max(18, Math.max(labelHeight, valueHeight));
-    };
-
-    let total = 24;
-    const labelWidth = 98;
-    const valueWidth = 136;
-    rows.forEach(([label, value]) => {
-      total += measureRowHeight(label, value, labelWidth, valueWidth) + 6;
-    });
-    return total + 6;
-  };
-
-  const renderTwoColumnBlocks = (blocks) => {
-    const colGap = 12;
-    const colWidth = (usableWidth - colGap) / 2;
-    let cursorY = doc.y;
-
-    for (let i = 0; i < blocks.length; i += 2) {
-      const leftBlock = blocks[i];
-      const rightBlock = blocks[i + 1] || null;
-      const estimatedPairHeight = Math.max(
-        estimateBlockHeight(leftBlock?.rows || []),
-        rightBlock ? estimateBlockHeight(rightBlock.rows || []) : 0,
-      ) + 10;
-
-      ensureSpace(estimatedPairHeight);
-      cursorY = Math.max(cursorY, doc.y);
-
-      const leftBottom = infoBlock({
-        title: leftBlock.title,
-        rows: leftBlock.rows,
-        x: left,
-        y: cursorY,
-        width: colWidth,
-      });
-
-      let pairBottom = leftBottom;
-      if (rightBlock) {
-        const rightBottom = infoBlock({
-          title: rightBlock.title,
-          rows: rightBlock.rows,
-          x: left + colWidth + colGap,
-          y: cursorY,
-          width: colWidth,
-        });
-        pairBottom = Math.max(leftBottom, rightBottom);
-      }
-
-      cursorY = pairBottom + 1;
-      doc.y = cursorY;
-    }
-  };
 
   // --- Event listeners ---
 
@@ -128,10 +57,11 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
 
   doc.on('pageAdded', () => {
-    doc.y = 140;
+    doc.y = 110;
   });
 
   drawHeader();
+  doc.y = doc.y + 8;
 
   // --- Calculations ---
 
@@ -167,113 +97,170 @@ const buildServicioPdfBase64 = (servicio) => new Promise((resolve, reject) => {
   if (aplicaRetencion) {
     totalFinal = Number((totalBase - montoRetenido).toFixed(2));
   }
-  const approverEntries = buildPdfApprovalEntries({
-    approvals: servicio.aprobadores,
-    creatorUserId: servicio.id_usuario,
-    creatorRoleId: servicio.usuario_rol_id,
-    creatorName: servicio.usuario,
-  });
-  const approversSummary = approverEntries
-    .filter((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase();
-      const rolLabel = String(row.rol || '').trim().toUpperCase();
-      const isRequesterRow = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE';
-      return !isRequesterRow || approverEntries.length === 1;
-    })
-    .map((row) => {
-      const etapaLabel = String(row.etapa || '').trim().toUpperCase();
-      const rolLabel = String(row.rol || '').trim().toUpperCase();
-      const fallbackRoleLabel = safeText(row.rol || '');
-      const label = etapaLabel === 'SOLICITANTE' || rolLabel === 'SOLICITANTE'
-        ? fallbackRoleLabel
-        : safeText(row.etapa || row.rol || '');
-      return `${label} - ${safeText(row.aprobador || 'Pendiente')}`;
-    })
-    .join('\n');
-
-  // --- Section: Resumen ---
-
-  colorCodedSectionTitle('Resumen', PDF_BRAND_COLORS.primary);
-  ensureSpace(50);
 
   const estadoServicio = normalize(servicio.estado_flujo || servicio.estado_servicio) === 'PENDIENTE'
     ? 'PENDIENTE DE REALIZACION'
     : (servicio.estado_flujo || servicio.estado_servicio);
 
-  const servicioEstadoBottom = infoBlock({
-    title: 'Servicio y estado',
-    rows: [
-      ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
-      ['Descripción', servicio.descripcion_servicio],
-      ['Prioridad', servicio.prioridad],
-      ['Estado', estadoServicio],
-      ['Estado aprobación', servicio.estado_aprobacion],
-    ],
+  // --- Section: VENDEDOR / ENVÍE A ---
+
+  const colGap = 55;
+  const leftColW = Math.floor((usableWidth - colGap) * 0.55);
+  const rightColW = usableWidth - leftColW - colGap;
+
+  let blocksY = doc.y;
+
+  // VENDEDOR block
+  const vendorEndY = drawSectionBar(doc, { title: 'VENDEDOR', x: left, y: blocksY, width: leftColW });
+  const vendorRows = [
+    [servicio.proveedor, ''],
+    ['RUC', servicio.proveedor_ruc],
+    ['Dirección', servicio.proveedor_direccion],
+    ['Banco', servicio.proveedor_banco],
+    ['Cuenta', servicio.proveedor_cuenta],
+    ['CCI', servicio.proveedor_cci],
+    ['Condiciones de pago', servicio.proveedor_condiciones_pago],
+  ].filter((r) => r[1]);
+  const vendorFieldEndY = drawFieldRows(doc, { rows: vendorRows, x: left, y: vendorEndY + 2, width: leftColW, labelWidth: 50 });
+
+  // ENVÍE A block
+  const shipBarY = blocksY;
+  const shipEndY = drawSectionBar(doc, { title: 'ENVÍE A', x: left + leftColW + colGap, y: shipBarY, width: rightColW });
+  const shipRows = [
+    [servicio.area || servicio.area_destino, ''],
+    ['Solicitante', servicio.usuario],
+    ['Moneda', currencyLabel],
+  ].filter((r) => r[1]);
+  const shipFieldEndY = drawFieldRows(doc, { rows: shipRows, x: left + leftColW + colGap, y: shipEndY + 2, width: rightColW, labelWidth: 50 });
+
+  doc.y = Math.max(vendorFieldEndY, shipFieldEndY) + 10;
+
+  // --- Service detail table (2 columns: # and Descripción) ---
+
+  const items = Array.isArray(servicio.items) ? servicio.items : [];
+  if (items.length > 0) {
+    const columns = [
+      { header: '#', width: 45, align: 'center' },
+      { header: 'DESCRIPCIÓN DEL SERVICIO', width: usableWidth - 45, align: 'left' },
+    ];
+
+    const tableRows = items.map((item, i) => [
+      String(i + 1),
+      safeText(item.material || item.descripcion || item.nombre || servicio.descripcion_servicio),
+    ]);
+
+    doc.y = doc.y + 4;
+    doc.y = drawItemsTable(doc, {
+      columns,
+      rows: tableRows,
+      x: left,
+      y: doc.y,
+      width: usableWidth,
+      bottomLimit,
+      ensureSpaceFn: ensureSpace,
+      drawHeaderFn: drawHeader,
+    });
+  } else {
+    // Single description row if no items array
+    if (servicio.descripcion_servicio || servicio.descripcion) {
+      const columns = [
+        { header: '#', width: 45, align: 'center' },
+        { header: 'DESCRIPCIÓN DEL SERVICIO', width: usableWidth - 45, align: 'left' },
+      ];
+      const tableRows = [['1', safeText(servicio.nombre_servicio || servicio.descripcion_servicio || servicio.descripcion)]];
+
+      doc.y = doc.y + 4;
+      doc.y = drawItemsTable(doc, {
+        columns,
+        rows: tableRows,
+        x: left,
+        y: doc.y,
+        width: usableWidth,
+        bottomLimit,
+        ensureSpaceFn: ensureSpace,
+        drawHeaderFn: drawHeader,
+      });
+    }
+  }
+
+  // --- Bottom section: admin fields + totals ---
+
+  doc.y = doc.y + 10;
+
+  const adminLeftW = Math.floor(usableWidth * 0.72);
+  const adminRightW = usableWidth - adminLeftW - 25;
+  const bottomY = doc.y;
+
+  // Admin fields header
+  const adminBarEndY = drawSectionBar(doc, {
+    title: 'Información del servicio',
     x: left,
-    y: doc.y,
-    width: usableWidth,
+    y: bottomY,
+    width: adminLeftW,
   });
-  doc.y = servicioEstadoBottom;
 
-  // --- Two-column info blocks ---
+  const comentario = String(servicio.comentarios || servicio.detalle || '').trim();
 
-  renderTwoColumnBlocks([
-    {
-      title: 'Datos de la orden',
-      rows: [
-        ['Número de orden', servicio.numero_orden || `OS-${servicio.id}`],
-        ['Fecha', String(formatPetDateTime(servicio.fecha || currentPetDateTime()) || '').split(' ')[0]],
-        ['Proveedor', servicio.proveedor],
-        ['Área destino', servicio.area],
-      ],
-    },
-    {
-      title: 'Proveedor',
-      rows: [
-        ['Moneda', currencyLabel],
-        ['RUC', servicio.proveedor_ruc],
-        ['Dirección', servicio.proveedor_direccion],
-        ['Banco', servicio.proveedor_banco],
-        ['Cuenta', servicio.proveedor_cuenta],
-        ['CCI', servicio.proveedor_cci],
-        ['Condiciones de pago', servicio.proveedor_condiciones_pago],
-      ],
-    },
-    {
-      title: 'Detalle financiero',
-      rows: [
-        ['Subtotal', money(subtotal)],
-        ['IGV', money(igv)],
-        ['Costo envío', money(costoEnvio)],
-        ['Otros costos', money(otrosCostos)],
-        ['Total base', money(totalBase)],
-        ['Retención aplicada', aplicaRetencion ? 'SÍ' : 'NO'],
-        ['Porcentaje', `${porcentajeRetencion.toFixed(2)}%`],
-        ['Monto retenido', money(montoRetenido)],
-        ['Total final', money(totalFinal)],
-      ],
-    },
-    {
-      title: 'Aprobaciones',
-      rows: [
-        ['Flujo', approversSummary || 'Sin aprobaciones registradas'],
-      ],
-    },
-  ]);
+  const adminRows = [
+    ['Nombre', servicio.nombre_servicio || servicio.descripcion_servicio],
+    ['Descripción', servicio.descripcion_servicio],
+    ['Prioridad', servicio.prioridad],
+    ['Estado', estadoServicio],
+    ['Estado aprobación', servicio.estado_aprobacion],
+    ['Correo', servicio.correo],
+    ['Retención', aplicaRetencion ? `${porcentajeRetencion.toFixed(2)}%` : '-'],
+  ].filter((r) => r[1]);
+
+  if (comentario) {
+    adminRows.push(['Comentarios', comentario]);
+  }
+
+  const adminFieldEndY = drawFieldRows(doc, {
+    rows: adminRows,
+    x: left,
+    y: adminBarEndY + 2,
+    width: adminLeftW,
+  });
+
+  // Importe row
+  const importeY = adminFieldEndY + 4;
+  const importeBarH = 22;
+  doc.rect(left, importeY, adminLeftW, importeBarH).fill(PDF_BRAND_COLORS.highlightBlue);
+  doc.font('Helvetica').fontSize(7.2).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('Importe:', left + 6, importeY + 4, { width: 80, align: 'left', lineBreak: false });
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text(formatMoney(totalFinal), left + 90, importeY + 3, { width: adminLeftW - 96, align: 'right', lineBreak: false });
+
+  // Version bar
+  const versionBarY = importeY + importeBarH + 6;
+  doc.rect(left, versionBarY, 100, 13).fill(PDF_BRAND_COLORS.navy);
+  doc.font('Helvetica').fontSize(6.5).fillColor('#ffffff');
+  doc.text('Versión 1.0', left + 4, versionBarY + 3.5, { width: 92, align: 'left' });
+
+  // --- Totals block (right side) ---
+
+  const totalsY = bottomY;
+  const totalsX = left + adminLeftW + 25;
+
+  const totalsRows = [
+    ['SUBTOTAL', subtotal],
+    ['IMPUESTO IGV', igv],
+    ['ENVÍO', costoEnvio],
+    ['OTRO', otrosCostos],
+    ['TOTAL', totalFinal],
+  ];
+
+  drawTotalsBlock(doc, { rows: totalsRows, x: totalsX, y: totalsY, width: adminRightW });
 
   // --- Contact footer ---
 
-  doc.moveDown(0.2);
-  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary).text(
-    'Si tienes dudas sobre el servicio u orden de compra, contactar a:\ncompras@alfosac.pe\n+51 978772509',
+  drawContactFooter(doc, {
+    email: 'compras@alfosac.pe',
+    phone: '+51 978772509',
     left,
-    bottomLimit - 24,
-    { width: usableWidth, align: 'center' }
-  );
-
-  // --- Page numbers ---
-
-  drawFooter(doc, { left, right, pageWidth, usableWidth, bottomLimit });
+    bottomLimit,
+    usableWidth,
+  });
 
   doc.end();
 });

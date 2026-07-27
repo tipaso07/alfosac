@@ -26,18 +26,35 @@ const getCompanyLogoPath = (background = 'light') => {
 };
 
 // ---------------------------------------------------------------------------
-// Brand colors
+// Brand colors (ERP corporate palette)
 // ---------------------------------------------------------------------------
 
 const PDF_BRAND_COLORS = {
-  primary: '#3b82f6',
-  primaryDark: '#1e40af',
-  line: '#bfdbfe',
-  surface: '#f8fafc',
-  sectionHeader: '#e0edff',
-  textPrimary: '#1e293b',
-  textSecondary: '#64748b',
+  navy: '#1F3763',
+  navyAlt: '#213558',
+  logoBlue: '#163B88',
+  highlightBlue: '#B0C3E4',
+  grey: '#CCCCCC',
+  lightGrey: '#F4F4F4',
+  borderGrey: '#A6A6A6',
+  textPrimary: '#000000',
+  textSecondary: '#222222',
+  textTender: '#C7C7C7',
+  linkBlue: '#0000EE',
 };
+
+// ---------------------------------------------------------------------------
+// Page constants
+// ---------------------------------------------------------------------------
+
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
+const MARGIN_LEFT = 31;
+const MARGIN_RIGHT = 31;
+const MARGIN_TOP = 23;
+const MARGIN_BOTTOM = 20;
+const USABLE_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
+const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN_BOTTOM;
 
 // ---------------------------------------------------------------------------
 // Text / formatting helpers
@@ -45,7 +62,15 @@ const PDF_BRAND_COLORS = {
 
 const safeText = (value) => String(value || '').replace(/\s+/g, ' ').trim() || 'N/D';
 
-const formatCurrency = (value, currency = 'PEN') => `${Number(value || 0).toFixed(2)} ${safeText(currency)}`;
+const formatMoney = (value) => {
+  const num = Number(value || 0);
+  const fixed = num.toFixed(2);
+  const [intPart, decPart] = fixed.split('.');
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `S/ ${withCommas}.${decPart}`;
+};
+
+const formatCurrency = (value, currency = 'PEN') => formatMoney(value);
 
 const PET_TIME_ZONE = 'America/Lima';
 
@@ -68,8 +93,13 @@ const formatPetDateTime = (value) => {
 
 const currentPetDateTime = () => formatPetDateTime(new Date());
 
+const formatShortDate = (value) => {
+  const str = String(formatPetDateTime(value) || '').split(' ')[0];
+  return str || 'N/D';
+};
+
 // ---------------------------------------------------------------------------
-// Normalization helpers (needed by approval functions)
+// Normalization helpers
 // ---------------------------------------------------------------------------
 
 const normalize = (v) => String(v || '').trim().toUpperCase();
@@ -85,7 +115,7 @@ const normalizePermissionName = (value) => normalizeRoleName(value)
   .replace(/^_+|_+$/g, '');
 
 // ---------------------------------------------------------------------------
-// Role name cache (populated externally via setRoleNamesCache)
+// Role name cache
 // ---------------------------------------------------------------------------
 
 let ROLE_NAME_BY_ID = new Map();
@@ -101,25 +131,16 @@ const setRoleNamesCache = (map) => {
 const getApprovalRoleLabel = (roleId, roleName = '') => {
   const numericRoleId = Number(roleId || 0);
   const explicitName = String(roleName || '').trim();
-  if (explicitName) {
-    return explicitName;
-  }
-
+  if (explicitName) return explicitName;
   const cachedName = ROLE_NAME_BY_ID.get(numericRoleId);
-  if (cachedName) {
-    return cachedName;
-  }
-
+  if (cachedName) return cachedName;
   return numericRoleId > 0 ? `Rol ${numericRoleId}` : '';
 };
 
 const getApprovalStageKeyByRoleId = (roleId) => {
   const fallback = normalizePermissionName(getApprovalRoleLabel(roleId));
   if (!fallback) return '';
-
-  return fallback
-    .replace(/\s+/g, '_')
-    .replace(/[^A-Z0-9_]/g, '');
+  return fallback.replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
 };
 
 const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRoleId = 0, creatorName = '' } = {}) => {
@@ -142,8 +163,10 @@ const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRol
   const creatorLabel = String(creatorName || '').trim();
 
   if (creatorId > 0 && creatorLabel) {
-    const creatorAlreadyIncluded = ordered.some((row) => Number(row.usuario_id || 0) === creatorId || Number(row.rol_aprobador || 0) === numericCreatorRoleId);
-    if (!creatorAlreadyIncluded) {
+    const alreadyIncluded = ordered.some(
+      (row) => Number(row.usuario_id || 0) === creatorId || Number(row.rol_aprobador || 0) === numericCreatorRoleId
+    );
+    if (!alreadyIncluded) {
       ordered.unshift({
         orden: 0,
         rol_aprobador: numericCreatorRoleId,
@@ -162,9 +185,7 @@ const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRol
     .sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0) || Number(a.rol_aprobador || 0) - Number(b.rol_aprobador || 0))
     .forEach((row) => {
       const key = `${Number(row.usuario_id || 0)}:${Number(row.rol_aprobador || 0)}:${String(row.aprobador || '').toLowerCase()}`;
-      if (seen.has(key)) {
-        return;
-      }
+      if (seen.has(key)) return;
       seen.add(key);
       deduped.push(row);
     });
@@ -172,38 +193,22 @@ const buildPdfApprovalEntries = ({ approvals = [], creatorUserId = 0, creatorRol
   return deduped;
 };
 
-// ---------------------------------------------------------------------------
-// Receipt info parser
-// ---------------------------------------------------------------------------
-
 const parseReceiptInfo = (value) => {
   const text = String(value || '').trim();
   const match = text.match(/^(.*?)(?:\s*-\s*DNI\s*(.+))?$/i);
-  const nombre = String(match?.[1] || '').trim();
-  const dni = String(match?.[2] || '').trim();
   return {
-    nombre: nombre || text,
-    dni,
+    nombre: String(match?.[1] || text || '').trim(),
+    dni: String(match?.[2] || '').trim(),
   };
 };
 
 // ---------------------------------------------------------------------------
-// Shared PDF drawing helpers
+// Shared PDF drawing helpers (ERP corporate style)
 // ---------------------------------------------------------------------------
 
 /**
- * Draw the dark header bar with company logo, title, and subtitle.
- *
- * @param {PDFDocument} doc   - PDFKit document
- * @param {object} opts
- * @param {string} opts.title          - e.g. 'ORDEN DE COMPRA'
- * @param {string} [opts.companyAddress]
- * @param {string} [opts.companyRuc]
- * @param {string} [opts.companyWeb]
- * @param {number} [opts.pageWidth]
- * @param {number} [opts.left]
- * @param {number} [opts.right]
- * @param {number} [opts.usableWidth]
+ * Draw the company header: logo + company info on left, title + control table on right.
+ * Returns the Y position after the header.
  */
 const drawHeader = (doc, opts = {}) => {
   const {
@@ -211,272 +216,279 @@ const drawHeader = (doc, opts = {}) => {
     companyAddress = 'Av Nestor Gambeta N°4783 Callao - Callao',
     companyRuc = '20606777257',
     companyWeb = 'www.alfosac.pe',
-    pageWidth = 595.28,
-    left = 36,
-    right = 36,
-    usableWidth = pageWidth - left - right,
+    controlFecha = '',
+    controlNumero = '',
+    left = MARGIN_LEFT,
+    pageWidth = PAGE_WIDTH,
+    usableWidth = USABLE_WIDTH,
   } = opts;
 
+  let headerY = MARGIN_TOP;
+
+  // --- Left side: logo + company info ---
   const logoPath = getCompanyLogoPath('dark');
-
-  doc.rect(left, 18, usableWidth, 62).fill(PDF_BRAND_COLORS.primaryDark);
-
   if (logoPath) {
-    doc.image(logoPath, left + 12, 24, {
-      fit: [84, 50],
-      align: 'left',
-      valign: 'center',
-    });
+    try {
+      doc.image(logoPath, left, headerY, { fit: [175, 36], align: 'left', valign: 'top' });
+    } catch (_) { /* logo not found */ }
   }
 
-  doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff').text(title, left, 32, { width: usableWidth - 14, align: 'right' });
-  doc.font('Helvetica').fontSize(9).fillColor(PDF_BRAND_COLORS.textSecondary).text(`Dirección: ${companyAddress}`, left, 94, { width: usableWidth, align: 'center' });
-  doc.text(`RUC: ${companyRuc}`, left, 106, { width: usableWidth, align: 'center' });
-  doc.text(`Sitio Web: ${companyWeb}`, left, 118, { width: usableWidth, align: 'center' });
-  doc.moveTo(left, 132).lineTo(pageWidth - right, 132).strokeColor(PDF_BRAND_COLORS.line).lineWidth(0.9).stroke();
+  const infoY = headerY + 40;
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('ALFOSAC S.A.C.', left, infoY, { width: 280, align: 'left' });
+  doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(companyAddress, left, infoY + 11, { width: 280, align: 'left' });
+  doc.font('Helvetica').fontSize(7.5).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(`RUC: `, left, infoY + 21, { width: 280, align: 'left', continued: true })
+    .font('Helvetica-Bold').text(companyRuc, { continued: false });
+  doc.font('Helvetica').fontSize(7.5)
+    .text(`Sitio Web: `, left, infoY + 31, { width: 280, align: 'left', continued: true })
+    .font('Helvetica-Bold').text(companyWeb, { continued: false });
+
+  // --- Right side: title + control table ---
+  const rightX = left + 290;
+  const rightWidth = usableWidth - 290;
+
+  doc.font('Helvetica').fontSize(24).fillColor(PDF_BRAND_COLORS.navy);
+  doc.text(title, rightX, headerY, { width: rightWidth, align: 'right' });
+
+  // Control table
+  const ctrlY = headerY + 38;
+  const labelW = 48;
+  const valueW = rightWidth - labelW - 4;
+
+  // Fecha row
+  doc.rect(rightX, ctrlY, labelW, 18).fillAndStroke(PDF_BRAND_COLORS.lightGrey, PDF_BRAND_COLORS.borderGrey);
+  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('FECHA', rightX + 3, ctrlY + 5, { width: labelW - 6, align: 'right' });
+
+  doc.rect(rightX + labelW + 2, ctrlY, valueW, 18).fillAndStroke(PDF_BRAND_COLORS.lightGrey, PDF_BRAND_COLORS.borderGrey);
+  doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text(controlFecha || 'N/D', rightX + labelW + 5, ctrlY + 5, { width: valueW - 6, align: 'center' });
+
+  // OC# row
+  doc.rect(rightX, ctrlY + 20, labelW, 18).fillAndStroke(PDF_BRAND_COLORS.highlightBlue, PDF_BRAND_COLORS.borderGrey);
+  doc.font('Helvetica').fontSize(7).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text('OC #', rightX + 3, ctrlY + 25, { width: labelW - 6, align: 'right' });
+
+  doc.rect(rightX + labelW + 2, ctrlY + 20, valueW, 18).fillAndStroke(PDF_BRAND_COLORS.highlightBlue, PDF_BRAND_COLORS.borderGrey);
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
+  doc.text(controlNumero || 'N/D', rightX + labelW + 5, ctrlY + 24, { width: valueW - 6, align: 'center' });
+
+  return ctrlY + 48;
 };
 
 /**
- * Ensure there is enough vertical space on the current page.
- * If not, add a new page and redraw the header.
+ * Draw a section bar: navy background, white text.
+ * Returns the Y after the bar.
  */
-const ensureSpace = (doc, opts, needed = 24) => {
-  const { bottomLimit, drawHeaderFn } = opts;
-  if (doc.y + needed > bottomLimit) {
-    doc.addPage();
-    drawHeaderFn();
-  }
+const drawSectionBar = (doc, { title, x, y, width }) => {
+  const barHeight = 17;
+  doc.rect(x, y, width, barHeight).fill(PDF_BRAND_COLORS.navy);
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#ffffff');
+  doc.text(title, x + 8, y + 4.5, { width: width - 16, align: 'left', lineBreak: false });
+  return y + barHeight;
 };
 
 /**
- * Draw a section title with a color-coded badge.
- *
- * @param {PDFDocument} doc
- * @param {object} opts
- * @param {string} opts.title
- * @param {string} [opts.badgeColor]  - hex color for the badge background
- * @param {number} [opts.left]
- * @param {number} [opts.right]
- * @param {number} [opts.pageWidth]
- * @param {number} [opts.usableWidth]
- * @param {function} [opts.ensureSpaceFn]
- * @param {function} [opts.drawHeaderFn]
+ * Draw field rows (label: value) for admin info blocks.
+ * Returns the Y after the last row.
  */
-const drawSectionTitle = (doc, opts = {}) => {
-  const {
-    title,
-    badgeColor = PDF_BRAND_COLORS.primary,
-    left = 36,
-    right = 36,
-    pageWidth = 595.28,
-    usableWidth = pageWidth - left - right,
-    ensureSpaceFn = () => {},
-  } = opts;
+const drawFieldRows = (doc, { rows, x, y, width, labelWidth }) => {
+  const lw = labelWidth || Math.floor(width * 0.42);
+  const vw = width - lw - 4;
+  const rowHeight = 17;
+  let curY = y;
 
-  ensureSpaceFn(28);
+  rows.forEach(([label, value, opts = {}]) => {
+    const text = safeText(value);
+    doc.font('Helvetica').fontSize(7.2).fillColor(PDF_BRAND_COLORS.textPrimary);
 
-  const badgePadX = 8;
-  const badgePadY = 3;
-  doc.font('Helvetica-Bold').fontSize(11);
-  const titleWidth = doc.widthOfString(title);
-  const badgeWidth = titleWidth + badgePadX * 2;
-  const badgeHeight = 18;
-  const badgeY = doc.y;
+    // Label
+    doc.font(opts.labelBold ? 'Helvetica-Bold' : 'Helvetica')
+      .fontSize(7.2)
+      .fillColor(PDF_BRAND_COLORS.textPrimary);
+    doc.text(`${safeText(label)}:`, x, curY + 4, { width: lw, align: 'left', lineBreak: false });
 
-  doc.roundedRect(left, badgeY, badgeWidth, badgeHeight, 4).fill(badgeColor);
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff').text(title, left + badgePadX, badgeY + badgePadY, {
-    width: titleWidth,
-    align: 'left',
-  });
+    // Value
+    const valueFont = opts.bold ? 'Helvetica-Bold' : 'Helvetica';
+    const valueColor = opts.color || PDF_BRAND_COLORS.textPrimary;
+    doc.font(valueFont).fontSize(7.2).fillColor(valueColor);
+    doc.text(text, x + lw + 4, curY + 4, { width: vw, align: 'left', lineBreak: false });
 
-  doc.y = badgeY + badgeHeight + 4;
-};
-
-/**
- * Draw a rounded info card with a title bar and two columns of key-value rows.
- */
-const drawInfoBlock = (doc, { title, rows, x, y, width }) => {
-  const rowGap = 6;
-  const paddingX = 10;
-  const paddingY = 6;
-  const titleHeight = 18;
-  const labelWidth = Math.max(98, Math.floor(width * 0.38));
-  const valueWidth = width - (paddingX * 2) - labelWidth - 8;
-
-  const measureRowHeight = (label, value) => {
-    const textLabel = `${safeText(label)}:`;
-    const textValue = safeText(value);
-    doc.font('Helvetica-Bold').fontSize(8.5);
-    const labelHeight = doc.heightOfString(textLabel, { width: labelWidth, align: 'left' });
-    doc.font('Helvetica').fontSize(8.5);
-    const valueHeight = doc.heightOfString(textValue, { width: valueWidth, align: 'left' });
-    return {
-      textLabel,
-      textValue,
-      rowHeight: Math.max(18, Math.max(labelHeight, valueHeight)),
-    };
-  };
-
-  let contentHeight = 0;
-  rows.forEach(([label, value]) => {
-    const measured = measureRowHeight(label, value);
-    contentHeight += measured.rowHeight + rowGap;
-  });
-
-  const blockHeight = titleHeight + (paddingY * 2) + contentHeight;
-
-  doc.roundedRect(x, y, width, blockHeight, 4).fillAndStroke(PDF_BRAND_COLORS.surface, '#dbe3ec');
-  doc.rect(x, y, width, titleHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#dbe3ec');
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary).text(title, x + paddingX, y + 5, {
-    width: width - (paddingX * 2),
-  });
-
-  let rowY = y + titleHeight + paddingY;
-  rows.forEach(([label, value]) => {
-    const { textLabel, textValue, rowHeight } = measureRowHeight(label, value);
-
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textSecondary).text(textLabel, x + paddingX, rowY, {
-      width: labelWidth,
-    });
-
-    const isTotalFinal = String(label || '').toLowerCase().replace(/\s+/g, '') === 'totalfinal'
-      || String(label || '').toLowerCase().includes('total final')
-      || String(label || '').toLowerCase().includes('totalfinal');
-
-    if (isTotalFinal) {
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-        width: valueWidth,
-      });
-    } else {
-      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary).text(textValue, x + paddingX + labelWidth + 8, rowY, {
-        width: valueWidth,
-      });
+    // Underline for email
+    if (opts.underline) {
+      const textWidth = Math.min(doc.widthOfString(text), vw);
+      doc.moveTo(x + lw + 4, curY + rowHeight - 1)
+        .lineTo(x + lw + 4 + textWidth, curY + rowHeight - 1)
+        .strokeColor(PDF_BRAND_COLORS.textPrimary).lineWidth(0.4).stroke();
     }
 
-    rowY += rowHeight + rowGap;
+    curY += rowHeight;
   });
 
-  return y + blockHeight;
+  return curY;
 };
 
 /**
- * Draw a styled table with header and alternating row colors.
- *
- * @param {PDFDocument} doc
- * @param {object} opts
- * @param {string[]} opts.headers     - column header labels
- * @param {number[]} opts.colWidths   - column widths
- * @param {Array<string[]>} opts.rows - array of row cell arrays
- * @param {number} [opts.left]
- * @param {number} [opts.pageWidth]
- * @param {number} [opts.right]
- * @param {number} [opts.usableWidth]
- * @param {number} [opts.bottomLimit]
- * @param {function} [opts.ensureSpaceFn]
- * @param {function} [opts.drawHeaderFn]
- * @param {function} [opts.writeSectionTitleFn]
- * @param {function} [opts.sectionTitle]
+ * Draw the items table with 5 columns (compras) or 2 columns (servicios).
+ * Column TOTAL always has a #F4F4F4 background band.
+ * Returns the Y after the table.
  */
-const drawTable = (doc, opts = {}) => {
-  const {
-    headers = [],
-    colWidths = [],
-    rows = [],
-    left = 36,
-    pageWidth = 595.28,
-    right = 36,
-    usableWidth = pageWidth - left - right,
-    bottomLimit = 770,
-    ensureSpaceFn = () => {},
-    drawHeaderFn = () => {},
-    writeSectionTitleFn = () => {},
-    sectionTitle = 'Items',
-  } = opts;
-
-  if (rows.length === 0) return;
-
-  const headerHeight = 20;
-  const rowGap = 0;
+const drawItemsTable = (doc, { columns, rows, x, y, width, bottomLimit, ensureSpaceFn, drawHeaderFn }) => {
+  const headerHeight = 18;
+  let rowY = y;
 
   const drawTableHeader = (startY) => {
-    let headerX = left;
-    headers.forEach((header, index) => {
-      doc.rect(headerX, startY, colWidths[index], headerHeight).fillAndStroke(PDF_BRAND_COLORS.sectionHeader, '#cbd5e1');
-      doc.font('Helvetica-Bold').fontSize(9).fillColor(PDF_BRAND_COLORS.textPrimary);
-      doc.text(header, headerX + 6, startY + 6, {
-        width: colWidths[index] - 12,
-        align: index === 0 ? 'left' : 'center',
+    let cx = x;
+    columns.forEach((col) => {
+      doc.rect(cx, startY, col.width, headerHeight).fill(PDF_BRAND_COLORS.navy);
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#ffffff');
+      doc.text(col.header, cx + 5, startY + 5, {
+        width: col.width - 10,
+        align: col.align || 'left',
+        lineBreak: false,
       });
-      headerX += colWidths[index];
+      cx += col.width;
     });
     return startY + headerHeight;
   };
 
-  ensureSpaceFn(headerHeight + 24);
-  writeSectionTitleFn(sectionTitle);
-  let rowY = drawTableHeader(doc.y);
+  ensureSpaceFn(headerHeight + 50);
+  rowY = drawTableHeader(rowY);
 
-  doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-  rows.forEach((cells, rowIndex) => {
-    const maxRowHeight = cells.reduce((max, cell, cellIndex) => {
-      const h = doc.heightOfString(String(cell), { width: colWidths[cellIndex] - 12 }) + 8;
-      return Math.max(max, h);
-    }, 20);
+  const formatCell = (value, col) => {
+    if (col.format === 'money') return formatMoney(value);
+    return String(value || '');
+  };
 
-    if (rowY + maxRowHeight > bottomLimit - 32) {
+  rows.forEach((rowData, rowIndex) => {
+    // Measure row height
+    let maxHeight = 28;
+    let cx = x;
+    const cellTexts = columns.map((col, ci) => {
+      const text = formatCell(rowData[ci], col);
+      const h = doc.heightOfString(text, { width: col.width - 10 }) + 8;
+      if (h > maxHeight) maxHeight = h;
+      cx += col.width;
+      return text;
+    });
+
+    // Ensure space
+    if (rowY + maxHeight > bottomLimit - 170) {
       doc.addPage();
       drawHeaderFn();
-      writeSectionTitleFn(sectionTitle);
       rowY = drawTableHeader(doc.y);
     }
 
-    const isAlternate = rowIndex % 2 === 0;
-    const bgColor = isAlternate ? '#f0f5ff' : '#ffffff';
-
-    let cellX = left;
-    cells.forEach((cell, cellIndex) => {
-      doc.rect(cellX, rowY, colWidths[cellIndex], maxRowHeight).fillAndStroke(bgColor, '#e2e8f0');
-      doc.font('Helvetica').fontSize(8.5).fillColor(PDF_BRAND_COLORS.textPrimary);
-      doc.text(String(cell), cellX + 6, rowY + 5, {
-        width: colWidths[cellIndex] - 12,
-        align: cellIndex === 0 ? 'left' : 'center',
-      });
-      cellX += colWidths[cellIndex];
+    // Draw row cells
+    cx = x;
+    columns.forEach((col, ci) => {
+      // Total column gets grey background
+      if (col.isTotal) {
+        doc.rect(cx, rowY, col.width, maxHeight).fill(PDF_BRAND_COLORS.lightGrey);
+      }
+      cx += col.width;
     });
-    rowY += maxRowHeight + rowGap;
+
+    // Draw text
+    cx = x;
+    columns.forEach((col, ci) => {
+      const font = col.bold ? 'Helvetica-Bold' : 'Helvetica';
+      doc.font(font).fontSize(7.5).fillColor(PDF_BRAND_COLORS.textPrimary);
+      doc.text(cellTexts[ci], cx + 5, rowY + 4, {
+        width: col.width - 10,
+        align: col.align || 'left',
+      });
+      cx += col.width;
+    });
+
+    rowY += maxHeight;
   });
 
   return rowY;
 };
 
 /**
- * Draw the footer with page numbers and generation date.
+ * Draw the totals block (right-aligned).
+ * Returns the Y after the block.
  */
-const drawFooter = (doc, opts = {}) => {
-  const {
-    left = 36,
-    right = 36,
-    pageWidth = 595.28,
-    usableWidth = pageWidth - left - right,
-    bottomLimit = 770,
-  } = opts;
+const drawTotalsBlock = (doc, { rows, x, y, width }) => {
+  const labelW = 66;
+  const symbolW = 18;
+  const valueW = width - labelW - symbolW;
+  const rowH = 19;
+  let curY = y;
 
-  const pageCount = doc.bufferedPageRange().count;
-  for (let i = 0; i < pageCount; i++) {
-    doc.switchToPage(i);
-    doc.font('Helvetica').fontSize(8).fillColor(PDF_BRAND_COLORS.textSecondary);
-    doc.text(
-      `Página ${i + 1} de ${pageCount}`,
-      left,
-      bottomLimit + 24,
-      { width: usableWidth, align: 'center', lineBreak: false }
-    );
-    doc.text(
-      `Generado: ${currentPetDateTime() || ''}`,
-      left,
-      bottomLimit + 34,
-      { width: usableWidth, align: 'center', lineBreak: false }
-    );
+  // Separator line before TOTAL
+  const totalRowIndex = rows.length - 1;
+
+  rows.forEach(([label, value], i) => {
+    const isTotal = i === totalRowIndex;
+
+    if (isTotal) {
+      // Line above total
+      doc.moveTo(x, curY).lineTo(x + width, curY)
+        .strokeColor(PDF_BRAND_COLORS.textPrimary).lineWidth(1.5).stroke();
+    }
+
+    if (isTotal) {
+      // Total row with highlight blue background
+      doc.rect(x, curY, width, rowH).fill(PDF_BRAND_COLORS.highlightBlue);
+    }
+
+    // Label
+    const font = isTotal ? 'Helvetica-Bold' : 'Helvetica';
+    const fontSize = isTotal ? 8 : 7.5;
+    doc.font(font).fontSize(fontSize).fillColor(PDF_BRAND_COLORS.textPrimary);
+    doc.text(label, x + 4, curY + 5, { width: labelW, align: 'left', lineBreak: false });
+
+    // Symbol
+    doc.font(font).fontSize(fontSize)
+      .text('S/', x + labelW + 2, curY + 5, { width: symbolW, align: 'center', lineBreak: false });
+
+    // Value
+    const displayValue = (value === 0 || value === '0' || value === '-' || value === 'S/ 0.00') && !isTotal
+      ? '-'
+      : formatMoney(value);
+    doc.font(isTotal ? 'Helvetica-Bold' : 'Helvetica').fontSize(isTotal ? 9 : 7.5)
+      .text(displayValue.replace('S/ ', ''), x + labelW + symbolW + 2, curY + 4, {
+        width: valueW - 6, align: 'right', lineBreak: false,
+      });
+
+    curY += rowH;
+  });
+
+  return curY;
+};
+
+/**
+ * Draw admin field rows in two-column layout (left: vendor info, right: admin fields).
+ * Returns the Y after both columns.
+ */
+const drawTwoColumnAdmin = (doc, { leftRows, rightRows, x, y, leftWidth, rightWidth }) => {
+  const leftEndY = drawFieldRows(doc, { rows: leftRows, x, y, width: leftWidth });
+  const rightEndY = drawFieldRows(doc, { rows: rightRows, x: x + leftWidth + 20, y, width: rightWidth });
+  return Math.max(leftEndY, rightEndY);
+};
+
+/**
+ * Draw the contact footer centered at the bottom.
+ */
+const drawContactFooter = (doc, { email, phone, left, bottomLimit, usableWidth }) => {
+  const text = `Si tienes dudas sobre la orden, contactar a:\n${email || 'compras@alfosac.pe'}\n${phone || '+51 978772509'}`;
+  doc.font('Helvetica-Oblique').fontSize(6.5).fillColor(PDF_BRAND_COLORS.textSecondary);
+  doc.text(text, left, bottomLimit - 18, { width: usableWidth, align: 'center', lineBreak: false });
+};
+
+/**
+ * Ensure enough vertical space. If not, add a page.
+ */
+const ensureSpace = (doc, opts, needed = 24) => {
+  const { bottomLimit, drawHeaderFn } = opts;
+  if (doc.y + needed > bottomLimit) {
+    doc.addPage();
+    drawHeaderFn();
   }
 };
 
@@ -489,8 +501,18 @@ module.exports = {
   companyWhiteLogoPath,
   getCompanyLogoPath,
   PDF_BRAND_COLORS,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARGIN_LEFT,
+  MARGIN_RIGHT,
+  MARGIN_TOP,
+  MARGIN_BOTTOM,
+  USABLE_WIDTH,
+  BOTTOM_LIMIT,
   safeText,
+  formatMoney,
   formatCurrency,
+  formatShortDate,
   formatPetDateTime,
   currentPetDateTime,
   normalize,
@@ -502,9 +524,11 @@ module.exports = {
   buildPdfApprovalEntries,
   parseReceiptInfo,
   drawHeader,
+  drawSectionBar,
+  drawFieldRows,
+  drawItemsTable,
+  drawTotalsBlock,
+  drawTwoColumnAdmin,
+  drawContactFooter,
   ensureSpace,
-  drawSectionTitle,
-  drawInfoBlock,
-  drawTable,
-  drawFooter,
 };
