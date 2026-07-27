@@ -220,7 +220,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     email: compra.usuario_email || 'compras@alfosac.pe',
     phone: compra.usuario_telefono || '+51 978772509',
     left,
-    bottomLimit,
+    y: versionBarY + 22,
     usableWidth,
   });
 
