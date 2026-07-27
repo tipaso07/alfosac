@@ -766,7 +766,7 @@ export default function MisOrdenesCompraView({
           <p><strong>Estado proveedor:</strong> {ratingState.averageLabel}</p>
           <p className="my-po-provider-state-row"><span className={`my-po-provider-state-chip ${ratingState.colorClass}`}>{ratingState.label}</span></p>
           <p><strong>Retencion:</strong> {isRetentionEnabled(form.retencion) ? 'SI' : 'NO'}</p>
-          <p><strong>Porcentaje:</strong> {(Number(form.descuento || 0) * 100).toFixed(2)}%</p>
+          <p><strong>Porcentaje:</strong> {Number(form.descuento || 0).toFixed(2)}%</p>
           <p><strong>Tipo:</strong> {isRetentionEnabled(form.retencion) ? (form.tipo_retencion || 'RETENCION') : '-'}</p>
           {ratingState.showLowAlert && <p className="my-po-alert-warning"><strong>Alerta:</strong> Se recomienda evaluar cambio de proveedor</p>}
           {canSeeCriticalAlert && ratingState.showCriticalAlert && <p className="my-po-alert-critical"><strong>Alerta critica:</strong> Proveedor con calificacion critica, se recomienda contactar</p>}
