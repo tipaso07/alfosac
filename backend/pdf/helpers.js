@@ -5,8 +5,8 @@ const fs = require('fs');
 // Company logo paths
 // ---------------------------------------------------------------------------
 
-const companyBlueLogoPath = path.join(__dirname, '..', '..', 'public', 'alfosac-logo-azul.png');
-const companyWhiteLogoPath = path.join(__dirname, '..', '..', 'public', 'alfosac-logo-blanco.png');
+const companyBlueLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-azul.png');
+const companyWhiteLogoPath = path.join(__dirname, '..', 'public', 'alfosac-logo-blanco.png');
 
 const getCompanyLogoPath = (background = 'light') => {
   const darkBackground = String(background || '').trim().toLowerCase() === 'dark';
@@ -226,7 +226,7 @@ const drawHeader = (doc, opts = {}) => {
   let headerY = MARGIN_TOP;
 
   // --- Left side: logo + company info ---
-  const logoPath = getCompanyLogoPath('dark');
+  const logoPath = getCompanyLogoPath('light');
   if (logoPath) {
     try {
       doc.image(logoPath, left, headerY, { fit: [175, 36], align: 'left', valign: 'top' });
