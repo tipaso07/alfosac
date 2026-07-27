@@ -1,7 +1,8 @@
-const { fetchComprasRows, schemaMeta, pickExistingColumn, buildProveedorSelectExpressions, insertMovimiento, getMaterialStockTotal, discountMaterialStockDistributed, quoteIdentifier } = require('../db/pool');
+const { schemaMeta, pickExistingColumn, buildProveedorSelectExpressions, insertMovimiento, getMaterialStockTotal, discountMaterialStockDistributed, quoteIdentifier } = require('../db/pool');
+const { fetchComprasRows, parsePurchaseComments, normalizeItemCategoryKey } = require('../db/queries');
 const { resolveApprovalRoleId, canApproveApprovalRole, canAccessManageRequestsModule, canAccessPurchaseOrdersModule, isComprasOperatorUser, aprobarEntidad, hasEffectiveFinalApprovalByRole, fetchApprovedApproversByEntity, fetchApprovalHistoryByEntity, mapApprovalDecisionErrorToHttp, isPendingApprovalState, insertCommentForEntity } = require('../services/approval');
-const { parsePurchaseComments, buildPurchaseComment } = require('../services/proveedores');
-const { normalizeItemCategoryKey, fetchCommentsForEntities } = require('../services/comments');
+const { buildPurchaseComment } = require('../services/proveedores');
+const { fetchCommentsForEntities } = require('../services/comments');
 const { canManagePurchasesRole, canManageDeliveryRole, isWarehouseAreaName, DEFAULT_USER_AVATAR } = require('../config/constants');
 const { normalize } = require('../utils/normalize');
 const { PET_SQL_NOW, formatPetDateTime, currentPetDateTime } = require('../utils/datetime');

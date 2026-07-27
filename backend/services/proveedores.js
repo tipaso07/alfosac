@@ -1,4 +1,5 @@
-const { pool, fetchServiciosRows, fetchComprasRows } = require('../db/pool');
+const { pool } = require('../db/pool');
+const { fetchServiciosRows, fetchComprasRows } = require('../db/queries');
 const { normalize } = require('../utils/normalize');
 const { isServiciosGeneralesRole } = require('../config/constants');
 const { currentPetDateTime, PET_SQL_NOW } = require('../utils/datetime');
