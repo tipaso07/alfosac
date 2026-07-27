@@ -98,6 +98,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
     [compra.area_final || compra.area_solicitante, ''],
     ['Solicitante', compra.usuario],
     ['Área', compra.area_solicitante],
+    ['', 'Av. Nestor Gambetta N° 4783 - Callao'],
   ].filter((r) => r[1]);
   const shipFieldEndY = drawFieldRows(doc, { rows: shipRows, x: left + leftColW + colGap, y: shipEndY + 2, width: rightColW, labelWidth: 50 });
 
@@ -108,8 +109,8 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const items = Array.isArray(compra.items) ? compra.items : [];
   if (items.length > 0) {
     const columns = [
-      { header: 'ARTÍCULO #', width: 48, align: 'left' },
-      { header: 'DESCRIPCIÓN', width: usableWidth - 48 - 50 - 70 - 75, align: 'left' },
+      { header: 'ARTÍCULO #', width: 58, align: 'left' },
+      { header: 'DESCRIPCIÓN', width: usableWidth - 58 - 50 - 70 - 75, align: 'left' },
       { header: 'CANT', width: 50, align: 'center' },
       { header: 'P/U', width: 70, align: 'right' },
       { header: 'TOTAL', width: 75, align: 'right', isTotal: true },
@@ -160,7 +161,7 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   const comentario = String(compra.comentarios || compra.detalle || '').trim();
 
   const adminRows = [
-    ['Retención/Detracción', aplicaRetencion ? `${porcentajeRetencion.toFixed(2)}%` : '-'],
+    ['Retención/Detracción', aplicaRetencion ? `${porcentajeRetencion.toFixed(2)}% SI APLICA ${compra.tipo_retencion || 'RETENCIÓN'}` : '-'],
     ['Correo', compra.correo || compra.contacto_proveedor],
     ['Persona Responsable', compra.persona_responsable || compra.contacto_proveedor],
     ['Teléfono', compra.telefono],
@@ -216,8 +217,8 @@ const buildCompraPdfBase64 = (compra) => new Promise((resolve, reject) => {
   // --- Contact footer ---
 
   drawContactFooter(doc, {
-    email: 'compras@alfosac.pe',
-    phone: '+51 978772509',
+    email: compra.usuario_email || 'compras@alfosac.pe',
+    phone: compra.usuario_telefono || '+51 978772509',
     left,
     bottomLimit,
     usableWidth,
