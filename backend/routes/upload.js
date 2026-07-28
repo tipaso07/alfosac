@@ -26,7 +26,7 @@ module.exports = function(app, deps) {
     },
   });
 
-  app.post('/api/upload/material', authMiddleware, requirePermissions('AGREGAR_INVENTARIO_MANUAL', 'EDITAR_INVENTARIO'), (req, res) => {
+  app.post('/api/upload/material', authMiddleware, requirePermissions('AGREGAR_INVENTARIO_MANUAL', 'EDITAR_INVENTARIO', 'CREAR_COMPRA_DIRECTA'), (req, res) => {
     uploadImage.single('image')(req, res, (error) => {
       if (error) {
         if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
