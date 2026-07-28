@@ -1,8 +1,9 @@
 const { getRequerimientoDescripcionExpr, getRequerimientoDescripcionColumn } = require('../db/pool');
 const { parseEmbeddedCommentsFromText, fetchCommentsForEntities } = require('../services/comments');
-const { fetchActionableApprovalReferenceIds, isPendingApprovalState, tienePermiso } = require('../services/approval');
+const { fetchActionableApprovalReferenceIds, isPendingApprovalState, tienePermiso, aprobarEntidad, fetchApprovedApproversByEntity, fetchApprovalHistoryByEntity, mapApprovalDecisionErrorToHttp } = require('../services/approval');
 const { getPermissionsByRoleId } = require('../config/constants');
-const { normalizePermissionName } = require('../utils/normalize');
+const { normalizePermissionName, normalize } = require('../utils/normalize');
+const { PET_SQL_NOW } = require('../utils/datetime');
 
 const hasPermission = async (pool, userId, permission) => {
   const id = Number(userId || 0);
@@ -88,6 +89,103 @@ module.exports = function(app, deps) {
       res.status(201).json(created.rows[0]);
     } catch (error) {
       await client.query('ROLLBACK');
+      res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch('/api/requerimientos/:id/estado', authMiddleware, async (req, res) => {
+    const client = await pool.connect();
+    try {
+      const { id } = req.params;
+      const estado = normalize(req.body.estado);
+
+      if (!['APROBADO', 'RECHAZADO'].includes(estado)) {
+        return res.status(400).json({ error: 'Estado invalido. Usa APROBADO o RECHAZADO' });
+      }
+
+      await client.query('BEGIN');
+
+      const reqRow = await client.query(
+        'SELECT id, estado FROM requerimientos WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+
+      if (reqRow.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Requerimiento no encontrado' });
+      }
+
+      const approvalRows = await client.query(
+        `SELECT id FROM aprobaciones WHERE upper(trim(tipo)) = 'REQUERIMIENTO' AND referencia_id = $1 LIMIT 1`,
+        [id]
+      ).catch(() => ({ rows: [] }));
+
+      const useApprovalTable = approvalRows.rows.length > 0;
+
+      if (useApprovalTable) {
+        await client.query('ROLLBACK');
+
+        const approvalResult = await aprobarEntidad(req.user, 'requerimiento', id, estado);
+        if (!approvalResult?.ok) {
+          return res.status(500).json({ error: 'No se pudo actualizar el estado del requerimiento' });
+        }
+
+        const refreshed = await pool.query(`
+          SELECT r.*, u.nombre AS usuario, COALESCE(a.nombre, 'Sin area') AS area
+          FROM requerimientos r
+          JOIN usuarios u ON u.id = r.id_usuario
+          LEFT JOIN areas a ON a.id = u.id_area
+          WHERE r.id = $1
+          LIMIT 1
+        `, [id]);
+
+        if (refreshed.rows[0]) {
+          refreshed.rows[0].aprobadores = await fetchApprovedApproversByEntity(pool, {
+            tipo: 'REQUERIMIENTO',
+            referenciaId: Number(id),
+          });
+          refreshed.rows[0].historial_aprobaciones = await fetchApprovalHistoryByEntity(pool, {
+            tipo: 'REQUERIMIENTO',
+            referenciaId: Number(id),
+          });
+        }
+
+        return res.json(refreshed.rows[0]);
+      } else {
+        const hasApprovalPermission = await hasPermission(pool, req.user.id, 'APROBAR_REQUERIMIENTO');
+        if (!hasApprovalPermission) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Sin permiso para gestionar requerimientos' });
+        }
+
+        const isRejected = estado === 'RECHAZADO';
+        await client.query(`
+          UPDATE requerimientos
+          SET estado = $1
+          WHERE id = $2
+        `, [isRejected ? 'RECHAZADO' : estado, id]);
+      }
+
+      await client.query('COMMIT');
+
+      const result = await pool.query(`
+        SELECT r.*, u.nombre AS usuario, COALESCE(a.nombre, 'Sin area') AS area
+        FROM requerimientos r
+        JOIN usuarios u ON u.id = r.id_usuario
+        LEFT JOIN areas a ON a.id = u.id_area
+        WHERE r.id = $1
+        LIMIT 1
+      `, [id]);
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      const mapped = mapApprovalDecisionErrorToHttp(error);
+      if (mapped.expose) {
+        return res.status(mapped.status).json({ error: error.message });
+      }
       res.status(500).json({ error: error.message });
     } finally {
       client.release();
