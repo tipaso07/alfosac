@@ -43,7 +43,7 @@ const findGerenteByArea = async (client, areaId) => {
 
 const findAreaByNamePattern = async (client, pattern) => {
   const result = await client.query(
-    `SELECT id FROM areas WHERE upper(trim(nombre)) LIKE $1 LIMIT 1`,
+    `SELECT id FROM areas WHERE unaccent(upper(trim(nombre))) LIKE unaccent($1) LIMIT 1`,
     [`%${String(pattern).trim().toUpperCase()}%`]
   );
   return Number(result.rows[0]?.id || 0);
