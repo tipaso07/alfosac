@@ -74,7 +74,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
     return serviciosFiltrados
       .filter((servicio) => {
         const flow = getFlow(servicio)
-        return ['APROBADO', 'APROBADA'].includes(flow)
+        return ['DATOS_COMPLETADOS'].includes(flow)
       })
       .sort(sortFn)
   }, [serviciosFiltrados])
@@ -278,7 +278,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
               <p><strong>Fecha:</strong> {parseDate(servicio.fecha)?.toLocaleDateString() || 'Sin fecha'}</p>
               <p><strong>Total:</strong> {Number(servicio.total || servicio.costo || 0).toFixed(2)} {servicio.moneda || ''}</p>
 
-              {canCurrentUserRate && ['PENDIENTE', 'APROBADO', 'APROBADA'].includes(getFlow(servicio)) && (
+              {canCurrentUserRate && ['DATOS_COMPLETADOS'].includes(getFlow(servicio)) && (
                 <div className="hs-rating-box">
                   {isRated(servicio, ratedByServiceId) ? (
                     <span className="hs-rated-text">Servicio finalizado</span>
