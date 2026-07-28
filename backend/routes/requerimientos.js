@@ -82,7 +82,7 @@ module.exports = function(app, deps) {
       const roleId = Number(req.user?.id_role || req.user?.rol_id || 0);
       const userId = Number(req.user?.id || 0);
       const isGerente = roleId === 1;
-      const isSolicitante = roleId === 4;
+      const isSolicitante = roleId === 4 || roleId === 2;
       const descripcionExpr = getRequerimientoDescripcionExpr('r');
 
       let areaFilter = '';
