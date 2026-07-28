@@ -163,11 +163,10 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const canSeeDashboard = useMemo(() => {
     if (currentUserRoleId === 2) return true
     if (currentUserRoleId === 1) {
-      const areaUpper = String(currentUserArea || '').toUpperCase()
-      return areaUpper.includes('GERENCIA') && areaUpper.includes('GENERAL')
+      return [1, 3].includes(Number(currentUserAreaId))
     }
     return false
-  }, [currentUserRoleId, currentUserArea])
+  }, [currentUserRoleId, currentUserAreaId])
   const allowedModules = useMemo(() => {
     return buildAllowedModules(currentUserRoleId, currentUserPermissions)
   }, [currentUserPermissions, currentUserRoleId])
