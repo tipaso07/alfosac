@@ -36,7 +36,14 @@ module.exports = function(app, deps) {
     }
   });
 
-  app.get('/api/admin-dashboard', authMiddleware, requireCompras, async (req, res) => {
+  app.get('/api/admin-dashboard', authMiddleware, async (req, res) => {
+    const roleId = Number(req.user?.id_role || 0);
+    const areaId = Number(req.user?.id_area || 0);
+    const isCompras = roleId === 2;
+    const isGerenteAuthorized = roleId === 1 && [1, 3].includes(areaId);
+    if (!isCompras && !isGerenteAuthorized) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
     try {
       const fechaInicioRaw = String(req.query?.fecha_inicio || '').trim();
       const fechaFinRaw = String(req.query?.fecha_fin || '').trim();
