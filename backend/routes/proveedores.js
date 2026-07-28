@@ -1,5 +1,5 @@
 const { buildProveedorSelectExpressions, getProveedorColumn } = require('../db/pool');
-const { fetchProveedorRatingsSummary, fetchProveedorAverageRatingsForAutomation, normalizeRatingType } = require('../services/proveedores');
+const { fetchProveedorRatingsSummary, fetchProveedorAverageRatingsForAutomation, normalizeRatingType, upsertProveedorRating } = require('../services/proveedores');
 
 module.exports = function(app, deps) {
   const { pool, authMiddleware, requirePermissions } = deps;
@@ -373,6 +373,40 @@ module.exports = function(app, deps) {
       res.status(500).json({ error: error.message });
     } finally {
       client.release();
+    }
+  });
+
+  app.post('/api/proveedores/:id/calificaciones', authMiddleware, async (req, res) => {
+    try {
+      const proveedorId = Number(req.params?.id || 0);
+      if (!proveedorId) {
+        return res.status(400).json({ error: 'ID de proveedor invalido' });
+      }
+
+      const puntuacion = Number(req.body?.puntuacion || 0);
+      const comentario = String(req.body?.comentario || '').trim();
+      const tipo = String(req.body?.tipo || 'compra').trim();
+      const idReferencia = Number(req.body?.id_referencia || 0) || null;
+
+      if (!Number.isInteger(puntuacion) || puntuacion < 1 || puntuacion > 5) {
+        return res.status(400).json({ error: 'La puntuacion debe ser un entero entre 1 y 5' });
+      }
+
+      const summary = await upsertProveedorRating(pool, {
+        user: req.user,
+        proveedorId,
+        puntuacion,
+        comentario,
+        tipo,
+        idReferencia,
+      });
+
+      res.json(summary);
+    } catch (error) {
+      if (error.code === 'RATING_ALREADY_EXISTS') {
+        return res.status(409).json({ error: error.message });
+      }
+      res.status(500).json({ error: error.message });
     }
   });
 };
