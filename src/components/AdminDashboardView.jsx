@@ -48,8 +48,8 @@ function KpiCard({ title, value, tone = 'info', icon, deltaText = '--', deltaPos
 function StackedConsumptionChart({ rows = [] }) {
   const maxTotal = useMemo(() => rows.reduce((max, row) => Math.max(max, Number(row.total || 0)), 0), [rows])
   const width = 1000
-  const height = 320
-  const padding = 40
+  const height = 360
+  const padding = 50
   const barSpacing = (width - padding * 2) / Math.max(rows.length, 1)
   const groupWidth = Math.max(70, Math.min(140, barSpacing * 0.85))
 const itemWidth = Math.max(18, (groupWidth - 16) / 3)
@@ -98,8 +98,8 @@ const itemWidth = Math.max(18, (groupWidth - 16) / 3)
                       {serv > 0 ? formatMoney(serv) : ''}
                     </text>
 
-                    <text x={groupX + groupWidth / 2} y={height - padding + 18} textAnchor="middle" fontSize="11" fill="#475569">
-                      {row.area.length > 10 ? row.area.substring(0, 8) + '..' : row.area}
+                    <text x={groupX + groupWidth / 2} y={height - padding + 18} textAnchor="middle" fontSize="8" fill="#475569" transform={`rotate(-30, ${groupX + groupWidth / 2}, ${height - padding + 18})`}>
+                      {row.area}
                     </text>
                     <rect x={cdX} y={baseY - cdHeight} width={itemWidth} height={cdHeight} fill="#329ad6" opacity="0.92" />
                     <text x={cdX + itemWidth / 2} y={baseY - cdHeight - 6} textAnchor="middle" fontSize="11" fill="#0f172a" fontWeight="600">
@@ -671,10 +671,11 @@ useEffect(() => {
           deltaText={`${consumoDelta >= 0 ? 'Sube' : 'Baja'} ${Math.abs(consumoDeltaPct).toFixed(1)}% vs periodo anterior`}
           deltaPositive={consumoDelta >= 0}
         />
+        <KpiCard title="Consumo total en restock" value={formatMoney(resumen.monto_total_restock || 0)} icon="RST" tone="warn" />
         <KpiCard title="Total requerimientos" value={formatNumber(resumen.total_requerimientos)} icon="REQ" tone="warn" />
-        <KpiCard title="Total compras" value={formatNumber(resumen.total_compras)} icon="OC" tone="ok" />
-        <KpiCard title="Total servicios" value={formatNumber(resumen.total_servicios)} icon="SRV" tone="info" />
-        <KpiCard title="Total compras directas" value={formatNumber(resumen.total_compras_directas)} icon="CD" tone="secondary" />
+        <KpiCard title="Total compras" value={formatMoney(resumen.monto_total_compras || 0)} icon="OC" tone="ok" />
+        <KpiCard title="Total servicios" value={formatMoney(resumen.monto_total_servicios || 0)} icon="SRV" tone="info" />
+        <KpiCard title="Total compras directas" value={formatMoney(resumen.monto_total_compras_directas || 0)} icon="CD" tone="secondary" />
       </div>
 
       <div className="erp-grid one-col">
