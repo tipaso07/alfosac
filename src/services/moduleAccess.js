@@ -103,7 +103,7 @@ const MODULES_BY_ROLE = {
     1, 7, 8, 11,
   ],
   [ROLE_IDS.COMPRAS]: [
-    12, 1, 2, 3, 6, 8, 10, 11, 14, 17,
+    12, 1, 2, 3, 5, 6, 8, 10, 11, 14, 17,
   ],
   [ROLE_IDS.SERVICIOS_GENERALES]: [
     1, 2, 3, 4, 5, 8, 11,
