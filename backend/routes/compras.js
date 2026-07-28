@@ -176,6 +176,7 @@ module.exports = function(app, deps) {
       const providerId = providerIdRaw == null || providerIdRaw === ''
         ? null
         : Number(providerIdRaw);
+      const idAreaFinal = req.body?.id_area_final ? Number(req.body.id_area_final) || null : null;
 
       const detailColumnsMeta = await client.query(
         `
@@ -253,8 +254,8 @@ module.exports = function(app, deps) {
 
       const compraInsert = await client.query(
         `
-          INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, id_unidad, fecha_creacion, fecha_actualizacion)
-          VALUES ($7, $1, $2, $3, $4, $5, $6, ${PET_SQL_NOW}, ${PET_SQL_NOW})
+          INSERT INTO compras (estado, id_usuario, id_area_solicitante, id_proveedor, proveedor, ruc, id_unidad, ${schemaMeta.comprasColumns.has('id_area_final') ? 'id_area_final,' : ''} fecha_creacion, fecha_actualizacion)
+          VALUES ($7, $1, $2, $3, $4, $5, $6, ${schemaMeta.comprasColumns.has('id_area_final') ? '$8,' : ''} ${PET_SQL_NOW}, ${PET_SQL_NOW})
           RETURNING id
         `,
         [
@@ -265,6 +266,7 @@ module.exports = function(app, deps) {
           providerData.proveedor_ruc || null,
           idUnidadCompra,
           initialApprovalState,
+          ...(schemaMeta.comprasColumns.has('id_area_final') ? [idAreaFinal] : []),
         ]
       );
 
@@ -803,7 +805,7 @@ module.exports = function(app, deps) {
           tipoRetencionNorm,
           importeFinalCalc,
           (providerData?.condiciones_pago || payload.condiciones_pago || null),
-          totalBase,
+          subtotal,
           costoEnvio,
           otrosCostos,
           igvCalc,
