@@ -1157,8 +1157,9 @@ const filterUserPermissions = async (permissions, user) => {
   if (!await canAccessManageRequestsModule(user)) {
     const isSolicitante = Number(user?.id_role || user?.rol_id || 0) === 4;
     const isSsgg = Number(user?.id_role || user?.rol_id || 0) === 8;
+    const isCompras = Number(user?.id_role || user?.rol_id || 0) === 2;
     return normalizedPermissions.filter((perm) => {
-      if (perm === 'GESTIONAR_SOLICITUDES' && (isSolicitante || isSsgg)) return true;
+      if (perm === 'GESTIONAR_SOLICITUDES' && (isSolicitante || isSsgg || isCompras)) return true;
       return perm !== 'GESTIONAR_SOLICITUDES';
     });
   }
