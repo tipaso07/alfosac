@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchAreas } from '../services/api'
+import { fetchAreas, fetchSubAreas } from '../services/api'
 import '../styles/SolicitarServicioForm.css'
 
 export default function SolicitarServicioForm({
@@ -12,9 +12,11 @@ export default function SolicitarServicioForm({
     descripcion_servicio: '',
     prioridad: 'MEDIA',
     area_id: currentAreaId ? String(currentAreaId) : '',
+    sub_area: '',
     // dentro_plan eliminado, solo lo define el primer aprobador
   })
   const [areas, setAreas] = useState([])
+  const [subAreas, setSubAreas] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -23,18 +25,23 @@ export default function SolicitarServicioForm({
   useEffect(() => {
     let mounted = true
 
-    const loadAreas = async () => {
+    const loadData = async () => {
       try {
-        const result = await fetchAreas()
+        const [areasResult, subAreasResult] = await Promise.all([
+          fetchAreas(),
+          fetchSubAreas(),
+        ])
         if (!mounted) return
-        setAreas(Array.isArray(result) ? result : [])
+        setAreas(Array.isArray(areasResult) ? areasResult : [])
+        setSubAreas(Array.isArray(subAreasResult) ? subAreasResult : [])
       } catch {
         if (!mounted) return
         setAreas([])
+        setSubAreas([])
       }
     }
 
-    loadAreas()
+    loadData()
     return () => {
       mounted = false
     }
@@ -56,8 +63,14 @@ export default function SolicitarServicioForm({
     const nombreServicio = String(form.nombre_servicio || '').trim()
     const descripcionServicio = String(form.descripcion_servicio || '').trim()
     const prioridad = String(form.prioridad || '').trim().toUpperCase()
+    const subArea = String(form.sub_area || '').trim()
     if (!areaId) {
       setError('Selecciona un area destino valida')
+      return
+    }
+
+    if (!subArea) {
+      setError('Selecciona una sub-area destino')
       return
     }
 
@@ -81,6 +94,7 @@ export default function SolicitarServicioForm({
       await onSubmitServicio({
         nombre_servicio: nombreServicio,
         area_id: areaId,
+        sub_area: subArea,
         descripcion_servicio: descripcionServicio,
         prioridad,
       })
@@ -90,6 +104,7 @@ export default function SolicitarServicioForm({
         descripcion_servicio: '',
         prioridad: 'MEDIA',
         area_id: areaId ? String(areaId) : '',
+        sub_area: '',
       })
     } catch (err) {
       setError(err.message || 'Error al crear solicitud de servicio')
@@ -144,6 +159,23 @@ export default function SolicitarServicioForm({
               {areas.map((area) => (
                 <option key={area.id} value={area.id}>
                   {area.nombre || `Area ${area.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Sub-area destino
+            <select
+            className='select-request'
+              value={form.sub_area}
+              onChange={(event) => update({ sub_area: event.target.value })}
+              disabled={saving}
+            >
+              <option value="">Selecciona sub-area destino</option>
+              {subAreas.map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
                 </option>
               ))}
             </select>
