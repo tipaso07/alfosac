@@ -252,8 +252,8 @@ const drawHeader = (doc, opts = {}) => {
   const rightX = left + 290;
   const rightWidth = usableWidth - 290;
 
-  doc.font('Helvetica').fontSize(24).fillColor(PDF_BRAND_COLORS.navy);
-  doc.text(title, rightX, headerY, { width: rightWidth, align: 'right' });
+  doc.font('Helvetica').fontSize(18).fillColor(PDF_BRAND_COLORS.navy);
+  doc.text(title, rightX, headerY, { width: rightWidth, align: 'right', lineBreak: false });
 
   // Control table
   const ctrlY = headerY + 38;
