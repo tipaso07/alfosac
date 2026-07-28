@@ -574,7 +574,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       } else {
         await client.query(
           `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1 WHERE id = $2`,
-          ['APROBADO', referenceId]
+          ['RECHAZADO', referenceId]
         );
       }
     }
