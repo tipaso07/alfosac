@@ -128,6 +128,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [proveedores, setProveedores] = useState([])
   const [unidades, setUnidades] = useState([])
   const [almacenes, setAlmacenes] = useState([])
+  const [areas, setAreas] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeRequestsView, setActiveRequestsView] = useState('compras')
@@ -255,6 +256,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         proveedoresData,
         unidadesData,
         almacenesData,
+        areasData,
         comprasDirectasData,
       ] = await Promise.all([
         hasPermission(runtimePermissions, 'VER_INVENTARIO')
@@ -267,7 +269,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           completados: 0,
         }),
         hasPermission(runtimePermissions, 'APROBAR_ADMIN')
-          ? loadOptionalData(() => fetchAdminDashboard(initialAdminDashboardRange), null)
+          ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRange), null)
           : Promise.resolve(null),
         loadOptionalData(fetchRequerimientos, []),
         loadOptionalData(fetchCompras, []),
@@ -280,6 +282,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
         loadOptionalData(fetchProveedores, []),
         loadOptionalData(fetchUnidades, []),
         loadOptionalData(fetchAlmacenes, []),
+        loadOptionalData(() => fetchAreas(''), []),
         hasPermission(runtimePermissions, 'VER_HISTORIAL_COMPRAS_DIRECTAS')
           ? loadOptionalData(fetchComprasDirectas, [])
           : Promise.resolve([]),
@@ -296,6 +299,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setProveedores(Array.isArray(proveedoresData) ? proveedoresData : [])
       setUnidades(Array.isArray(unidadesData) ? unidadesData : [])
       setAlmacenes(Array.isArray(almacenesData) ? almacenesData : [])
+      setAreas(Array.isArray(areasData) ? areasData : [])
       setAdminDashboardData(adminDashboardDataResp)
       setStats({
         total_materiales: parseInt(statsData.total_materiales, 10) || 0,
@@ -313,7 +317,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     } finally {
       setLoading(false)
     }
-  }, [initialAdminDashboardRange, isUnauthorizedError, loadOptionalData, onAuthExpired])
+  }, [adminDashboardDateRange, isUnauthorizedError, loadOptionalData, onAuthExpired])
 
   // Cargar datos iniciales al montar el dashboard.
   useEffect(() => {
@@ -915,6 +919,9 @@ useEffect(() => {
               unidades={unidades}
               currentUser={currentUserName}
               currentArea={currentUserArea}
+              currentAreaId={currentUserAreaId}
+              currentUserRoleId={currentUserRoleId}
+              areas={areas}
             />
           )}
           {activeTab === 'manage-providers' && allowedTabs.includes('manage-providers') && (
