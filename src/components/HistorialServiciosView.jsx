@@ -52,33 +52,43 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
     setServiciosLocal(servicios)
   }, [servicios])
 
+  const serviciosFiltrados = useMemo(() => {
+    if (!currentUserSubArea) return serviciosLocal || []
+    return (serviciosLocal || []).filter(
+      (s) => normalize(s.sub_area) === normalize(currentUserSubArea)
+    )
+  }, [serviciosLocal, currentUserSubArea])
+
+  const sortFn = (a, b) => {
+    const left = parseDate(a.fecha)?.getTime() || 0
+    const right = parseDate(b.fecha)?.getTime() || 0
+    return right - left
+  }
+
   const serviciosPendientes = useMemo(() => {
-    return (serviciosLocal || [])
+    return serviciosFiltrados
       .filter((servicio) => getFlow(servicio) === 'PENDIENTE')
-      .sort((a, b) => {
-        const left = parseDate(a.fecha)?.getTime() || 0
-        const right = parseDate(b.fecha)?.getTime() || 0
-        return right - left
+      .sort(sortFn)
+  }, [serviciosFiltrados])
+
+  const serviciosAprobados = useMemo(() => {
+    return serviciosFiltrados
+      .filter((servicio) => {
+        const flow = getFlow(servicio)
+        return ['APROBADO', 'APROBADA'].includes(flow)
       })
-  }, [serviciosLocal])
+      .sort(sortFn)
+  }, [serviciosFiltrados])
 
   const serviciosRealizados = useMemo(() => {
-    return (serviciosLocal || [])
+    return serviciosFiltrados
       .filter((servicio) => isRealizado(servicio))
-      .sort((a, b) => {
-        const left = parseDate(a.fecha)?.getTime() || 0
-        const right = parseDate(b.fecha)?.getTime() || 0
-        return right - left
-      })
-  }, [serviciosLocal])
+      .sort(sortFn)
+  }, [serviciosFiltrados])
 
   const serviciosHistorial = useMemo(() => {
-    return [...serviciosPendientes, ...serviciosRealizados].sort((a, b) => {
-      const left = parseDate(a.fecha)?.getTime() || 0
-      const right = parseDate(b.fecha)?.getTime() || 0
-      return right - left
-    })
-  }, [serviciosPendientes, serviciosRealizados])
+    return [...serviciosPendientes, ...serviciosAprobados, ...serviciosRealizados].sort(sortFn)
+  }, [serviciosPendientes, serviciosAprobados, serviciosRealizados])
 
   const areas = useMemo(() => {
     const values = serviciosHistorial
@@ -113,10 +123,6 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
         .map((value) => String(value || '').toLowerCase())
         .join(' ')
 
-      // Filtrar por sub-área del usuario (solicitantes ven servicios de su sub-área)
-      if (currentUserSubArea) {
-        if (area !== currentUserSubArea) return false
-      }
       if (areaFilter !== 'TODAS' && area !== areaFilter) return false
       if (prioridadFilter !== 'TODAS' && prioridad !== prioridadFilter) return false
       if (Number.isFinite(fromTime) && createdAt < fromTime) return false
@@ -124,7 +130,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
       if (term && !haystack.includes(term)) return false
       return true
     })
-  }, [serviciosHistorial, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm, currentUserSubArea])
+  }, [serviciosHistorial, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
 
   const openRatingModal = (servicio) => {
     if (!canCurrentUserRate || isRated(servicio, ratedByServiceId)) return
@@ -267,6 +273,7 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
               <p><strong>Nombre:</strong> {servicio.nombre_servicio || 'Sin nombre'}</p>
               <p><strong>Descripcion:</strong> {servicio.descripcion_servicio || 'Sin descripcion'}</p>
               <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
+              <p><strong>Sub area:</strong> {servicio.sub_area || 'Sin sub area'}</p>
               <p><strong>Prioridad:</strong> {servicio.prioridad || 'SIN PRIORIDAD'}</p>
               <p><strong>Proveedor:</strong> {servicio.proveedor || 'Sin proveedor'}</p>
               {(() => {
