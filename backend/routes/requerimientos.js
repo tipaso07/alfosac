@@ -1,4 +1,4 @@
-const { getRequerimientoDescripcionExpr } = require('../db/pool');
+const { getRequerimientoDescripcionExpr, getRequerimientoDescripcionColumn } = require('../db/pool');
 const { parseEmbeddedCommentsFromText, fetchCommentsForEntities } = require('../services/comments');
 const { fetchActionableApprovalReferenceIds, isPendingApprovalState, tienePermiso } = require('../services/approval');
 const { getPermissionsByRoleId } = require('../config/constants');
@@ -15,6 +15,66 @@ const hasPermission = async (pool, userId, permission) => {
 
 module.exports = function(app, deps) {
   const { pool, authMiddleware } = deps;
+
+  app.post('/api/requerimientos', authMiddleware, async (req, res) => {
+    const client = await pool.connect();
+    try {
+      const { prioridad, descripcion, items = [] } = req.body;
+
+      if (!['ALTA', 'MEDIA', 'BAJA'].includes(prioridad)) {
+        return res.status(400).json({ error: 'La prioridad debe ser ALTA, MEDIA o BAJA' });
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Debe incluir al menos un item' });
+      }
+
+      for (const item of items) {
+        const idMaterial = Number(item.id_material || 0);
+        const cantidad = Number(item.cantidad || 0);
+        if (!idMaterial || cantidad <= 0) {
+          return res.status(400).json({ error: 'Cada item debe tener id_material valido y cantidad mayor a 0' });
+        }
+      }
+
+      const descCol = getRequerimientoDescripcionColumn();
+
+      await client.query('BEGIN');
+
+      const headerResult = await client.query(`
+        INSERT INTO requerimientos (estado, prioridad, ${descCol}, id_usuario)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+      `, ['PENDIENTE', prioridad, descripcion || null, req.user.id]);
+
+      const idRequerimiento = headerResult.rows[0].id;
+
+      for (const item of items) {
+        await client.query(`
+          INSERT INTO detalle_requerimiento (id_requerimiento, id_material, cantidad)
+          VALUES ($1, $2, $3)
+        `, [idRequerimiento, Number(item.id_material), Number(item.cantidad)]);
+      }
+
+      await client.query('COMMIT');
+
+      const created = await pool.query(`
+        SELECT r.*, u.nombre AS usuario, COALESCE(a.nombre, 'Sin area') AS area
+        FROM requerimientos r
+        JOIN usuarios u ON u.id = r.id_usuario
+        LEFT JOIN areas a ON a.id = u.id_area
+        WHERE r.id = $1
+        LIMIT 1
+      `, [idRequerimiento]);
+
+      res.status(201).json(created.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
+    }
+  });
 
   app.get('/api/requerimientos', authMiddleware, async (req, res) => {
     try {
