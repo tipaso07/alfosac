@@ -28,7 +28,6 @@ const parseDate = (value) => {
 
 export default function HistorialServiciosView({ servicios = [], currentUserRoleId = null, currentUserPermissions = [], currentUserSubArea = '' }) {
   const [serviciosLocal, setServiciosLocal] = useState(servicios)
-  const [areaFilter, setAreaFilter] = useState('TODAS')
   const [prioridadFilter, setPrioridadFilter] = useState('TODAS')
   const [fromDate, setFromDate] = useState('')
   const [toDateFilter, setToDateFilter] = useState('')
@@ -90,13 +89,6 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
     return [...serviciosPendientes, ...serviciosAprobados, ...serviciosRealizados].sort(sortFn)
   }, [serviciosPendientes, serviciosAprobados, serviciosRealizados])
 
-  const areas = useMemo(() => {
-    const values = serviciosHistorial
-      .map((servicio) => String(servicio.area || '').trim())
-      .filter(Boolean)
-    return ['TODAS', ...new Set(values)]
-  }, [serviciosHistorial])
-
   const prioridades = useMemo(() => {
     const values = serviciosHistorial
       .map((servicio) => normalize(servicio.prioridad || 'SIN PRIORIDAD'))
@@ -110,27 +102,26 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
     const toTime = toDateFilter ? new Date(`${toDateFilter}T23:59:59`).getTime() : null
 
     return serviciosHistorial.filter((servicio) => {
-      const area = String(servicio.area || '').trim()
       const prioridad = normalize(servicio.prioridad || 'SIN PRIORIDAD')
       const createdAt = parseDate(servicio.fecha)?.getTime() || 0
       const haystack = [
         servicio.nombre_servicio,
         servicio.descripcion_servicio,
         servicio.proveedor,
+        servicio.sub_area,
         servicio.area,
         servicio.id,
       ]
         .map((value) => String(value || '').toLowerCase())
         .join(' ')
 
-      if (areaFilter !== 'TODAS' && area !== areaFilter) return false
       if (prioridadFilter !== 'TODAS' && prioridad !== prioridadFilter) return false
       if (Number.isFinite(fromTime) && createdAt < fromTime) return false
       if (Number.isFinite(toTime) && createdAt > toTime) return false
       if (term && !haystack.includes(term)) return false
       return true
     })
-  }, [serviciosHistorial, areaFilter, prioridadFilter, fromDate, toDateFilter, searchTerm])
+  }, [serviciosHistorial, prioridadFilter, fromDate, toDateFilter, searchTerm])
 
   const openRatingModal = (servicio) => {
     if (!canCurrentUserRate || isRated(servicio, ratedByServiceId)) return
@@ -226,17 +217,8 @@ export default function HistorialServiciosView({ servicios = [], currentUserRole
             type="text"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Servicio, proveedor, area o ID"
+            placeholder="Servicio, proveedor, sub area o ID"
           />
-        </label>
-
-        <label>
-          Area
-          <select value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
-            {areas.map((area) => (
-              <option key={area} value={area}>{area}</option>
-            ))}
-          </select>
         </label>
 
         <label>
