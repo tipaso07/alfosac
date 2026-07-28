@@ -194,9 +194,17 @@ module.exports = function(app, deps) {
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             COUNT(*)::int AS total,
-            COALESCE(SUM(COALESCE(c.importe_final, c.total,
-              (COALESCE(c.subtotal,0)+COALESCE(c.igv,0)+COALESCE(c.costo_envio,0)+COALESCE(c.otros_costos,0))
-            )::numeric), 0)::numeric AS monto_total,
+            COALESCE(SUM(
+              CASE
+                WHEN upper(trim(COALESCE(c.moneda, ''))) IN ('DOLARES','DOLAR','USD','US$') OR c.id_moneda = 2
+                  THEN COALESCE(c.importe_final, c.total,
+                    (COALESCE(c.subtotal,0)+COALESCE(c.igv,0)+COALESCE(c.costo_envio,0)+COALESCE(c.otros_costos,0))
+                  ) * COALESCE(NULLIF(c.tipo_cambio, 0), 3.4)
+                ELSE COALESCE(c.importe_final, c.total,
+                  (COALESCE(c.subtotal,0)+COALESCE(c.igv,0)+COALESCE(c.costo_envio,0)+COALESCE(c.otros_costos,0))
+                )
+              END
+            )::numeric, 0)::numeric AS monto_total,
             COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'PENDIENTE')::int AS pendientes,
             COUNT(*) FILTER (WHERE upper(trim(c.estado)) = 'APROBADA' OR upper(trim(c.estado_pedido)) = 'APROBADO')::int AS aprobadas,
             COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'POR_RECIBIR')::int AS por_recibir,
@@ -214,7 +222,12 @@ module.exports = function(app, deps) {
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             COUNT(*)::int AS total,
-            COALESCE(SUM(COALESCE(s.total, 0)::numeric), 0)::numeric AS monto_total,
+            COALESCE(SUM(
+              CASE
+                WHEN s.moneda_id = 2 THEN COALESCE(s.total, 0) * COALESCE(NULLIF(s.tipo_cambio, 0), 3.4)
+                ELSE COALESCE(s.total, 0)
+              END
+            )::numeric, 0)::numeric AS monto_total,
             COUNT(*) FILTER (WHERE upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) = 'PENDIENTE')::int AS pendientes,
             COUNT(*) FILTER (WHERE upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) IN ('REALIZADO', 'COMPLETADO', 'APROBADO'))::int AS realizados
           FROM servicios s
@@ -244,7 +257,12 @@ module.exports = function(app, deps) {
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             COUNT(*)::int AS total,
-            COALESCE(SUM(COALESCE(cd.total, 0)::numeric), 0)::numeric AS monto_total
+            COALESCE(SUM(
+              CASE
+                WHEN cd.id_moneda = 2 THEN COALESCE(cd.total, 0) * 3.4
+                ELSE COALESCE(cd.total, 0)
+              END
+            )::numeric, 0)::numeric AS monto_total
           FROM compras_directas cd
           LEFT JOIN areas a ON a.id = cd.id_area
           WHERE ${dateCond('COALESCE(cd.fecha_compra::date, cd.created_at::date)', 'cd')}
