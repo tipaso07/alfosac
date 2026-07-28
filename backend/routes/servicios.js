@@ -32,9 +32,14 @@ module.exports = function(app, deps) {
 
       if (isSolicitante) {
         const userIdColumn = getServicioUserIdColumn();
+        const userSubArea = String(req.user?.sub_area || '').trim();
         const servicios = await fetchServiciosRows(
-          [req.user.id],
-          `WHERE NULLIF(COALESCE(to_jsonb(s)->>'${userIdColumn}', to_jsonb(s)->>'usuario_id', ''), '')::int = $1`,
+          [req.user.id, userSubArea],
+          `WHERE NULLIF(COALESCE(to_jsonb(s)->>'${userIdColumn}', to_jsonb(s)->>'usuario_id', ''), '')::int = $1
+           OR (
+             upper(trim(COALESCE(to_jsonb(s)->>'sub_area', ''))) = upper(trim($2))
+             AND upper(trim(COALESCE(to_jsonb(s)->>'estado_flujo', ''))) = 'APROBADO'
+           )`,
           { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) }
         );
         return res.json(servicios);
