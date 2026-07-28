@@ -41,11 +41,13 @@
 
 .edit-input {
   width: 100%;
+  min-width: 100%;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
   font-family: inherit;
+  box-sizing: border-box;
 }
 
 .edit-input:focus {
@@ -114,11 +116,11 @@
   font-weight: 600;
 }
 .editing-name-cell {
-  min-width: 220px;
+  min-width: 280px;
 }
 .editing-description-cell {
-  min-width: 220px;
+  min-width: 320px;
 }
 .editing-provider-cell {
-  min-width: 300px;
+  min-width: 350px;
 }
