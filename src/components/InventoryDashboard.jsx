@@ -300,7 +300,9 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
       setUnidades(Array.isArray(unidadesData) ? unidadesData : [])
       setAlmacenes(Array.isArray(almacenesData) ? almacenesData : [])
       setAreas(Array.isArray(areasData) ? areasData : [])
-      setAdminDashboardData(adminDashboardDataResp)
+      if (adminDashboardDataResp !== null) {
+        setAdminDashboardData(adminDashboardDataResp)
+      }
       setStats({
         total_materiales: parseInt(statsData.total_materiales, 10) || 0,
         stock_total: parseInt(statsData.stock_total, 10) || 0,
