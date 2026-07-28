@@ -682,15 +682,6 @@
           >
             Descargar PDF
           </button>
-          {compra.id_proveedor ? (
-            <button
-              type="button"
-              className="btn-delivery-rate"
-              onClick={() => openRatingModal(compra)}
-            >
-              Calificar proveedor
-            </button>
-          ) : null}
         </div>
       </article>
     )
