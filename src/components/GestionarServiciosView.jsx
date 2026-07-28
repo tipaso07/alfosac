@@ -108,13 +108,8 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
 
   const visibleServicios = useMemo(() => {
     if (!currentUserIsServiceApprover) return []
-    let filtered = servicios.filter(isServiceItemInFlow)
-    // Gerentes solo ven servicios de su área
-    if (Number(currentUserRoleId || 0) === 1 && currentUserAreaId) {
-      filtered = filtered.filter((s) => Number(s.area_id || 0) === Number(currentUserAreaId))
-    }
-    return filtered
-  }, [servicios, currentUserIsServiceApprover, currentUserRoleId, currentUserAreaId])
+    return servicios.filter(isServiceItemInFlow)
+  }, [servicios, currentUserIsServiceApprover])
 
   // Para el primer aprobador, NUNCA asumir valor por defecto aunque venga como booleano
   const resolvePlanChoice = (servicio) => {
@@ -262,7 +257,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
                 </label>
               )}
 
-              {view.actions && canApproveServicio(servicio, view.actions) && (
+              {view.actions && canApproveServicio(servicio, view.actions) && Boolean(servicio?.puede_aprobar) && (
                 <div className="service-manage-actions">
                   <button
                     className="btn-approve"
