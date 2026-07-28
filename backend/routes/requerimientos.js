@@ -56,6 +56,24 @@ module.exports = function(app, deps) {
         `, [idRequerimiento, Number(item.id_material), Number(item.cantidad)]);
       }
 
+      const { createApprovalRowsForEntity } = require('../services/approval');
+
+      const approvalSetup = await createApprovalRowsForEntity(client, {
+        tipo: 'REQUERIMIENTO',
+        referenciaId: idRequerimiento,
+        creatorRoleId: Number(req.user?.id_role || req.user?.rol_id || 0),
+        creatorUserId: Number(req.user?.id || 0),
+        creatorAreaId: Number(req.user?.id_area || 0),
+      });
+
+      if (approvalSetup.autoApproved) {
+        await client.query(`
+          UPDATE requerimientos
+          SET estado = 'APROBADO'
+          WHERE id = $1
+        `, [idRequerimiento]);
+      }
+
       await client.query('COMMIT');
 
       const created = await pool.query(`
