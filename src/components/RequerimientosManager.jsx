@@ -110,10 +110,7 @@ export default function RequerimientosManager({
           {req.dni_receptor && <p>DNI receptor: {req.dni_receptor}</p>}
         </div>
         <div className="purchase-meta">
-          <span className={`purchase-status ${String(req.estado || '').toLowerCase()}`}>
-            {req.estado}
-          </span>
-          {showPriority && <span className="purchase-priority">{formatPriority(req.prioridad)}</span>}
+          {showPriority && <span className={`purchase-priority ${String(req.prioridad || '').toLowerCase()}`}>{formatPriority(req.prioridad)}</span>}
         </div>
       </div>
 
@@ -203,21 +200,21 @@ export default function RequerimientosManager({
               onChange={(event) => setDateTo(event.target.value)}
             />
           </label>
+
+          <label className="purchase-filter-field">
+            <span>Prioridad</span>
+            <select
+              value={activePriority}
+              onChange={(event) => setActivePriority(event.target.value)}
+            >
+              <option value="TODAS">Todas</option>
+              <option value="ALTA">Alta</option>
+              <option value="MEDIA">Media</option>
+              <option value="BAJA">Baja</option>
+            </select>
+          </label>
         </div>
       </form>
-
-      <div className="service-priority-tabs">
-        {['TODAS', 'ALTA', 'MEDIA', 'BAJA'].map((priority) => (
-          <button
-            key={priority}
-            type="button"
-            className={activePriority === priority ? 'active' : ''}
-            onClick={() => setActivePriority(priority)}
-          >
-            {priority}
-          </button>
-        ))}
-      </div>
 
       <div className="purchase-status-tabs">
         {Object.entries(config).map(([key, val]) => (
