@@ -1,7 +1,7 @@
 const { schemaMeta, pickExistingColumn, buildProveedorSelectExpressions, insertMovimiento, getMaterialStockTotal, discountMaterialStockDistributed, quoteIdentifier } = require('../db/pool');
 const { fetchComprasRows, parsePurchaseComments, normalizeItemCategoryKey } = require('../db/queries');
 const { resolveApprovalRoleId, canApproveApprovalRole, canAccessManageRequestsModule, canAccessPurchaseOrdersModule, isComprasOperatorUser, aprobarEntidad, hasEffectiveFinalApprovalByRole, fetchApprovedApproversByEntity, fetchApprovalHistoryByEntity, mapApprovalDecisionErrorToHttp, isPendingApprovalState, insertCommentForEntity } = require('../services/approval');
-const { buildPurchaseComment } = require('../services/proveedores');
+const { buildPurchaseComment, upsertProveedorRating } = require('../services/proveedores');
 const { fetchCommentsForEntities } = require('../services/comments');
 const { canManagePurchasesRole, canManageDeliveryRole, isWarehouseAreaName, DEFAULT_USER_AVATAR } = require('../config/constants');
 const { normalize } = require('../utils/normalize');
@@ -1135,6 +1135,13 @@ module.exports = function(app, deps) {
       }
 
       const { id } = req.params;
+      const puntuacion = Number(req.body?.puntuacion || 0);
+      const comentario = String(req.body?.comentario || '').trim();
+
+      if (!Number.isInteger(puntuacion) || puntuacion < 1 || puntuacion > 5) {
+        return res.status(400).json({ error: 'La calificacion del proveedor es obligatoria (1-5)' });
+      }
+
       await client.query('BEGIN');
 
       const compra = await client.query(
@@ -1620,6 +1627,25 @@ module.exports = function(app, deps) {
         'UPDATE compras SET estado_pedido = $1, comentarios = $2 WHERE id = $3',
         [estadoFinal, comentariosConRecepcion, id]
       );
+
+      if (row.id_proveedor && puntuacion) {
+        try {
+          await upsertProveedorRating(client, {
+            user: req.user,
+            proveedorId: row.id_proveedor,
+            puntuacion,
+            comentario,
+            tipo: 'compra',
+            idReferencia: Number(id),
+          });
+        } catch (ratingErr) {
+          if (ratingErr.code === 'RATING_ALREADY_EXISTS') {
+            console.warn('[RECEPCION] Proveedor ya calificado:', ratingErr.message);
+          } else {
+            throw ratingErr;
+          }
+        }
+      }
 
       await client.query('COMMIT');
 
