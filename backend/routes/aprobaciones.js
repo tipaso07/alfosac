@@ -91,14 +91,14 @@ module.exports = function(app, deps) {
       const flujos = {
         COMPRA: 'Dinamico por area del solicitante',
         SERVICIO_DENTRO_PLAN: gerenteFinanzas
-          ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, orden: 1 }]
+          ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, rol_id: gerentesRoleId, orden: 1 }]
           : [],
         SERVICIO_FUERA_PLAN: [
           ...(gerenteFinanzas
-            ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, orden: 1 }]
+            ? [{ usuario_id: gerenteFinanzas.id, nombre: gerenteFinanzas.nombre, rol_id: gerentesRoleId, orden: 1 }]
             : []),
           ...(gerenteGerencia
-            ? [{ usuario_id: gerenteGerencia.id, nombre: gerenteGerencia.nombre, orden: 2 }]
+            ? [{ usuario_id: gerenteGerencia.id, nombre: gerenteGerencia.nombre, rol_id: gerentesRoleId, orden: 2 }]
             : []),
         ],
       };
