@@ -55,12 +55,12 @@ module.exports = function(app, deps) {
       const gerentesRoleId = Number((await pool.query("SELECT id FROM roles WHERE upper(trim(nombre)) = 'GERENTES' LIMIT 1")).rows[0]?.id || 1);
 
       const finanzasAreaId = await (async () => {
-        const result = await pool.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%ADMINISTRACION Y FINANZAS%' LIMIT 1");
+        const result = await pool.query("SELECT id FROM areas WHERE unaccent(upper(trim(nombre))) LIKE unaccent('%ADMINISTRACION Y FINANZAS%') LIMIT 1");
         return Number(result.rows[0]?.id || 0);
       })();
 
       const gerenciaAreaId = await (async () => {
-        const result = await pool.query("SELECT id FROM areas WHERE upper(trim(nombre)) LIKE '%GERENCIA GENERAL%' LIMIT 1");
+        const result = await pool.query("SELECT id FROM areas WHERE unaccent(upper(trim(nombre))) LIKE unaccent('%GERENCIA GENERAL%') LIMIT 1");
         return Number(result.rows[0]?.id || 0);
       })();
 
