@@ -25,6 +25,7 @@ export default function RequerimientosManager({
   }
 
   const [activeStatus, setActiveStatus] = useState('PENDIENTE')
+  const [activePriority, setActivePriority] = useState('TODAS')
   const [userQuery, setUserQuery] = useState('')
   const [materialQuery, setMaterialQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -51,9 +52,11 @@ export default function RequerimientosManager({
         if (!materialText.includes(materialTerm)) return false
       }
 
+      if (activePriority !== 'TODAS' && normalize(req.prioridad) !== activePriority) return false
+
       return true
     })
-  }, [requerimientos, userQuery, materialQuery, dateFrom, dateTo])
+  }, [requerimientos, userQuery, materialQuery, dateFrom, dateTo, activePriority])
 
   const pendientes = useMemo(() => {
     return baseFiltered
@@ -138,9 +141,7 @@ export default function RequerimientosManager({
                 Rechazar
               </button>
             </>
-          ) : (
-            <span className="area-search-hint">Pendiente de otro nivel de aprobacion.</span>
-          )}
+          ) : null}
         </div>
       )}
     </article>
@@ -204,6 +205,19 @@ export default function RequerimientosManager({
           </label>
         </div>
       </form>
+
+      <div className="service-priority-tabs">
+        {['TODAS', 'ALTA', 'MEDIA', 'BAJA'].map((priority) => (
+          <button
+            key={priority}
+            type="button"
+            className={activePriority === priority ? 'active' : ''}
+            onClick={() => setActivePriority(priority)}
+          >
+            {priority}
+          </button>
+        ))}
+      </div>
 
       <div className="purchase-status-tabs">
         {Object.entries(config).map(([key, val]) => (
