@@ -559,7 +559,7 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
           const newFlow = 'APROBADO';
           await client.query(
             `UPDATE servicios SET ${quoteIdentifier(serviceStateColumn)} = $1, ${quoteIdentifier(serviceFlowColumn)} = $2 WHERE id = $3`,
-            [estadoNuevo, newFlow, referenceId]
+            [normalizedDecision, newFlow, referenceId]
           );
         } else {
           const nextUserId = Number(nextPendingRow.usuario_id || 0);
