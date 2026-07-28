@@ -166,12 +166,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
   const pendientes = useMemo(() => sortByPriorityAndDate(
     baseFilteredServicios.filter((servicio) => {
       const estado = getGestionEstado(servicio)
-      if (!isPendingApprovalStage(estado)) return false
-
-      const expectedStage = getPendingStageForRoleId(currentUserRoleId)
-      if (!expectedStage) return false
-
-      return normalize(estado) === normalize(expectedStage)
+      return isPendingApprovalStage(estado)
     })
   ), [baseFilteredServicios, currentUserRoleId])
 
