@@ -158,6 +158,7 @@ const fetchServiciosRows = async (params = [], whereClause = '', options = {}) =
         COALESCE(NULLIF(COALESCE(to_jsonb(p)->>'descuento', ''), '')::numeric, 0) AS proveedor_retencion_pct,
         COALESCE(pm.nombre, '') AS proveedor_moneda,
         COALESCE(a.nombre, 'Sin area') AS area,
+        COALESCE(NULLIF(COALESCE(to_jsonb(s)->>'sub_area', ''), ''), '') AS sub_area,
         COALESCE(mo.nombre, '') AS moneda,
         COALESCE(u.nombre, 'Sin usuario') AS usuario,
         u.email AS usuario_email,
