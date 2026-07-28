@@ -133,7 +133,7 @@ export default function SolicitarServicioForm({
               disabled={saving}
             >
               <option value="">Selecciona sub-area destino</option>
-              {subAreas.map((sub) => (
+              {subAreas.filter((sub) => sub !== 'GERENTE').map((sub) => (
                 <option key={sub} value={sub}>
                   {sub}
                 </option>
