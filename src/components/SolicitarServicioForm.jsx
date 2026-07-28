@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchAreas, fetchSubAreas } from '../services/api'
+import { fetchSubAreas } from '../services/api'
 import '../styles/SolicitarServicioForm.css'
 
 export default function SolicitarServicioForm({
@@ -11,11 +11,8 @@ export default function SolicitarServicioForm({
     nombre_servicio: '',
     descripcion_servicio: '',
     prioridad: 'MEDIA',
-    area_id: currentAreaId ? String(currentAreaId) : '',
     sub_area: '',
-    // dentro_plan eliminado, solo lo define el primer aprobador
   })
-  const [areas, setAreas] = useState([])
   const [subAreas, setSubAreas] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -25,49 +22,31 @@ export default function SolicitarServicioForm({
   useEffect(() => {
     let mounted = true
 
-    const loadData = async () => {
+    const loadSubAreas = async () => {
       try {
-        const [areasResult, subAreasResult] = await Promise.all([
-          fetchAreas(),
-          fetchSubAreas(),
-        ])
+        const result = await fetchSubAreas()
         if (!mounted) return
-        setAreas(Array.isArray(areasResult) ? areasResult : [])
-        setSubAreas(Array.isArray(subAreasResult) ? subAreasResult : [])
+        setSubAreas(Array.isArray(result) ? result : [])
       } catch {
         if (!mounted) return
-        setAreas([])
         setSubAreas([])
       }
     }
 
-    loadData()
+    loadSubAreas()
     return () => {
       mounted = false
     }
   }, [])
 
-  useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      area_id: prev.area_id || (currentAreaId ? String(currentAreaId) : ''),
-    }))
-  }, [currentAreaId])
-
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
 
-
-    const areaId = Number(form.area_id || 0)
     const nombreServicio = String(form.nombre_servicio || '').trim()
     const descripcionServicio = String(form.descripcion_servicio || '').trim()
     const prioridad = String(form.prioridad || '').trim().toUpperCase()
     const subArea = String(form.sub_area || '').trim()
-    if (!areaId) {
-      setError('Selecciona un area destino valida')
-      return
-    }
 
     if (!subArea) {
       setError('Selecciona una sub-area destino')
@@ -93,7 +72,6 @@ export default function SolicitarServicioForm({
       setSaving(true)
       await onSubmitServicio({
         nombre_servicio: nombreServicio,
-        area_id: areaId,
         sub_area: subArea,
         descripcion_servicio: descripcionServicio,
         prioridad,
@@ -103,7 +81,6 @@ export default function SolicitarServicioForm({
         nombre_servicio: '',
         descripcion_servicio: '',
         prioridad: 'MEDIA',
-        area_id: areaId ? String(areaId) : '',
         sub_area: '',
       })
     } catch (err) {
@@ -148,23 +125,6 @@ export default function SolicitarServicioForm({
 
         <div className="service-request-grid single-column-grid">
           <label>
-            Area destino
-            <select
-            className='select-request'
-              value={form.area_id}
-              onChange={(event) => update({ area_id: event.target.value })}
-              disabled={saving}
-            >
-              <option value="">Selecciona area destino</option>
-              {areas.map((area) => (
-                <option key={area.id} value={area.id}>
-                  {area.nombre || `Area ${area.id}`}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
             Sub-area destino
             <select
             className='select-request'
@@ -196,9 +156,6 @@ export default function SolicitarServicioForm({
           </label>
 
         </div>
-
-
-
 
         <div className="service-request-actions">
           <button type="submit" className="btn-primary" disabled={saving}>
