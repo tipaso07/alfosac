@@ -155,10 +155,11 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     return hasPermission(currentUserPermissions, 'GESTIONAR_SOLICITUDES')
   }, [currentUserPermissions])
   const canSeeServiciosTab = useMemo(() => {
-    if (currentUserRoleId === 8) return true
-    if (currentUserRoleId === 1) return true
+    if (currentUserRoleId === 1 && currentUserAreaId) {
+      return [1, 3].includes(Number(currentUserAreaId))
+    }
     return false
-  }, [currentUserRoleId, currentUserArea])
+  }, [currentUserRoleId, currentUserAreaId])
   const canSeeDashboard = useMemo(() => {
     if (currentUserRoleId === 2) return true
     if (currentUserRoleId === 1) {
