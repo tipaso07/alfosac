@@ -147,6 +147,7 @@ module.exports = function(app, deps) {
               total_requerimientos: 0,
               total_servicios: 0,
               monto_total_compras: 0,
+              monto_total_restock: 0,
               monto_total_requerimientos: 0,
               monto_total_servicios: 0,
               monto_total_consumo: 0,
@@ -194,6 +195,7 @@ module.exports = function(app, deps) {
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             COUNT(*)::int AS total,
+            COALESCE(c.id_area_final, c.id_area_solicitante) = 6 AS es_restock,
             COALESCE(SUM(
               CASE
                 WHEN upper(trim(COALESCE(c.moneda, ''))) IN ('DOLARES','DOLAR','USD','US$') OR c.id_moneda = 2
@@ -214,7 +216,7 @@ module.exports = function(app, deps) {
           LEFT JOIN areas a ON a.id = COALESCE(c.id_area_final, c.id_area_solicitante)
           WHERE ${dateCond('COALESCE(c.fecha_creacion::date, c.created_at::date)', 'c')}
           ${comprasAreaFilter}
-          GROUP BY a.nombre
+          GROUP BY a.nombre, COALESCE(c.id_area_final, c.id_area_solicitante)
           ORDER BY monto_total DESC
         `, areaFilter ? [areaIds] : []),
 
@@ -319,7 +321,8 @@ module.exports = function(app, deps) {
         total_compras: comprasRes.rows.reduce((s, r) => s + r.total, 0),
         total_requerimientos: reqRes.rows.reduce((s, r) => s + r.total, 0),
         total_servicios: servRes.rows.reduce((s, r) => s + r.total, 0),
-        monto_total_compras: Number(comprasRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+        monto_total_compras: Number(comprasRes.rows.filter(r => !r.es_restock).reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+        monto_total_restock: Number(comprasRes.rows.filter(r => r.es_restock).reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
         monto_total_requerimientos: 0,
         monto_total_servicios: Number(servRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
         monto_total_consumo: 0,
