@@ -1,7 +1,7 @@
 const { getRequerimientoDescripcionExpr, getRequerimientoDescripcionColumn } = require('../db/pool');
 const { parseEmbeddedCommentsFromText, fetchCommentsForEntities } = require('../services/comments');
 const { fetchActionableApprovalReferenceIds, isPendingApprovalState, tienePermiso, aprobarEntidad, fetchApprovedApproversByEntity, fetchApprovalHistoryByEntity, mapApprovalDecisionErrorToHttp } = require('../services/approval');
-const { getPermissionsByRoleId } = require('../config/constants');
+const { getPermissionsByRoleId, isWarehouseAreaName, DEFAULT_USER_AVATAR } = require('../config/constants');
 const { normalizePermissionName, normalize } = require('../utils/normalize');
 const { PET_SQL_NOW } = require('../utils/datetime');
 
@@ -365,6 +365,77 @@ module.exports = function(app, deps) {
       res.json(mapped);
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/requerimientos/:id/receptores', authMiddleware, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const term = String(req.query.query || '').trim();
+
+      const reqArea = await pool.query(
+        `
+          SELECT u.id_area, COALESCE(a.nombre, '') AS area_nombre
+          FROM requerimientos r
+          JOIN usuarios u ON u.id = r.id_usuario
+          LEFT JOIN areas a ON a.id = u.id_area
+          WHERE r.id = $1
+          LIMIT 1
+        `,
+        [id]
+      );
+
+      if (reqArea.rows.length === 0) {
+        return res.status(404).json({ error: 'Requerimiento no encontrado' });
+      }
+
+      const areaNameNorm = normalize(reqArea.rows[0].area_nombre || '');
+      if (!areaNameNorm || isWarehouseAreaName(areaNameNorm)) {
+        return res.json([]);
+      }
+
+      const areaId = Number(reqArea.rows[0].id_area || 0);
+      if (!areaId) {
+        return res.json([]);
+      }
+
+      const conditions = ['u.id_area = $1'];
+      const params = [areaId];
+
+      if (term) {
+        params.push(`%${term}%`);
+        const likePos = params.length;
+        params.push(`%${term}%`);
+        const likeDniPos = params.length;
+        conditions.push(`(u.nombre ILIKE $${likePos} OR COALESCE(to_jsonb(u)->>'dni', '') ILIKE $${likeDniPos})`);
+      }
+
+      const result = await pool.query(
+        `
+          SELECT
+            u.id,
+            u.nombre,
+            COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'dni', '')), ''), '') AS dni,
+            COALESCE(ar.nombre, '') AS area,
+            COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'imagen', to_jsonb(u)->>'foto', '')), ''), '') AS imagen
+          FROM usuarios u
+          LEFT JOIN areas ar ON ar.id = u.id_area
+          WHERE ${conditions.join(' AND ')}
+          ORDER BY u.nombre ASC
+          LIMIT 20
+        `,
+        params
+      );
+
+      return res.json(result.rows.map((row) => ({
+        id: row.id,
+        nombre: row.nombre,
+        dni: row.dni || '',
+        area: row.area || '',
+        imagen: row.imagen || DEFAULT_USER_AVATAR,
+      })));
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
     }
   });
 };
