@@ -196,6 +196,20 @@ module.exports = function(app, deps) {
     }
   });
 
+  app.get('/api/sub-areas', authMiddleware, async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT DISTINCT trim(sub_area) AS sub_area
+         FROM usuarios
+         WHERE sub_area IS NOT NULL AND trim(sub_area) != ''
+         ORDER BY trim(sub_area)`
+      );
+      res.json(result.rows.map((r) => r.sub_area));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/servicios', authMiddleware, async (req, res) => {
     const client = await pool.connect();
     let txStarted = false;
@@ -219,6 +233,7 @@ module.exports = function(app, deps) {
       const prioridad = normalize(req.body?.prioridad || 'MEDIA');
       const descripcionServicio = String(req.body?.descripcion_servicio ?? req.body?.descripcion ?? '').trim();
       const dentroPlan = parseBooleanFlag(req.body?.dentro_plan ?? req.body?.dentroPlan ?? req.body?.en_plan, true);
+      const subArea = String(req.body?.sub_area ?? '').trim();
       const creatorRoleId = Number(req.user?.id_role || req.user?.rol_id || 0);
       const initialApprovalState = getInitialApprovalStateForEntity({
         tipo: 'SERVICIO',
@@ -273,6 +288,11 @@ module.exports = function(app, deps) {
       if (statusColumn) {
         insertColumns.push(quoteIdentifier(statusColumn));
         insertValues.push(null);
+      }
+
+      if (subArea) {
+        insertColumns.push(quoteIdentifier('sub_area'));
+        insertValues.push(subArea);
       }
 
       const placeholders = insertValues.map((_, idx) => `$${idx + 1}`);
