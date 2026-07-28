@@ -38,7 +38,7 @@ module.exports = function(app, deps) {
           `WHERE NULLIF(COALESCE(to_jsonb(s)->>'${userIdColumn}', to_jsonb(s)->>'usuario_id', ''), '')::int = $1
            OR (
              upper(trim(COALESCE(to_jsonb(s)->>'sub_area', ''))) = upper(trim($2))
-             AND upper(trim(COALESCE(to_jsonb(s)->>'estado_flujo', ''))) = 'APROBADO'
+             AND upper(trim(COALESCE(to_jsonb(s)->>'estado_flujo', ''))) IN ('DATOS_COMPLETADOS', 'REALIZADO')
            )`,
           { approvalRoleId: roleId, approvalPermissionGranted: canApproveInCurrentStage, userId: Number(req.user?.id || 0) }
         );
