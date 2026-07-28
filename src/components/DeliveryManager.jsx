@@ -513,7 +513,7 @@
 
     const renderOrderCard = (compra) => {
       const areaDestinoNorm = normalize(compra.area_final || '')
-      const isAlmacenDestino = areaDestinoNorm === 'ALMACÉN'
+      const isAlmacenDestino = areaDestinoNorm === 'ALMACEN'
       const buttonLabel = isAlmacenDestino ? 'Confirmar recepción (a Almacén)' : 'Confirmar recepción (en tránsito)'
 
       return (
