@@ -416,6 +416,14 @@ export const fetchAreas = async (query = '') => {
   return response.json();
 };
 
+export const fetchSubAreas = async () => {
+  const response = await fetch(`${API_BASE_URL}/sub-areas`, {
+    headers: buildHeaders(),
+  });
+  if (!response.ok) throw new Error('Error al obtener sub-areas');
+  return response.json();
+};
+
 export const createArea = async (payload) => {
   console.log('createArea - Enviando payload:', payload);
 
@@ -610,27 +618,6 @@ export const guardarCalificacionProveedor = async (id, payload) => {
 
   if (!response.ok) {
     let msg = 'Error al guardar calificacion del proveedor';
-    try {
-      const data = await response.json();
-      if (data?.error) msg = data.error;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
-  }
-
-  return response.json();
-};
-
-export const calificarRequerimiento = async (idRequerimiento, payload) => {
-  const response = await fetch(`${API_BASE_URL}/requerimientos/${idRequerimiento}/calificacion`, {
-    method: 'POST',
-    headers: buildHeaders({ includeJson: true }),
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    let msg = 'Error al calificar requerimiento';
     try {
       const data = await response.json();
       if (data?.error) msg = data.error;
