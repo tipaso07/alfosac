@@ -158,6 +158,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     if (currentUserRoleId === 1 && currentUserAreaId) {
       return [1, 3].includes(Number(currentUserAreaId))
     }
+    if (currentUserRoleId === 8) return true
     return false
   }, [currentUserRoleId, currentUserAreaId])
   const canSeeDashboard = useMemo(() => {
