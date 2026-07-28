@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import '../styles/InventoryDashboard.css'
 import Header from './Header'
@@ -137,6 +137,8 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
   const [adminDashboardLoading, setAdminDashboardLoading] = useState(false)
   const initialAdminDashboardRange = useMemo(() => getDefaultAdminDashboardRange(), [])
   const [adminDashboardDateRange, setAdminDashboardDateRange] = useState(initialAdminDashboardRange)
+  const adminDashboardDateRangeRef = useRef(adminDashboardDateRange)
+  useEffect(() => { adminDashboardDateRangeRef.current = adminDashboardDateRange }, [adminDashboardDateRange])
   const [comprasDirectas, setComprasDirectas] = useState([])
 
   const isUnauthorizedError = useCallback((err) => Number(err?.status || 0) === 401, [])
@@ -269,7 +271,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
           completados: 0,
         }),
         hasPermission(runtimePermissions, 'APROBAR_ADMIN')
-          ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRange), null)
+          ? loadOptionalData(() => fetchAdminDashboard(adminDashboardDateRangeRef.current), null)
           : Promise.resolve(null),
         loadOptionalData(fetchRequerimientos, []),
         loadOptionalData(fetchCompras, []),
@@ -317,7 +319,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     } finally {
       setLoading(false)
     }
-  }, [adminDashboardDateRange, isUnauthorizedError, loadOptionalData, onAuthExpired])
+  }, [initialAdminDashboardRange, isUnauthorizedError, loadOptionalData, onAuthExpired])
 
   // Cargar datos iniciales al montar el dashboard.
   useEffect(() => {
