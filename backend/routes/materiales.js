@@ -453,6 +453,172 @@ module.exports = function(app, deps) {
     }
   });
 
+  app.put('/api/materiales/:id', authMiddleware, requirePermissions('EDITAR_INVENTARIO'), async (req, res) => {
+    const client = await pool.connect();
+    try {
+      const materialId = Number(req.params.id || 0);
+      if (!Number.isInteger(materialId) || materialId <= 0) {
+        return res.status(400).json({ error: 'ID de material invalido' });
+      }
+
+      const {
+        nombre,
+        descripcion,
+        id_unidad,
+        id_proveedor,
+        id_moneda,
+        id_categoria,
+        costo_unitario,
+        stock_seguridad,
+        id_almacen,
+        imagen,
+      } = req.body;
+
+      const nombreNorm = String(nombre || '').trim();
+      if (!nombreNorm) {
+        return res.status(400).json({ error: 'nombre es obligatorio' });
+      }
+
+      const idUnidad = Number(id_unidad || 0);
+      if (!Number.isInteger(idUnidad) || idUnidad <= 0) {
+        return res.status(400).json({ error: 'id_unidad debe ser valido' });
+      }
+
+      const idProveedor = Number(id_proveedor || 0);
+      if (!Number.isInteger(idProveedor) || idProveedor <= 0) {
+        return res.status(400).json({ error: 'id_proveedor debe ser valido' });
+      }
+
+      const idAlmacen = id_almacen === null || id_almacen === undefined || id_almacen === ''
+        ? null
+        : Number(id_almacen);
+      if (idAlmacen !== null && (!Number.isInteger(idAlmacen) || idAlmacen <= 0)) {
+        return res.status(400).json({ error: 'id_almacen debe ser valido' });
+      }
+
+      const stockSeguridadValue = Number(stock_seguridad);
+      if (!Number.isFinite(stockSeguridadValue) || stockSeguridadValue < 0) {
+        return res.status(400).json({ error: 'stock_seguridad debe ser numerico y >= 0' });
+      }
+
+      const costoUnitarioValue = Number(costo_unitario);
+      if (!Number.isFinite(costoUnitarioValue) || costoUnitarioValue < 0) {
+        return res.status(400).json({ error: 'costo_unitario debe ser numerico y >= 0' });
+      }
+
+      const idMoneda = id_moneda ? Number(id_moneda) : null;
+      if (idMoneda && (!Number.isInteger(idMoneda) || idMoneda <= 0)) {
+        return res.status(400).json({ error: 'id_moneda debe ser valido' });
+      }
+
+      let idCategoria = id_categoria === null || id_categoria === undefined || id_categoria === ''
+        ? null
+        : Number(id_categoria);
+      if (idCategoria !== null && (!Number.isInteger(idCategoria) || idCategoria <= 0)) {
+        return res.status(400).json({ error: 'id_categoria debe ser valido' });
+      }
+
+      const imagenUrl = imagen === null || imagen === undefined
+        ? null
+        : String(imagen || '').trim() || null;
+
+      const existing = await client.query('SELECT id FROM materiales WHERE id = $1', [materialId]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'Material no encontrado' });
+      }
+
+      await client.query('BEGIN');
+
+      const unidad = await client.query('SELECT id FROM unidades WHERE id = $1 LIMIT 1', [idUnidad]);
+      if (unidad.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'id_unidad no existe en unidades' });
+      }
+
+      const proveedor = await client.query('SELECT id FROM proveedores WHERE id = $1 LIMIT 1', [idProveedor]);
+      if (proveedor.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'id_proveedor no existe en proveedores' });
+      }
+
+      if (idMoneda) {
+        const moneda = await client.query('SELECT id FROM monedas WHERE id = $1 LIMIT 1', [idMoneda]);
+        if (moneda.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'id_moneda no existe en monedas' });
+        }
+      }
+
+      if (idCategoria !== null) {
+        const categoria = await client.query('SELECT id FROM categorias WHERE id = $1 LIMIT 1', [idCategoria]);
+        if (categoria.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'id_categoria no existe en categorias' });
+        }
+      }
+
+      if (idAlmacen !== null) {
+        const almacen = await client.query('SELECT id FROM almacenes WHERE id = $1 LIMIT 1', [idAlmacen]);
+        if (almacen.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'id_almacen no existe en almacenes' });
+        }
+      }
+
+      const materialCostoColumn = pickExistingColumn(schemaMeta.materialesColumns, ['costo_unitario', 'precio_unitario', 'costo']);
+      const stockSafetyColumn = pickExistingColumn(schemaMeta.stockColumns, ['stock_seguridad']);
+      const materialImagenColumn = pickExistingColumn(schemaMeta.materialesColumns, ['imagen']);
+
+      const setClauses = [
+        'nombre = $1',
+        'descripcion = $2',
+        'id_unidad = $3',
+        'id_proveedor = $4',
+        'id_moneda = $5',
+        'id_categoria = $6',
+      ];
+      const setValues = [nombreNorm, descripcion || null, idUnidad, idProveedor, idMoneda, idCategoria];
+
+      if (materialCostoColumn) {
+        setClauses.push(`${quoteIdentifier(materialCostoColumn)} = $${setValues.length + 1}`);
+        setValues.push(costoUnitarioValue);
+      }
+
+      if (materialImagenColumn) {
+        setClauses.push(`${quoteIdentifier(materialImagenColumn)} = $${setValues.length + 1}`);
+        setValues.push(imagenUrl);
+      }
+
+      setValues.push(materialId);
+
+      await client.query(
+        `UPDATE materiales SET ${setClauses.join(', ')} WHERE id = $${setValues.length}`,
+        setValues
+      );
+
+      if (idAlmacen && stockSafetyColumn) {
+        const updateStock = await client.query(
+          `UPDATE stock SET ${quoteIdentifier(stockSafetyColumn)} = $3 WHERE id_material = $1 AND id_almacen = $2`,
+          [materialId, idAlmacen, stockSeguridadValue]
+        );
+        if (Number(updateStock.rowCount || 0) === 0) {
+          await client.query(
+            `INSERT INTO stock (id_material, id_almacen, cantidad, ${quoteIdentifier(stockSafetyColumn)}) VALUES ($1, $2, 0, $3)`,
+            [materialId, idAlmacen, stockSeguridadValue]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+      res.json({ ok: true, id: materialId });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
+    }
+  });
+
   app.get('/api/stock', authMiddleware, async (req, res) => {
     try {
       const result = await pool.query(
