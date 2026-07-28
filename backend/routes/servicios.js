@@ -228,7 +228,7 @@ module.exports = function(app, deps) {
       const approvalColumn = getServicioApprovalColumn();
       const statusColumn = getServicioStatusColumn();
 
-      const areaId = Number(req.body?.area_id ?? req.body?.id_area ?? req.user?.id_area ?? 0);
+      const areaId = Number(req.body?.area_id ?? req.body?.id_area ?? 0);
       const nombreServicio = String(req.body?.nombre_servicio ?? req.body?.nombre ?? '').trim();
       const prioridad = normalize(req.body?.prioridad || 'MEDIA');
       const descripcionServicio = String(req.body?.descripcion_servicio ?? req.body?.descripcion ?? '').trim();
@@ -241,8 +241,20 @@ module.exports = function(app, deps) {
         creatorRoleId,
       });
 
-      if (!Number.isInteger(areaId) || areaId <= 0) {
-        return res.status(400).json({ error: 'area_id es obligatorio y debe ser valido' });
+      if (!subArea) {
+        return res.status(400).json({ error: 'sub_area es obligatoria' });
+      }
+
+      let resolvedAreaId = areaId;
+      if (!Number.isInteger(resolvedAreaId) || resolvedAreaId <= 0) {
+        const areaRow = await client.query(
+          `SELECT id_area FROM usuarios WHERE upper(trim(sub_area)) = upper(trim($1)) AND id_area IS NOT NULL LIMIT 1`,
+          [subArea]
+        );
+        if (areaRow.rows.length === 0) {
+          return res.status(400).json({ error: 'No se encontro area para la sub-area indicada' });
+        }
+        resolvedAreaId = Number(areaRow.rows[0].id_area);
       }
 
       if (!nombreServicio) {
@@ -258,17 +270,17 @@ module.exports = function(app, deps) {
         return res.status(400).json({ error: 'descripcion_servicio es obligatorio' });
       }
 
-      const areaExists = await client.query('SELECT id FROM areas WHERE id = $1 LIMIT 1', [areaId]);
+      const areaExists = await client.query('SELECT id FROM areas WHERE id = $1 LIMIT 1', [resolvedAreaId]);
 
       if (areaExists.rows.length === 0) {
-        return res.status(400).json({ error: 'area_id no existe en areas' });
+        return res.status(400).json({ error: 'El area derivada de la sub-area no existe' });
       }
 
       await client.query('BEGIN');
       txStarted = true;
 
       const insertColumns = [quoteIdentifier(userIdColumn), quoteIdentifier(areaIdColumn), quoteIdentifier(descriptionColumn), quoteIdentifier(approvalColumn)];
-      const insertValues = [Number(req.user.id), areaId, descripcionServicio, initialApprovalState];
+      const insertValues = [Number(req.user.id), resolvedAreaId, descripcionServicio, initialApprovalState];
 
       if (nameColumn) {
         insertColumns.push(quoteIdentifier(nameColumn));
