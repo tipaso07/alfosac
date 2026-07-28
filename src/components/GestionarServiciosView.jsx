@@ -233,6 +233,7 @@ export default function GestionarServiciosView({ servicios = [], currentUserPerm
               </div>
 
               <p><strong>Area:</strong> {servicio.area || 'Sin area'}</p>
+              <p><strong>Sub area:</strong> {servicio.sub_area || 'Sin sub area'}</p>
               <p><strong>Nombre:</strong> {servicio.nombre_servicio || servicio.descripcion_servicio || 'Sin nombre'}</p>
               <p><strong>Prioridad:</strong> {servicio.prioridad || 'MEDIA'}</p>
               <p><strong>Tipo:</strong> {getServiceTypeLabel(servicio)}</p>
