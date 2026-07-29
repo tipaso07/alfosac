@@ -18,8 +18,9 @@ module.exports = function(app, deps) {
   const { pool, authMiddleware } = deps;
 
   app.post('/api/requerimientos', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const { prioridad, descripcion, items = [] } = req.body;
 
       if (!['ALTA', 'MEDIA', 'BAJA'].includes(prioridad)) {
@@ -88,16 +89,17 @@ module.exports = function(app, deps) {
 
       res.status(201).json(created.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.patch('/api/requerimientos/:id/estado', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const { id } = req.params;
       const estado = normalize(req.body.estado);
 
@@ -181,14 +183,14 @@ module.exports = function(app, deps) {
 
       res.json(result.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       const mapped = mapApprovalDecisionErrorToHttp(error);
       if (mapped.expose) {
         return res.status(mapped.status).json({ error: error.message });
       }
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
@@ -369,8 +371,9 @@ module.exports = function(app, deps) {
   });
 
   app.patch('/api/requerimientos/:id/estado-entrega', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const { id } = req.params;
       const estadoEntrega = normalize(req.body.estado_entrega);
       const receptorUserId = Number(req.body.receptor_user_id || 0);
@@ -487,10 +490,10 @@ module.exports = function(app, deps) {
 
       res.json(result.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
