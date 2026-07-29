@@ -155,7 +155,7 @@ module.exports = function(app, deps) {
               total_servicios: 0,
               monto_total_compras: 0,
               monto_total_restock: 0,
-              monto_total_requerimientos: 0,
+        monto_total_requerimientos: Number(reqRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
               monto_total_servicios: 0,
               monto_total_consumo: 0,
               total_entradas_movimientos: 0,
@@ -223,6 +223,7 @@ module.exports = function(app, deps) {
           LEFT JOIN areas a ON a.id = COALESCE(c.id_area_final, c.id_area_solicitante)
           WHERE ${dateCond('COALESCE(c.fecha_creacion::date, c.created_at::date)', 'c')}
           ${comprasAreaFilter}
+          AND (upper(trim(c.estado_pedido)) IN ('POR_RECIBIR', 'POR_ENTREGAR', 'ENTREGADO') OR upper(trim(c.estado)) = 'ENTREGADO')
           GROUP BY a.nombre, COALESCE(c.id_area_final, c.id_area_solicitante)
           ORDER BY monto_total DESC
         `, areaFilter ? [areaIds] : []),
@@ -243,6 +244,7 @@ module.exports = function(app, deps) {
           LEFT JOIN areas a ON a.id = s.area_id
           WHERE ${dateCond('COALESCE(s.fecha::date, s.created_at::date)', 's')}
           ${servAreaFilter}
+          AND upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) IN ('PENDIENTE', 'REALIZADO', 'COMPLETADO', 'APROBADO')
           GROUP BY a.nombre
           ORDER BY monto_total DESC
         `, areaFilter ? [areaIds] : []),
@@ -250,12 +252,21 @@ module.exports = function(app, deps) {
         pool.query(`
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE upper(trim(r.estado_entrega)) = 'POR_RECOGER')::int AS pendientes,
-            COUNT(*) FILTER (WHERE upper(trim(r.estado_entrega)) = 'ENTREGADO')::int AS completados
+            COUNT(DISTINCT r.id)::int AS total,
+            COALESCE(SUM(
+              CASE
+                WHEN mo.id = 2 THEN COALESCE(dr.cantidad, 0) * COALESCE(m.costo_unitario, 0) * 1.18 * 3.4
+                ELSE COALESCE(dr.cantidad, 0) * COALESCE(m.costo_unitario, 0) * 1.18
+              END
+            ), 0)::numeric AS monto_total,
+            COUNT(DISTINCT r.id) FILTER (WHERE upper(trim(r.estado_entrega)) = 'POR_RECOGER')::int AS pendientes,
+            COUNT(DISTINCT r.id) FILTER (WHERE upper(trim(r.estado_entrega)) = 'ENTREGADO')::int AS completados
           FROM requerimientos r
           LEFT JOIN usuarios u ON u.id = r.id_usuario
           LEFT JOIN areas a ON a.id = u.id_area
+          LEFT JOIN detalle_requerimiento dr ON dr.id_requerimiento = r.id
+          LEFT JOIN materiales m ON m.id = dr.id_material
+          LEFT JOIN monedas mo ON mo.id = m.id_moneda
           WHERE ${dateCond('r.fecha_creacion::date', 'r')}
           ${reqAreaFilter}
           GROUP BY a.nombre
@@ -363,7 +374,7 @@ module.exports = function(app, deps) {
         },
         resumen,
         compras_por_area: comprasRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
-        requerimientos_por_area: reqRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: 0 })),
+        requerimientos_por_area: reqRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
         servicios_por_area: servRes.rows.map(r => ({ area: r.area, total: r.total, monto_total: Number(r.monto_total || 0) })),
         materiales_mas_utilizados: matRes.rows.map(r => ({ material: r.material, cantidad_total_salida: r.cantidad_total_salida })),
         distribucion_salida_por_area: distribucionSalidaPorArea,
