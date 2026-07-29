@@ -293,9 +293,10 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
     throw new Error('ID de entidad invalido');
   }
 
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     const hasTable = await hasAprobacionesTable(client);
@@ -587,10 +588,10 @@ const aprobarEntidad = async (usuario, tipo, id, decision = 'APROBADO', options 
       estado_nuevo: estadoNuevo,
     };
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK');
     throw error;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 };
 
