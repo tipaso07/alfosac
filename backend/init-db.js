@@ -1,6 +1,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env'), override: true });
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 
 const configuredDbHost = process.env.DB_HOST || 'localhost';
 const effectiveDbHost = configuredDbHost === 'postgres' && process.platform === 'win32'
@@ -171,10 +172,6 @@ CREATE TABLE IF NOT EXISTS requerimientos (
   estado_entrega VARCHAR(30),
   nombre_receptor VARCHAR(120),
   dni_receptor VARCHAR(20),
-  calificacion INTEGER,
-  calificacion_comentario TEXT,
-  calificacion_usuario INTEGER REFERENCES usuarios(id),
-  calificacion_fecha TIMESTAMP,
   created_at TIMESTAMP DEFAULT (timezone('America/Lima', now())),
   updated_at TIMESTAMP DEFAULT (timezone('America/Lima', now()))
 );
@@ -593,11 +590,12 @@ async function initDatabase() {
     // Insertar usuario administrador si no existe
     const adminRole = await client.query('SELECT id FROM roles WHERE nombre = $1', ['ADMIN']);
     if (adminRole.rows.length > 0) {
+      const adminHash = await bcrypt.hash('admin', 10);
       await client.query(
         `INSERT INTO usuarios (email, password_hash, nombre, id_role, estado, telefono) 
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (email) DO NOTHING`,
-        ['admin@alfosac.pe', 'admin', 'Administrador', adminRole.rows[0].id, 'ACTIVO', '999999999']
+        ['admin@alfosac.pe', adminHash, 'Administrador', adminRole.rows[0].id, 'ACTIVO', '999999999']
       );
       console.log('✓ Usuario administrador verificado');
     }
