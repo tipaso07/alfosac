@@ -174,7 +174,6 @@ module.exports = function(app, deps) {
     try {
       client = await pool.connect();
 
-    try {
       const item = req.body?.item && typeof req.body.item === 'object' ? req.body.item : null;
       const providerIdRaw = req.body?.proveedor_id ?? req.body?.id_proveedor;
       const providerId = providerIdRaw == null || providerIdRaw === ''
@@ -453,7 +452,6 @@ module.exports = function(app, deps) {
     try {
       client = await pool.connect();
 
-    try {
       const { id } = req.params;
       const estado = normalize(req.body.estado);
 
@@ -946,7 +944,6 @@ module.exports = function(app, deps) {
     try {
       client = await pool.connect();
 
-    try {
       if (!canManageDeliveryRole(req.user?.rol) && !isComprasOperatorUser(req.user)) {
         return res.status(403).json({ error: 'Sin permiso para gestionar entrega' });
       }
@@ -1143,7 +1140,6 @@ module.exports = function(app, deps) {
     try {
       client = await pool.connect();
 
-    try {
       if (!canManageDeliveryRole(req.user?.rol)) {
         return res.status(403).json({ error: 'Sin permiso para gestionar entrega' });
       }
