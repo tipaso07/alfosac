@@ -118,6 +118,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     if (!normalizedStage) return false
     if (!isPendingFlowStage(normalizedStage) && normalizedStage !== 'PENDIENTE') return false
     if (currentUserPendingStages.size === 0) {
+      if (!currentUserApprovalStage) return false
       return normalizedStage === currentUserApprovalStage || normalizedStage === 'PENDIENTE'
     }
     return currentUserPendingStages.has(normalizedStage)
@@ -203,7 +204,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
   }, [baseFilteredCompras, currentUserAreaId, currentUserRoleId])
 
   const config = {
-    PENDIENTE: { label: 'Pendientes', data: pending, actions: Number(currentUserRoleId || 0) !== 4 },
+    PENDIENTE: { label: 'Pendientes', data: pending, actions: Number(currentUserRoleId || 0) !== 4  },
     APROBADA: { label: 'Aprobadas', data: approved, actions: false },
     RECHAZADA: { label: 'Rechazadas', data: rejected, actions: false },
   }
