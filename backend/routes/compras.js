@@ -112,9 +112,10 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/compras/:id/comentarios', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       const id = Number(req.params?.id || 0);
       const contenido = String(req.body?.contenido || '').trim();
 
@@ -160,15 +161,18 @@ module.exports = function(app, deps) {
       await client.query('COMMIT');
       return res.json({ comentario: newEntry });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.post('/api/compras', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
+
+    try {
+      client = await pool.connect();
 
     try {
       const item = req.body?.item && typeof req.body.item === 'object' ? req.body.item : null;
@@ -436,15 +440,18 @@ module.exports = function(app, deps) {
       const created = await fetchComprasRows([idCompra], 'WHERE c.id = $1');
       res.status(201).json(created[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.patch('/api/compras/:id/estado', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
+
+    try {
+      client = await pool.connect();
 
     try {
       const { id } = req.params;
@@ -536,7 +543,7 @@ module.exports = function(app, deps) {
       }
       res.json(result[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
 
       const mapped = mapApprovalDecisionErrorToHttp(error);
       if (mapped.expose) {
@@ -545,7 +552,7 @@ module.exports = function(app, deps) {
 
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
@@ -833,9 +840,10 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/compras/:id/generar-orden', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       const { id } = req.params;
       await client.query('BEGIN');
 
@@ -925,15 +933,18 @@ module.exports = function(app, deps) {
         },
       });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.patch('/api/compras/:id/marcar-recibido-almacen', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
+
+    try {
+      client = await pool.connect();
 
     try {
       if (!canManageDeliveryRole(req.user?.rol) && !isComprasOperatorUser(req.user)) {
@@ -1119,15 +1130,18 @@ module.exports = function(app, deps) {
       response.id_almacen_entrada = idAlmacen;
       res.json(response);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.patch('/api/compras/:id/recepcionar', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
+
+    try {
+      client = await pool.connect();
 
     try {
       if (!canManageDeliveryRole(req.user?.rol)) {
@@ -1658,17 +1672,18 @@ module.exports = function(app, deps) {
       };
       res.json(response);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.patch('/api/compras/:id/entregar-area', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       if (!canManageDeliveryRole(req.user?.rol) && !isComprasOperatorUser(req.user)) {
         return res.status(403).json({ error: 'Sin permiso para gestionar entrega' });
       }
@@ -1838,10 +1853,10 @@ module.exports = function(app, deps) {
         id_almacen_salida: null,
       });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
