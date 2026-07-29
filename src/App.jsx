@@ -115,6 +115,7 @@ function App() {
   }, [])
 
   const roleId = Number(currentUser?.rol_id ?? currentUser?.id_role ?? 0)
+  const areaId = Number(currentUser?.id_area || 0)
   const roleName = String(currentUser?.rol || currentUser?.rol_nombre || currentUser?.nombre_rol || '').trim()
   const userPermissions = Array.isArray(currentUser?.permisos) ? currentUser.permisos : []
 
@@ -137,7 +138,7 @@ function App() {
     return permissions
   }, [userPermissions, currentUserInApprovalFlow])
 
-  const allowedModules = useMemo(() => buildAllowedModules(roleId, effectivePermissions), [roleId, effectivePermissions])
+  const allowedModules = useMemo(() => buildAllowedModules(roleId, effectivePermissions, areaId), [roleId, effectivePermissions, areaId])
 
   const visibleModules = useMemo(() => modules.filter((mod) => allowedModules.includes(mod.id)), [allowedModules])
   const defaultPath = visibleModules[0]?.path || '/inventario'
