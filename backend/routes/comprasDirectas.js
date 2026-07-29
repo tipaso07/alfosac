@@ -207,7 +207,6 @@ module.exports = function(app, deps) {
     let client;
     try {
       client = await pool.connect();
-    try {
       const id = Number(req.params.id || 0);
       if (!id) {
         return res.status(400).json({ error: 'ID invalido' });
@@ -300,7 +299,6 @@ module.exports = function(app, deps) {
     let client;
     try {
       client = await pool.connect();
-    try {
       const id = Number(req.params.id || 0);
       if (!id) {
         return res.status(400).json({ error: 'ID invalido' });
