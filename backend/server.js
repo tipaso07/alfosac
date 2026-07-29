@@ -14,7 +14,8 @@ const registerAuthRoutes = require('./middleware/auth').registerAuthRoutes;
 const registerRoutes = require('./routes/index');
 
 const app = express();
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+app.use(cors({ origin: corsOrigin.split(',').map(s => s.trim()), credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
 const uploadsDir = path.join(__dirname, 'uploads');
