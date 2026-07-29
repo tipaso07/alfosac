@@ -1,8 +1,5 @@
 // Configuración de la API
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-export const CURRENT_USER_ID = 1;
-
-const getStoredUserId = () => String(localStorage.getItem('userId') || CURRENT_USER_ID);
 const getAuthToken = () => String(localStorage.getItem('authToken') || '');
 
 // Global error handler para 401/403
@@ -21,10 +18,7 @@ const handleAuthError = (status) => {
 };
 
 const buildHeaders = ({ includeJson = false, extra = {} } = {}) => {
-  const headers = {
-    ...extra,
-    'x-user-id': getStoredUserId(),
-  };
+  const headers = { ...extra };
 
   if (includeJson) {
     headers['Content-Type'] = 'application/json';
