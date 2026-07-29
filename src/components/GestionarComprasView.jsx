@@ -326,7 +326,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
                 </ul>
               </div>
 
-              {view.actions && currentUserApprovalStage && canApproveCompra(compra) && (
+              {view.actions && canApproveCompra(compra) && compra.puede_aprobar && (
                 <div className="purchase-manage-actions">
                   <button className="btn-approve" onClick={() => onChangeEstado(compra.id, 'APROBADA')}>Aprobar</button>
                   <button className="btn-reject" onClick={() => onChangeEstado(compra.id, 'RECHAZADA')}>Rechazar</button>
