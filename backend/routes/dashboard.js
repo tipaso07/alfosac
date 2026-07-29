@@ -295,8 +295,14 @@ module.exports = function(app, deps) {
           SELECT
             COALESCE(a.nombre, 'Sin area') AS area,
             m.tipo,
-            COUNT(*)::int AS total
+            COUNT(DISTINCT m.id)::int AS total,
+            COALESCE(SUM(
+              COALESCE(md.cantidad, 0) * COALESCE(mat.costo_unitario, 0) *
+              CASE WHEN mat.id_moneda = 2 THEN 3.4 ELSE 1 END * 1.18
+            ), 0)::numeric AS monto_total
           FROM movimientos m
+          LEFT JOIN movimiento_detalles md ON md.id_movimiento = m.id
+          LEFT JOIN materiales mat ON mat.id = md.id_material
           LEFT JOIN usuarios u2 ON u2.id = m.id_usuario
           LEFT JOIN areas a ON a.id = u2.id_area
           WHERE ${dateCond('m.fecha::date', 'm')}
@@ -361,7 +367,7 @@ module.exports = function(app, deps) {
 
       const gastoSalidaPorArea = mvRes.rows
         .filter(r => r.tipo === 'SALIDA')
-        .map(r => ({ area: r.area, total_gastado: r.total }));
+        .map(r => ({ area: r.area, total_gastado: Number(r.monto_total || 0) }));
 
       const distribucionSalidaPorArea = mvRes.rows
         .filter(r => r.tipo === 'SALIDA')
