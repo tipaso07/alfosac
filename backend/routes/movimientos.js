@@ -6,9 +6,10 @@ module.exports = function(app, deps) {
   const { pool, authMiddleware, requireRoles } = deps;
 
   app.post('/api/movimientos', authMiddleware, requireRoles('GERENTES', 'ALMACENERO'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       const { tipo, id_almacen, items } = req.body;
       const tipoNorm = normalize(tipo);
 
@@ -70,10 +71,10 @@ module.exports = function(app, deps) {
 
       res.status(201).json({ id_movimiento: idMovimiento, tipo: tipoNorm });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
