@@ -3,7 +3,6 @@ import '../styles/GestionarUsuariosView.css'
 import {
   API_BASE_URL,
   fetchUsuarios,
-  fetchRoles,
   fetchAreas,
   updateUsuario,
   updateUsuarioPassword,
@@ -27,7 +26,6 @@ export default function GestionarUsuariosView() {
   const [form, setForm] = useState(initialForm)
   const [passwordForm, setPasswordForm] = useState(initialPasswordForm)
   const [usuarios, setUsuarios] = useState([])
-  const [roles, setRoles] = useState([])
   const [areas, setAreas] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -118,17 +116,10 @@ export default function GestionarUsuariosView() {
   useEffect(() => {
     const load = async () => {
       try {
-        setLoading(true)
-        const [rolesData, areasData] = await Promise.all([
-          fetchRoles(),
-          fetchAreas(''),
-        ])
-        setRoles(Array.isArray(rolesData) ? rolesData : [])
+        const areasData = await fetchAreas('')
         setAreas(Array.isArray(areasData) ? areasData : [])
       } catch (err) {
-        setError(err.message || 'Error al cargar datos')
-      } finally {
-        setLoading(false)
+        console.warn('Error al cargar areas:', err.message)
       }
     }
     load()
