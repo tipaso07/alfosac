@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { normalize } = require('./normalize');
 
-const SQL_DEBUG_ENABLED = String(process.env.SQL_DEBUG || 'true').toLowerCase() !== 'false';
+const SQL_DEBUG_ENABLED = String(process.env.SQL_DEBUG || 'false').toLowerCase() !== 'false';
 
 const compactSql = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 
