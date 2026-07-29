@@ -182,14 +182,10 @@ module.exports = function(app, deps) {
         }
       }
 
-      const dateCond = (col) => {
-        if (!fechaInicio && !fechaFin) return 'TRUE';
-        const parts = [];
-        if (fechaInicio) parts.push(`${col} >= '${fechaInicio}'::date`);
-        if (fechaFin) parts.push(`${col} <= '${fechaFin}'::date`);
-        return parts.join(' AND ');
-      };
+      const dateClause = (col, start) =>
+        `($${start}::date IS NULL OR ${col} >= $${start}::date) AND ($${start + 1}::date IS NULL OR ${col} <= $${start + 1}::date)`;
 
+      const commonDateParams = [fechaInicio || null, fechaFin || null];
       const areaFilter = areaIds && areaIds.length > 0;
       const comprasAreaFilter = areaFilter ? `AND COALESCE(c.id_area_final, c.id_area_solicitante) = ANY($1::int[])` : '';
       const servAreaFilter = areaFilter ? `AND s.area_id = ANY($1::int[])` : '';
@@ -221,12 +217,12 @@ module.exports = function(app, deps) {
             COUNT(*) FILTER (WHERE upper(trim(c.estado_pedido)) = 'ENTREGADO' OR upper(trim(c.estado)) = 'ENTREGADO')::int AS entregadas
           FROM compras c
           LEFT JOIN areas a ON a.id = COALESCE(c.id_area_final, c.id_area_solicitante)
-          WHERE ${dateCond('COALESCE(c.fecha_creacion::date, c.created_at::date)', 'c')}
+          WHERE ${dateClause('COALESCE(c.fecha_creacion::date, c.created_at::date)', areaFilter ? 2 : 1)}
           ${comprasAreaFilter}
           AND (upper(trim(c.estado_pedido)) IN ('POR_RECIBIR', 'POR_ENTREGAR', 'ENTREGADO') OR upper(trim(c.estado)) = 'ENTREGADO')
           GROUP BY a.nombre, COALESCE(c.id_area_final, c.id_area_solicitante)
           ORDER BY monto_total DESC
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
@@ -242,12 +238,12 @@ module.exports = function(app, deps) {
             COUNT(*) FILTER (WHERE upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) IN ('REALIZADO', 'COMPLETADO', 'APROBADO'))::int AS realizados
           FROM servicios s
           LEFT JOIN areas a ON a.id = s.area_id
-          WHERE ${dateCond('COALESCE(s.fecha::date, s.created_at::date)', 's')}
+          WHERE ${dateClause('COALESCE(s.fecha::date, s.created_at::date)', areaFilter ? 2 : 1)}
           ${servAreaFilter}
           AND upper(trim(COALESCE(s.estado_flujo, s.estado_servicio, ''))) IN ('PENDIENTE', 'REALIZADO', 'COMPLETADO', 'APROBADO')
           GROUP BY a.nombre
           ORDER BY monto_total DESC
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
@@ -267,11 +263,11 @@ module.exports = function(app, deps) {
           LEFT JOIN detalle_requerimiento dr ON dr.id_requerimiento = r.id
           LEFT JOIN materiales m ON m.id = dr.id_material
           LEFT JOIN monedas mo ON mo.id = m.id_moneda
-          WHERE ${dateCond('r.fecha_creacion::date', 'r')}
+          WHERE ${dateClause('r.fecha_creacion::date', areaFilter ? 2 : 1)}
           ${reqAreaFilter}
           GROUP BY a.nombre
           ORDER BY total DESC
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
@@ -285,11 +281,11 @@ module.exports = function(app, deps) {
             )::numeric, 0)::numeric AS monto_total
           FROM compras_directas cd
           LEFT JOIN areas a ON a.id = cd.id_area
-          WHERE ${dateCond('COALESCE(cd.fecha_compra::date, cd.created_at::date)', 'cd')}
+          WHERE ${dateClause('COALESCE(cd.fecha_compra::date, cd.created_at::date)', areaFilter ? 2 : 1)}
           ${cdAreaFilter}
           GROUP BY a.nombre
           ORDER BY monto_total DESC
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
@@ -305,10 +301,10 @@ module.exports = function(app, deps) {
           LEFT JOIN materiales mat ON mat.id = md.id_material
           LEFT JOIN usuarios u2 ON u2.id = m.id_usuario
           LEFT JOIN areas a ON a.id = u2.id_area
-          WHERE ${dateCond('m.fecha::date', 'm')}
+          WHERE ${dateClause('m.fecha::date', areaFilter ? 2 : 1)}
           ${mvAreaFilter}
           GROUP BY a.nombre, m.tipo
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
@@ -319,12 +315,12 @@ module.exports = function(app, deps) {
           LEFT JOIN materiales mt ON mt.id = dm.id_material
           LEFT JOIN usuarios u2 ON u2.id = m.id_usuario
           WHERE upper(trim(m.tipo)) = 'SALIDA'
-            AND ${dateCond('m.fecha::date', 'm')}
+            AND ${dateClause('m.fecha::date', areaFilter ? 2 : 1)}
             ${mvAreaFilter}
           GROUP BY mt.nombre
           ORDER BY cantidad_total_salida DESC
           LIMIT 10
-        `, areaFilter ? [areaIds] : []),
+        `, areaFilter ? [areaIds, ...commonDateParams] : commonDateParams),
 
         pool.query(`
           SELECT
