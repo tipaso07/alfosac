@@ -34,7 +34,7 @@ services:
       DB_USER: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       DB_NAME: ${POSTGRES_DB:-alfosac}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       SQL_DEBUG: ${SQL_DEBUG:-false}
     volumes:
@@ -59,8 +59,9 @@ services:
       DB_USER: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       DB_NAME: ${POSTGRES_DB:-alfosac}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
       SQL_DEBUG: ${SQL_DEBUG:-false}
     ports:
       - "${BACKEND_PORT:-5000}:5000"
