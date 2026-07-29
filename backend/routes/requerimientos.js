@@ -386,7 +386,7 @@ module.exports = function(app, deps) {
       await client.query('BEGIN');
 
       const reqRow = await client.query(
-        `SELECT r.id, r.estado, r.estado_entrega, u.id_area
+        `SELECT r.id, r.id_usuario, r.estado, r.estado_entrega, u.id_area
          FROM requerimientos r
          JOIN usuarios u ON u.id = r.id_usuario
          WHERE r.id = $1
@@ -444,7 +444,7 @@ module.exports = function(app, deps) {
       if (detailRows.rows.length > 0) {
         const idMovimientoSalida = await insertMovimiento(client, {
           tipo: 'SALIDA',
-          usuarioRegistro: req.user.id,
+          usuarioRegistro: reqData.id_usuario,
           idRequerimiento: Number(id),
         });
 
