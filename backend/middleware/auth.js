@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { pool, getUserRoleIdExpr, getUserEmailExpr, getUserPasswordExpr, ROLE_NAME_BY_ID } = require('../db/pool');
 const { JWT_SECRET, JWT_EXPIRES_IN, isGerentesRole, isComprasRole, hasAnyRole, getNormalizedRoles, APPROVAL_ROLES_BY_LEVEL, getPermissionsByRoleId } = require('../config/constants');
 const { normalizePermissionName, normalizeRoleName } = require('../utils/normalize');
@@ -247,14 +248,7 @@ const loginHandler = async (req, res) => {
     const providedPassword = String(contrasena || '').trim();
     const storedPassword = String(user.password_hash || '').trim();
     
-    let validPassword = false;
-    const isBcryptHash = /^\$2[aby]\$\d{2}\$/.test(storedPassword);
-    
-    if (isBcryptHash) {
-      validPassword = await bcrypt.compare(providedPassword, storedPassword);
-    } else {
-      validPassword = storedPassword === providedPassword;
-    }
+    const validPassword = await bcrypt.compare(providedPassword, storedPassword);
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Credenciales invalidas' });
@@ -285,9 +279,17 @@ const loginHandler = async (req, res) => {
   }
 };
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { error: 'Demasiados intentos. Intente de nuevo en 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const registerAuthRoutes = (app) => {
-  app.post('/api/login', loginHandler);
-  app.post('/api/auth/login', loginHandler);
+  app.post('/api/login', loginLimiter, loginHandler);
+  app.post('/api/auth/login', loginLimiter, loginHandler);
 
   app.post('/api/logout', authMiddleware, async (req, res) => {
     try {
