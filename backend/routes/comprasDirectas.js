@@ -120,8 +120,9 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/compras-directas', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const {
         proveedor_texto,
         id_area,
@@ -153,7 +154,7 @@ module.exports = function(app, deps) {
         req.user.id,
         proveedor_texto || null,
         Number.isInteger(id_area) && id_area > 0 ? id_area : null,
-        fecha_compra || new Date().toISOString().slice(0, 10),
+        fecha_compra || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(),
         tipo_pago || 'EFECTIVO',
         numero_comprobante || null,
         foto || null,
@@ -195,15 +196,17 @@ module.exports = function(app, deps) {
 
       return res.status(201).json(created.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.put('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
+    try {
+      client = await pool.connect();
     try {
       const id = Number(req.params.id || 0);
       if (!id) {
@@ -246,7 +249,7 @@ module.exports = function(app, deps) {
         id,
         proveedor_texto || null,
         Number.isInteger(id_area) && id_area > 0 ? id_area : null,
-        fecha_compra || new Date().toISOString().slice(0, 10),
+        fecha_compra || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(),
         tipo_pago || 'EFECTIVO',
         numero_comprobante || null,
         foto || null,
@@ -286,15 +289,17 @@ module.exports = function(app, deps) {
 
       return res.json(updated.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.delete('/api/compras-directas/:id', authMiddleware, requirePermissions('CREAR_COMPRA_DIRECTA'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
+    try {
+      client = await pool.connect();
     try {
       const id = Number(req.params.id || 0);
       if (!id) {
@@ -313,10 +318,10 @@ module.exports = function(app, deps) {
 
       return res.json({ success: true, message: 'Compra directa eliminada correctamente' });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 };
