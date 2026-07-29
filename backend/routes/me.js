@@ -2,7 +2,7 @@ const { getUserRoleIdExpr } = require('../db/pool');
 const { fetchPermissionNamesByUserId } = require('../middleware/auth');
 const { canAccessManageRequestsModule, filterUserPermissions } = require('../services/approval');
 const { isValidPhotoValue } = require('../utils/validation');
-const { hashPassword } = require('../utils/helpers');
+const { hashPassword, comparePassword } = require('../utils/helpers');
 
 module.exports = function(app, deps) {
   const { pool, authMiddleware } = deps;
@@ -109,8 +109,12 @@ module.exports = function(app, deps) {
 
   app.put('/api/me/cambiar-contrasena', authMiddleware, async (req, res) => {
     try {
-      const { password_nueva, password_confirmacion } = req.body;
+      const { password_actual, password_nueva, password_confirmacion } = req.body;
       const userId = req.user.id;
+
+      if (!password_actual || !String(password_actual).trim()) {
+        return res.status(400).json({ error: 'Contraseña actual es requerida' });
+      }
 
       if (!password_nueva || !String(password_nueva).trim()) {
         return res.status(400).json({ error: 'Nueva contraseña es requerida' });
@@ -131,12 +135,19 @@ module.exports = function(app, deps) {
         return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
       }
 
-      const userCheck = await pool.query('SELECT email FROM usuarios WHERE id = $1', [userId]);
+      const userCheck = await pool.query('SELECT email, password_hash FROM usuarios WHERE id = $1', [userId]);
       if (userCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      const userEmail = String(userCheck.rows[0].email || '').trim().toLowerCase();
+      const userRow = userCheck.rows[0];
+
+      const passwordMatch = await comparePassword(password_actual, userRow.password_hash);
+      if (!passwordMatch) {
+        return res.status(400).json({ error: 'La contraseña actual no es correcta' });
+      }
+
+      const userEmail = String(userRow.email || '').trim().toLowerCase();
       if (cleanNew.toLowerCase() === userEmail) {
         return res.status(400).json({ error: 'La contraseña no puede ser igual al correo' });
       }
