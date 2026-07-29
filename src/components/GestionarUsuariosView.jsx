@@ -39,6 +39,7 @@ export default function GestionarUsuariosView() {
   const [editingUserId, setEditingUserId] = useState(null)
   const [changingPasswordUserId, setChangingPasswordUserId] = useState(null)
   const [query, setQuery] = useState('')
+  const [areaFilter, setAreaFilter] = useState('')
   const [selectedFileName, setSelectedFileName] = useState('')
   const fileInputRef = useRef(null)
 
@@ -361,13 +362,14 @@ export default function GestionarUsuariosView() {
 
   const rows = usuarios.filter((usuario) => {
     const q = String(query || '').toLowerCase().trim()
-    if (!q) return true
-    return (
+    const matchesQuery = !q || (
       String(usuario.nombre || '').toLowerCase().includes(q)
       || String(usuario.email || '').toLowerCase().includes(q)
       || String(usuario.dni || '').toLowerCase().includes(q)
       || String(usuario.telefono || '').toLowerCase().includes(q)
     )
+    const matchesArea = !areaFilter || String(usuario.area || '').toLowerCase() === areaFilter.toLowerCase()
+    return matchesQuery && matchesArea
   })
 
   return (
@@ -383,6 +385,15 @@ export default function GestionarUsuariosView() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <select
+          value={areaFilter}
+          onChange={(e) => setAreaFilter(e.target.value)}
+        >
+          <option value="">Todas las áreas</option>
+          {areas.map((area) => (
+            <option key={area.id} value={area.nombre}>{area.nombre}</option>
+          ))}
+        </select>
       </div>
 
       {loading && <p className="user-hint">Cargando usuarios...</p>}
