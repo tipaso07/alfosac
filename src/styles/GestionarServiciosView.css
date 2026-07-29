@@ -124,6 +124,28 @@
   color: #b91c1c;
 }
 
+.service-priority {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.service-priority.alta {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+.service-priority.media {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}
+
+.service-priority.baja {
+  background: rgba(34, 197, 94, 0.16);
+  color: #15803d;
+}
+
 .service-finance-plan-field {
   display: flex;
   align-items: center;
