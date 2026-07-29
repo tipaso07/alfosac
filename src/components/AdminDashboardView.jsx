@@ -668,14 +668,16 @@ useEffect(() => {
           value={formatMoney(consumoTotal)}
           icon="S/"
           tone="info"
-          deltaText={`${consumoDelta >= 0 ? 'Sube' : 'Baja'} ${Math.abs(consumoDeltaPct).toFixed(1)}% vs periodo anterior`}
+          deltaText={fechaInicio && fechaFin
+            ? `${consumoDelta >= 0 ? 'Sube' : 'Baja'} ${Math.abs(consumoDeltaPct).toFixed(1)}% vs periodo anterior`
+            : '--'}
           deltaPositive={consumoDelta >= 0}
         />
-        <KpiCard title="Consumo total en restock" value={formatMoney(resumen.monto_total_restock || 0)} icon="RST" tone="warn" />
-        <KpiCard title="Total requerimientos" value={formatNumber(resumen.total_requerimientos)} icon="REQ" tone="warn" />
-        <KpiCard title="Total compras" value={formatMoney(resumen.monto_total_compras || 0)} icon="OC" tone="ok" />
-        <KpiCard title="Total servicios" value={formatMoney(resumen.monto_total_servicios || 0)} icon="SRV" tone="info" />
-        <KpiCard title="Total compras directas" value={formatMoney(resumen.monto_total_compras_directas || 0)} icon="CD" tone="secondary" />
+        <KpiCard title="Consumo total en restock" value={formatMoney(resumen.monto_total_restock || 0)} icon="RST" tone="warn" deltaText={formatNumber(resumen.total_restock_count || 0)} />
+        <KpiCard title="Total requerimientos" value={formatMoney(resumen.monto_total_requerimientos || 0)} icon="REQ" tone="warn" deltaText={formatNumber(resumen.total_requerimientos)} />
+        <KpiCard title="Total compras" value={formatMoney(resumen.monto_total_compras || 0)} icon="OC" tone="ok" deltaText={formatNumber(resumen.total_compras)} />
+        <KpiCard title="Total servicios" value={formatMoney(resumen.monto_total_servicios || 0)} icon="SRV" tone="info" deltaText={formatNumber(resumen.total_servicios)} />
+        <KpiCard title="Total compras directas" value={formatMoney(resumen.monto_total_compras_directas || 0)} icon="CD" tone="secondary" deltaText={formatNumber(resumen.total_compras_directas)} />
       </div>
 
       <div className="erp-grid one-col">
