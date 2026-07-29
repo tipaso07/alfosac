@@ -131,9 +131,10 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/servicios/:id/comentarios', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       if (schemaMeta.serviciosColumns.size === 0) {
         return res.status(400).json({ error: 'La tabla servicios no esta disponible' });
       }
@@ -191,10 +192,10 @@ module.exports = function(app, deps) {
       await client.query('COMMIT');
       return res.json({ comentario: newEntry });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
@@ -213,10 +214,11 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/servicios', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
     let txStarted = false;
 
     try {
+      client = await pool.connect();
       if (schemaMeta.serviciosColumns.size === 0) {
         return res.status(400).json({ error: 'La tabla servicios no esta disponible' });
       }
@@ -349,7 +351,7 @@ module.exports = function(app, deps) {
       const servicio = await fetchServiciosRows([servicioId], 'WHERE s.id = $1');
       res.status(201).json(servicio[0]);
     } catch (error) {
-      if (txStarted) {
+      if (txStarted && client) {
         await client.query('ROLLBACK');
       }
 
@@ -359,12 +361,15 @@ module.exports = function(app, deps) {
 
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.put('/api/servicios/:id/aprobar', authMiddleware, async (req, res) => {
-    const client = await pool.connect();
+    let client;
+
+    try {
+      client = await pool.connect();
 
     try {
       if (schemaMeta.serviciosColumns.size === 0) {
@@ -473,7 +478,7 @@ module.exports = function(app, deps) {
       }
       res.json(servicio[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
 
       if (String(error?.code || '') === '23514') {
         return res.status(400).json({ error: 'Violacion de restriccion CHECK en servicios' });
@@ -486,7 +491,7 @@ module.exports = function(app, deps) {
 
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
