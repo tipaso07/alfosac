@@ -445,6 +445,7 @@ module.exports = function(app, deps) {
         const idMovimientoSalida = await insertMovimiento(client, {
           tipo: 'SALIDA',
           usuarioRegistro: req.user.id,
+          idRequerimiento: Number(id),
         });
 
         for (const detail of detailRows.rows) {
