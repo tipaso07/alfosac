@@ -94,7 +94,7 @@ export const MODULE_ID_BY_PATH = {
 
 const MODULES_BY_ROLE = {
   [ROLE_IDS.GERENTES]: [
-    12, 1, 2, 3, 5, 8, 11, 18,
+    1, 2, 3, 5, 8, 11, 18,
   ],
   [ROLE_IDS.SOLICITANTES]: [
     1, 2, 3, 5, 8, 11, 13,
@@ -115,14 +115,18 @@ export const getModulesByRole = (rolId) => {
   return [...(MODULES_BY_ROLE[numericRoleId] || [])]
 }
 
-export const buildAllowedTabs = (rolId, sourcePermissions = []) => {
-  return buildAllowedModules(rolId, sourcePermissions)
+export const buildAllowedTabs = (rolId, sourcePermissions = [], areaId) => {
+  return buildAllowedModules(rolId, sourcePermissions, areaId)
     .map((moduleId) => TAB_BY_MODULE_ID[moduleId])
     .filter(Boolean)
 }
 
-export const buildAllowedModules = (rolId, sourcePermissions = []) => {
+export const buildAllowedModules = (rolId, sourcePermissions = [], areaId) => {
   const numericRoleId = Number(rolId || 0)
+  const numericAreaId = Number(areaId || 0)
   const allowedModules = [...getModulesByRole(numericRoleId)]
+  if (numericRoleId === 1 && [1, 3].includes(numericAreaId)) {
+    allowedModules.push(12)
+  }
   return [...new Set(allowedModules)]
 }
