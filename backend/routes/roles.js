@@ -102,9 +102,10 @@ module.exports = function(app, deps) {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
-    const client = await pool.connect();
+    let client;
 
     try {
+      client = await pool.connect();
       const roleId = Number(req.params?.id || 0);
       if (!Number.isInteger(roleId) || roleId <= 0) {
         return res.status(400).json({ error: 'id_rol invalido' });
@@ -160,7 +161,7 @@ module.exports = function(app, deps) {
         nombre: roleName,
       });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
 
       if (error?.code === '23503') {
         return res.status(409).json({ error: 'No se puede eliminar el rol porque tiene dependencias registradas' });
@@ -168,7 +169,7 @@ module.exports = function(app, deps) {
 
       return res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
