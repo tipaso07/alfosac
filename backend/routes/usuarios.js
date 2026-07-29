@@ -16,6 +16,7 @@ module.exports = function(app, deps) {
             usuarios.nombre,
             ${userEmailExpr} AS email,
             COALESCE(NULLIF(trim(COALESCE(to_jsonb(usuarios)->>'dni', '')), ''), '') AS dni,
+            usuarios.telefono,
             ${userRoleExpr} AS id_role,
             usuarios.id_area,
             COALESCE(${userEstadoExpr}, 'ACTIVO') AS estado,
@@ -115,7 +116,7 @@ module.exports = function(app, deps) {
   app.put('/api/usuarios/:id', authMiddleware, requirePermissions('GESTIONAR_CUENTAS'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { nombre, email, dni, id_role, id_area, estado, foto } = req.body;
+      const { nombre, email, dni, telefono, id_role, id_area, estado, foto } = req.body;
       const userRoleColumn = getUserRoleIdColumn();
 
       const userId = Number(id);
@@ -183,6 +184,12 @@ module.exports = function(app, deps) {
       if (dni !== undefined) {
         updates.push(`dni = $${paramCount}`);
         values.push(String(dni).trim());
+        paramCount += 1;
+      }
+
+      if (telefono !== undefined) {
+        updates.push(`telefono = $${paramCount}`);
+        values.push(String(telefono).trim());
         paramCount += 1;
       }
 
