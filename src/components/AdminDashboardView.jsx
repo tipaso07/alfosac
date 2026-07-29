@@ -712,8 +712,6 @@ useEffect(() => {
           title="Compras"
           subtitle="Distribucion por etapa"
           segments={[
-            { label: 'PENDIENTE', value: Number(resumen.total_compras_pendientes || 0), color: 'var(--warning-color)' },
-            { label: 'APROBADA', value: Number(resumen.total_compras_aprobadas || 0), color: 'var(--primary-color)' },
             { label: 'POR_RECIBIR', value: Number(resumen.total_compras_por_recibir || 0), color: 'var(--secondary-color)' },
             { label: 'POR_ENTREGAR', value: Number(resumen.total_compras_por_entregar || 0), color: 'var(--danger-color)' },
             { label: 'ENTREGADO', value: Number(resumen.total_compras_entregadas || 0), color: 'var(--success-color)' },
