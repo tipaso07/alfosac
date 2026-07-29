@@ -329,6 +329,7 @@ module.exports = function(app, deps) {
         total_requerimientos: reqRes.rows.reduce((s, r) => s + r.total, 0),
         total_servicios: servRes.rows.reduce((s, r) => s + r.total, 0),
         monto_total_compras: Number(comprasRes.rows.filter(r => !r.es_restock).reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
+        total_restock_count: comprasRes.rows.filter(r => r.es_restock).reduce((s, r) => s + r.total, 0),
         monto_total_restock: Number(comprasRes.rows.filter(r => r.es_restock).reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
         monto_total_requerimientos: 0,
         monto_total_servicios: Number(servRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
@@ -345,7 +346,7 @@ module.exports = function(app, deps) {
         total_compras_directas: cdRes.rows.reduce((s, r) => s + r.total, 0),
         monto_total_compras_directas: Number(cdRes.rows.reduce((s, r) => s + Number(r.monto_total || 0), 0).toFixed(2)),
       };
-      resumen.monto_total_consumo = Number((resumen.monto_total_compras + resumen.monto_total_requerimientos + resumen.monto_total_servicios).toFixed(2));
+      resumen.monto_total_consumo = Number((resumen.monto_total_compras + resumen.monto_total_requerimientos + resumen.monto_total_servicios + resumen.monto_total_compras_directas).toFixed(2));
 
       const gastoSalidaPorArea = mvRes.rows
         .filter(r => r.tipo === 'SALIDA')
