@@ -55,6 +55,11 @@ const hashPassword = async (plainPassword) => {
   return bcrypt.hash(cleaned, 10);
 };
 
+const comparePassword = async (plainPassword, hashedPassword) => {
+  if (!plainPassword || !hashedPassword) return false;
+  return bcrypt.compare(String(plainPassword).trim(), String(hashedPassword).trim());
+};
+
 module.exports = {
   SQL_DEBUG_ENABLED,
   compactSql,
@@ -62,4 +67,5 @@ module.exports = {
   parseBooleanFlag,
   parseReceiptInfo,
   hashPassword,
+  comparePassword,
 };
