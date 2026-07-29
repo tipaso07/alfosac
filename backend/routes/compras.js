@@ -1685,6 +1685,7 @@ module.exports = function(app, deps) {
         `
           SELECT
             id,
+            id_usuario,
             COALESCE(to_jsonb(compras)->>'estado_pedido', to_jsonb(compras)->>'estado', '') AS estado,
             COALESCE(to_jsonb(compras)->>'comentarios', '') AS comentarios,
             NULLIF(to_jsonb(compras)->>'id_area_solicitante', '')::int AS id_area_solicitante,
@@ -1778,7 +1779,7 @@ module.exports = function(app, deps) {
       if (detailRows.rows.length > 0) {
         idMovimientoSalida = await insertMovimiento(client, {
           tipo: 'SALIDA',
-          usuarioRegistro: req.user.id,
+          usuarioRegistro: row.id_usuario,
         });
 
         for (const detail of detailRows.rows) {
