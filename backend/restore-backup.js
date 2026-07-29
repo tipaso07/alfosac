@@ -12,7 +12,7 @@ const dbPort = String(process.env.DB_PORT || 5432);
 const dbUser = process.env.DB_USER || 'postgres';
 const dbPassword = String(process.env.DB_PASSWORD || '');
 const dbName = process.env.DB_NAME || 'postgres';
-const backupFile = path.resolve(__dirname, '..', 'backups', 'FirstBackup.sql');
+const backupFile = path.resolve(__dirname, '..', 'backups', 'backupClean.sql');
 
 console.log(`Restoring database from backup: ${backupFile}`);
 console.log(`DB host=${dbHost} port=${dbPort} user=${dbUser} database=${dbName}`);
