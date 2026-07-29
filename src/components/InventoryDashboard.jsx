@@ -169,8 +169,8 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     return false
   }, [currentUserRoleId, currentUserAreaId])
   const allowedModules = useMemo(() => {
-    return buildAllowedModules(currentUserRoleId, currentUserPermissions)
-  }, [currentUserPermissions, currentUserRoleId])
+    return buildAllowedModules(currentUserRoleId, currentUserPermissions, currentUserAreaId)
+  }, [currentUserPermissions, currentUserRoleId, currentUserAreaId])
   const visibleModules = useMemo(() => {
     const mods = modules.filter((mod) => allowedModules.includes(mod.id))
     if (canSeeDashboard && !mods.find((m) => m.id === 12)) {
@@ -179,7 +179,7 @@ export default function InventoryDashboard({ initialTab = 'materials', onLogout,
     return mods
   }, [allowedModules, canSeeDashboard])
   const allowedTabs = useMemo(() => {
-    const tabs = buildAllowedTabs(currentUserRoleId, currentUserPermissions)
+    const tabs = buildAllowedTabs(currentUserRoleId, currentUserPermissions, currentUserAreaId)
     if (canSeeDashboard && !tabs.includes('admin-dashboard')) {
       tabs.push('admin-dashboard')
     }
