@@ -258,6 +258,166 @@ module.exports = function(app, deps) {
     }
   });
 
+  app.post('/api/proveedores/bulk-import', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
+    let client;
+    try {
+      const providers = Array.isArray(req.body?.providers) ? req.body.providers : [];
+      const skipInvalidRows = req.body?.skipInvalidRows === true;
+
+      if (providers.length === 0) {
+        return res.status(400).json({ error: 'No se proporcionaron proveedores' });
+      }
+
+      const errors = [];
+      const validProviders = [];
+
+      for (let i = 0; i < providers.length; i++) {
+        const row = providers[i];
+        const rowIndex = i + 1;
+        const razonSocial = String(row.razon_social || row.nombre || '').trim();
+        const ruc = String(row.ruc || '').trim();
+
+        if (!razonSocial && !ruc) {
+          errors.push({ rowIndex, nombre: '', ruc: '', error: 'Fila vacia o sin datos' });
+          continue;
+        }
+
+        if (!razonSocial) {
+          errors.push({ rowIndex, nombre: row.nombre || '', ruc, error: 'Razon social o nombre es requerido' });
+          continue;
+        }
+
+        if (!ruc) {
+          errors.push({ rowIndex, nombre: razonSocial, ruc: '', error: 'RUC es requerido' });
+          continue;
+        }
+
+        const rucInBatch = validProviders.find(p => p.ruc === ruc);
+        if (rucInBatch) {
+          errors.push({ rowIndex, nombre: razonSocial, ruc, error: `RUC duplicado en fila ${rucInBatch.rowIndex}` });
+          continue;
+        }
+
+        const existing = await pool.query('SELECT id FROM proveedores WHERE ruc = $1', [ruc]);
+        if (existing.rows.length > 0) {
+          errors.push({ rowIndex, nombre: razonSocial, ruc, error: `El RUC ya existe (ID: ${existing.rows[0].id})` });
+          continue;
+        }
+
+        validProviders.push({ rowIndex, data: row, razonSocial, ruc });
+      }
+
+      if (!skipInvalidRows && errors.length > 0) {
+        return res.status(200).json({ created: [], errors });
+      }
+
+      if (validProviders.length === 0) {
+        return res.status(200).json({ created: [], errors });
+      }
+
+      client = await pool.connect();
+      await client.query('BEGIN');
+
+      const addCol = (columns, values, key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        columns.push(col);
+        values.push(String(value).trim());
+      };
+
+      const addColLower = (columns, values, key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        columns.push(col);
+        values.push(String(value).trim().toLowerCase());
+      };
+
+      const addColUpper = (columns, values, key, value) => {
+        if (value === undefined || value === '') return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        columns.push(col);
+        values.push(String(value).trim().toUpperCase());
+      };
+
+      const addColNum = (columns, values, key, value) => {
+        if (value === undefined || value === '' || value === null) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        columns.push(col);
+        values.push(Number(value));
+      };
+
+      const addColNumNull = (columns, values, key, value) => {
+        if (value === undefined) return;
+        const col = getProveedorColumn(key);
+        if (!col) return;
+        columns.push(col);
+        values.push(value === '' || value === null ? null : Number(value));
+      };
+
+      const created = [];
+
+      for (const vp of validProviders) {
+        const row = vp.data;
+        const insertColumns = [];
+        const insertValues = [];
+
+        const rsc = getProveedorColumn('razon_social');
+        if (rsc) { insertColumns.push(rsc); insertValues.push(vp.razonSocial); }
+
+        const nc = getProveedorColumn('nombre');
+        if (nc) { insertColumns.push(nc); insertValues.push(String(row.nombre || vp.razonSocial).trim()); }
+
+        const rucCol = getProveedorColumn('ruc');
+        if (rucCol) { insertColumns.push(rucCol); insertValues.push(vp.ruc); }
+
+        addCol(insertColumns, insertValues, 'direccion', row.direccion);
+        addCol(insertColumns, insertValues, 'distrito', row.distrito);
+        addColLower(insertColumns, insertValues, 'correo', row.correo || row.email);
+        addCol(insertColumns, insertValues, 'persona_responsable', row.persona_responsable);
+        addCol(insertColumns, insertValues, 'telefono', row.telefono);
+        addCol(insertColumns, insertValues, 'condiciones_pago', row.condiciones_pago);
+        addCol(insertColumns, insertValues, 'banco', row.banco);
+        addColNum(insertColumns, insertValues, 'id_moneda', row.id_moneda);
+        addCol(insertColumns, insertValues, 'numero_cuenta', row.numero_cuenta);
+        addCol(insertColumns, insertValues, 'cci', row.cci);
+        addColNumNull(insertColumns, insertValues, 'id_area_destino', row.id_area_destino);
+        addCol(insertColumns, insertValues, 'descripcion', row.descripcion);
+        addColUpper(insertColumns, insertValues, 'retencion', row.retencion);
+        addCol(insertColumns, insertValues, 'categoria', row.categoria);
+        addColNum(insertColumns, insertValues, 'descuento', row.descuento);
+        addColUpper(insertColumns, insertValues, 'tipo', row.tipo);
+        addColUpper(insertColumns, insertValues, 'tipo_retencion', row.tipo_retencion);
+        addCol(insertColumns, insertValues, 'contacto', row.contacto);
+        addColUpper(insertColumns, insertValues, 'estado', row.estado || 't');
+
+        const placeholders = insertValues.map((_, idx) => `$${idx + 1}`);
+
+        const result = await client.query(
+          `INSERT INTO proveedores (${insertColumns.map(col => `"${col}"`).join(', ')})
+           VALUES (${placeholders.join(', ')})
+           RETURNING id`,
+          insertValues
+        );
+
+        created.push({ id: result.rows[0].id, nombre: vp.razonSocial, ruc: vp.ruc });
+      }
+
+      await client.query('COMMIT');
+      res.status(200).json({ created, errors });
+    } catch (error) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    } finally {
+      if (client) client.release();
+    }
+  });
+
   app.put('/api/proveedores/:id', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
     const client = await pool.connect();
     try {
