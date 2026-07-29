@@ -216,8 +216,9 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/materiales', authMiddleware, requirePermissions('AGREGAR_INVENTARIO_MANUAL'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const {
         nombre,
         descripcion,
@@ -446,15 +447,17 @@ module.exports = function(app, deps) {
       await client.query('COMMIT');
       res.status(201).json(result.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
   app.put('/api/materiales/:id', authMiddleware, requirePermissions('EDITAR_INVENTARIO'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
+    try {
+      client = await pool.connect();
     try {
       const materialId = Number(req.params.id || 0);
       if (!Number.isInteger(materialId) || materialId <= 0) {
@@ -612,10 +615,10 @@ module.exports = function(app, deps) {
       await client.query('COMMIT');
       res.json({ ok: true, id: materialId });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
