@@ -368,6 +368,87 @@ module.exports = function(app, deps) {
     }
   });
 
+  app.patch('/api/requerimientos/:id/estado-entrega', authMiddleware, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const estadoEntrega = normalize(req.body.estado_entrega);
+      const receptorUserId = Number(req.body.receptor_user_id || 0);
+
+      if (estadoEntrega !== 'ENTREGADO') {
+        return res.status(400).json({ error: 'Estado de entrega invalido' });
+      }
+
+      if (!receptorUserId) {
+        return res.status(400).json({ error: 'Debes seleccionar un receptor valido' });
+      }
+
+      const reqRow = await pool.query(
+        `SELECT r.id, r.estado, r.estado_entrega, u.id_area
+         FROM requerimientos r
+         JOIN usuarios u ON u.id = r.id_usuario
+         WHERE r.id = $1
+         LIMIT 1`,
+        [id]
+      );
+
+      if (reqRow.rows.length === 0) {
+        return res.status(404).json({ error: 'Requerimiento no encontrado' });
+      }
+
+      const reqData = reqRow.rows[0];
+      const entregaActual = normalize(reqData.estado_entrega || '');
+
+      if (entregaActual === 'ENTREGADO') {
+        return res.status(400).json({ error: 'El requerimiento ya fue entregado' });
+      }
+
+      if (entregaActual !== 'POR_RECOGER' && normalize(reqData.estado) !== 'APROBADO') {
+        return res.status(400).json({ error: 'El requerimiento debe estar aprobado y listo para recoger' });
+      }
+
+      const areaId = Number(reqData.id_area || 0);
+      const receptorRow = await pool.query(
+        `SELECT id, nombre, COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'dni', '')), ''), '') AS dni
+         FROM usuarios u
+         WHERE u.id = $1 AND u.id_area = $2
+         LIMIT 1`,
+        [receptorUserId, areaId]
+      );
+
+      if (receptorRow.rows.length === 0) {
+        return res.status(400).json({ error: 'El receptor seleccionado no es valido para el area del requerimiento' });
+      }
+
+      const receptor = receptorRow.rows[0];
+      const receptorDni = String(receptor.dni || '').trim();
+      if (!receptorDni) {
+        return res.status(400).json({ error: 'El receptor seleccionado no tiene DNI registrado' });
+      }
+
+      await pool.query(
+        `UPDATE requerimientos
+         SET estado_entrega = 'ENTREGADO',
+             nombre_receptor = $1,
+             dni_receptor = $2
+         WHERE id = $3`,
+        [receptor.nombre, receptorDni, id]
+      );
+
+      const result = await pool.query(`
+        SELECT r.*, u.nombre AS usuario, COALESCE(a.nombre, 'Sin area') AS area
+        FROM requerimientos r
+        JOIN usuarios u ON u.id = r.id_usuario
+        LEFT JOIN areas a ON a.id = u.id_area
+        WHERE r.id = $1
+        LIMIT 1
+      `, [id]);
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get('/api/requerimientos/:id/receptores', authMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
