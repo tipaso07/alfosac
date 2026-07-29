@@ -1,4 +1,4 @@
-const { getRequerimientoDescripcionExpr, getRequerimientoDescripcionColumn } = require('../db/pool');
+const { getRequerimientoDescripcionExpr, getRequerimientoDescripcionColumn, insertMovimiento, discountMaterialStockDistributed, getMaterialStockTotal } = require('../db/pool');
 const { parseEmbeddedCommentsFromText, fetchCommentsForEntities } = require('../services/comments');
 const { fetchActionableApprovalReferenceIds, isPendingApprovalState, tienePermiso, aprobarEntidad, fetchApprovedApproversByEntity, fetchApprovalHistoryByEntity, mapApprovalDecisionErrorToHttp } = require('../services/approval');
 const { getPermissionsByRoleId, isWarehouseAreaName, DEFAULT_USER_AVATAR } = require('../config/constants');
@@ -369,6 +369,7 @@ module.exports = function(app, deps) {
   });
 
   app.patch('/api/requerimientos/:id/estado-entrega', authMiddleware, async (req, res) => {
+    const client = await pool.connect();
     try {
       const { id } = req.params;
       const estadoEntrega = normalize(req.body.estado_entrega);
@@ -382,16 +383,20 @@ module.exports = function(app, deps) {
         return res.status(400).json({ error: 'Debes seleccionar un receptor valido' });
       }
 
-      const reqRow = await pool.query(
+      await client.query('BEGIN');
+
+      const reqRow = await client.query(
         `SELECT r.id, r.estado, r.estado_entrega, u.id_area
          FROM requerimientos r
          JOIN usuarios u ON u.id = r.id_usuario
          WHERE r.id = $1
-         LIMIT 1`,
+         LIMIT 1
+         FOR UPDATE`,
         [id]
       );
 
       if (reqRow.rows.length === 0) {
+        await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Requerimiento no encontrado' });
       }
 
@@ -399,15 +404,17 @@ module.exports = function(app, deps) {
       const entregaActual = normalize(reqData.estado_entrega || '');
 
       if (entregaActual === 'ENTREGADO') {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El requerimiento ya fue entregado' });
       }
 
       if (entregaActual !== 'POR_RECOGER' && normalize(reqData.estado) !== 'APROBADO') {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El requerimiento debe estar aprobado y listo para recoger' });
       }
 
       const areaId = Number(reqData.id_area || 0);
-      const receptorRow = await pool.query(
+      const receptorRow = await client.query(
         `SELECT id, nombre, COALESCE(NULLIF(trim(COALESCE(to_jsonb(u)->>'dni', '')), ''), '') AS dni
          FROM usuarios u
          WHERE u.id = $1 AND u.id_area = $2
@@ -416,16 +423,48 @@ module.exports = function(app, deps) {
       );
 
       if (receptorRow.rows.length === 0) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El receptor seleccionado no es valido para el area del requerimiento' });
       }
 
       const receptor = receptorRow.rows[0];
       const receptorDni = String(receptor.dni || '').trim();
       if (!receptorDni) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El receptor seleccionado no tiene DNI registrado' });
       }
 
-      await pool.query(
+      const detailRows = await client.query(`
+        SELECT id_material, SUM(cantidad)::numeric AS cantidad_total
+        FROM detalle_requerimiento
+        WHERE id_requerimiento = $1 AND id_material IS NOT NULL
+        GROUP BY id_material
+      `, [id]);
+
+      if (detailRows.rows.length > 0) {
+        const idMovimientoSalida = await insertMovimiento(client, {
+          tipo: 'SALIDA',
+          usuarioRegistro: req.user.id,
+        });
+
+        for (const detail of detailRows.rows) {
+          const idMaterial = Number(detail.id_material || 0);
+          const qty = Number(detail.cantidad_total || 0);
+          if (!idMaterial || qty <= 0) continue;
+
+          const stockTotal = await getMaterialStockTotal(client, idMaterial);
+          if (stockTotal > 0) {
+            await discountMaterialStockDistributed(client, idMaterial, Math.min(stockTotal, qty));
+          }
+
+          await client.query(`
+            INSERT INTO movimiento_detalles (id_movimiento, id_material, cantidad)
+            VALUES ($1, $2, $3)
+          `, [idMovimientoSalida, idMaterial, qty]);
+        }
+      }
+
+      await client.query(
         `UPDATE requerimientos
          SET estado_entrega = 'ENTREGADO',
              nombre_receptor = $1,
@@ -433,6 +472,8 @@ module.exports = function(app, deps) {
          WHERE id = $3`,
         [receptor.nombre, receptorDni, id]
       );
+
+      await client.query('COMMIT');
 
       const result = await pool.query(`
         SELECT r.*, u.nombre AS usuario, COALESCE(a.nombre, 'Sin area') AS area
@@ -445,7 +486,10 @@ module.exports = function(app, deps) {
 
       res.json(result.rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
     }
   });
 
