@@ -10,7 +10,6 @@ const { pool, loadSchemaMeta, ROLE_NAME_BY_ID } = require('./db/pool');
 const { loadRoleNamesCache, ensureCoreApprovalPermissions } = require('./services/approval');
 const { ensureProveedoresColumns, ensureRequerimientosColumns, ensureComprasColumns, ensureMovimientosColumns } = require('./db/migrations');
 const { seedInventoryDemoData } = require('./db/seeds');
-const registerAuthRoutes = require('./middleware/auth').registerAuthRoutes;
 const registerRoutes = require('./routes/index');
 
 const app = express();
@@ -146,10 +145,7 @@ const startServer = async () => {
     `);
   });
 
-  // Auth routes (login, logout, /api/me, etc.)
-  registerAuthRoutes(app);
-
-  // All other routes
+  // All other routes (auth routes are registered via routes/index.js)
   registerRoutes(app, {
     pool,
     authMiddleware: require('./middleware/auth').authMiddleware,
