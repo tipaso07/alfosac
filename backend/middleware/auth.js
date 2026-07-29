@@ -400,8 +400,12 @@ const registerAuthRoutes = (app) => {
 
   app.put('/api/me/cambiar-contrasena', authMiddleware, async (req, res) => {
     try {
-      const { password_nueva, password_confirmacion } = req.body;
+      const { password_actual, password_nueva, password_confirmacion } = req.body;
       const userId = req.user.id;
+
+      if (!password_actual || !String(password_actual).trim()) {
+        return res.status(400).json({ error: 'Contrasena actual es requerida' });
+      }
 
       if (!password_nueva || !String(password_nueva).trim()) {
         return res.status(400).json({ error: 'Nueva contrasena es requerida' });
@@ -422,12 +426,20 @@ const registerAuthRoutes = (app) => {
         return res.status(400).json({ error: 'La contrasena debe tener al menos 8 caracteres' });
       }
 
-      const userCheck = await pool.query('SELECT email FROM usuarios WHERE id = $1', [userId]);
+      const userCheck = await pool.query('SELECT email, password_hash FROM usuarios WHERE id = $1', [userId]);
       if (userCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      const userEmail = String(userCheck.rows[0].email || '').trim().toLowerCase();
+      const userRow = userCheck.rows[0];
+
+      const storedPassword = String(userRow.password_hash || '').trim();
+      const validPassword = await bcrypt.compare(String(password_actual).trim(), storedPassword);
+      if (!validPassword) {
+        return res.status(400).json({ error: 'La contrasena actual no es correcta' });
+      }
+
+      const userEmail = String(userRow.email || '').trim().toLowerCase();
       if (cleanNew.toLowerCase() === userEmail) {
         return res.status(400).json({ error: 'La contrasena no puede ser igual al correo' });
       }
