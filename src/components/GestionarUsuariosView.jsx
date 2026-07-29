@@ -5,11 +5,9 @@ import {
   fetchUsuarios,
   fetchRoles,
   fetchAreas,
-  createUsuario,
   updateUsuario,
   updateUsuarioPassword,
   deleteUsuario,
-  createArea,
 } from '../services/api'
 
 const initialForm = {
@@ -18,14 +16,6 @@ const initialForm = {
   dni: '',
   telefono: '',
   foto: '',
-  id_role: '',
-  id_area: '',
-  password: '',
-}
-
-const initialAreaForm = {
-  nombre: '',
-  descripcion: '',
 }
 
 const initialPasswordForm = {
@@ -35,7 +25,6 @@ const initialPasswordForm = {
 
 export default function GestionarUsuariosView() {
   const [form, setForm] = useState(initialForm)
-  const [areaForm, setAreaForm] = useState(initialAreaForm)
   const [passwordForm, setPasswordForm] = useState(initialPasswordForm)
   const [usuarios, setUsuarios] = useState([])
   const [roles, setRoles] = useState([])
@@ -45,10 +34,8 @@ export default function GestionarUsuariosView() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
-  const [areaFieldErrors, setAreaFieldErrors] = useState({})
   const [showFormModal, setShowFormModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [showAreasModal, setShowAreasModal] = useState(false)
   const [editingUserId, setEditingUserId] = useState(null)
   const [changingPasswordUserId, setChangingPasswordUserId] = useState(null)
   const [query, setQuery] = useState('')
@@ -196,35 +183,6 @@ export default function GestionarUsuariosView() {
     return () => window.removeEventListener('usuarios:refresh', handler)
   }, [])
 
-  const openCreateModal = () => {
-    setEditingUserId(null)
-    setForm(initialForm)
-    setFieldErrors({})
-    setError('')
-    setSuccess('')
-    setSelectedFileName('')
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-    setShowFormModal(true)
-  }
-
-  const openAreasModal = () => {
-    setAreaForm(initialAreaForm)
-    setAreaFieldErrors({})
-    setError('')
-    setSuccess('')
-    setShowAreasModal(true)
-  }
-
-  const closeAreasModal = () => {
-    if (saving) return
-    setShowAreasModal(false)
-    setAreaForm(initialAreaForm)
-    setAreaFieldErrors({})
-    setError('')
-  }
-
   const openEditModal = (usuario) => {
     setEditingUserId(usuario.id)
     setForm({
@@ -233,9 +191,6 @@ export default function GestionarUsuariosView() {
       dni: usuario.dni || '',
       telefono: usuario.telefono || '',
       foto: usuario.imagen || usuario.foto || '',
-      id_role: usuario.id_role || '',
-      id_area: usuario.id_area || '',
-      password: '',
     })
     setFieldErrors({})
     setError('')
@@ -287,18 +242,12 @@ export default function GestionarUsuariosView() {
       errors.email = 'Email invalido'
     }
 
-    if (!currentForm.id_role) {
-      errors.id_role = 'Rol es obligatorio'
-    }
-
     if (!String(currentForm.dni || '').trim()) {
       errors.dni = 'DNI es obligatorio'
     }
     if (!String(currentForm.telefono || '').trim()) {
       errors.telefono = 'Teléfono es obligatorio'
     }
-
-    return errors
 
     return errors
   }
@@ -326,21 +275,10 @@ export default function GestionarUsuariosView() {
         dni: String(form.dni || '').trim(),
         telefono: String(form.telefono || '').trim(),
         foto: String(form.foto || '').trim(),
-        id_role: Number(form.id_role),
-        id_area: form.id_area ? Number(form.id_area) : null,
       }
 
-      if (!editingUserId && form.password) {
-        payload.password = String(form.password)
-      }
-
-      if (editingUserId) {
-        await updateUsuario(editingUserId, payload)
-        setSuccess('Usuario actualizado correctamente')
-      } else {
-        await createUsuario(payload)
-        setSuccess('Usuario creado correctamente')
-      }
+      await updateUsuario(editingUserId, payload)
+      setSuccess('Usuario actualizado correctamente')
 
       await refreshUsuarios()
       setForm(initialForm)
@@ -348,7 +286,7 @@ export default function GestionarUsuariosView() {
       setShowFormModal(false)
       setEditingUserId(null)
     } catch (err) {
-      setError(err.message || `Error al ${editingUserId ? 'actualizar' : 'crear'} usuario`)
+      setError(err.message || 'Error al actualizar usuario')
     } finally {
       setSaving(false)
     }
@@ -421,56 +359,6 @@ export default function GestionarUsuariosView() {
     }
   }
 
-  const validateAreaForm = (formData = areaForm) => {
-    const errors = {}
-    const nombreTrimmed = String(formData.nombre || '').trim()
-    if (!nombreTrimmed) {
-      errors.nombre = 'Nombre es obligatorio'
-    }
-    return errors
-  }
-
-  const submitArea = async (event) => {
-    event.preventDefault()
-    setError('')
-    setSuccess('')
-    
-    // Leer directamente del estado actual
-    const nombre = areaForm.nombre ? String(areaForm.nombre).trim() : ''
-    const descripcion = areaForm.descripcion ? String(areaForm.descripcion).trim() : ''
-    
-    console.log('Intentando crear área:', { nombre, descripcion, areaForm })
-    
-    if (!nombre) {
-      setAreaFieldErrors({ nombre: 'Nombre es obligatorio' })
-      setError('Por favor ingresa un nombre para el área')
-      return
-    }
-
-    try {
-      setSaving(true)
-      await createArea({
-        nombre: nombre,
-        descripcion: descripcion || null,
-      })
-      setSuccess('Área creada correctamente')
-      setAreaForm(initialAreaForm)
-      setAreaFieldErrors({})
-      
-      // Recargar áreas
-      const areasData = await fetchAreas('')
-      setAreas(Array.isArray(areasData) ? areasData : [])
-      
-      setTimeout(() => {
-        setShowAreasModal(false)
-      }, 500)
-    } catch (err) {
-      setError(err.message || 'Error al crear área')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const rows = usuarios.filter((usuario) => {
     const q = String(query || '').toLowerCase().trim()
     if (!q) return true
@@ -486,14 +374,6 @@ export default function GestionarUsuariosView() {
     <section className="manage-users-section">
       <div className="section-header">
         <h1>Gestionar Usuarios</h1>
-        <div className="header-buttons">
-          <button type="button" className="primary-btn" onClick={openCreateModal}>
-            + Agregar usuario
-          </button>
-          <button type="button" className="primary-btn" onClick={openAreasModal}>
-            + Agregar área
-          </button>
-        </div>
       </div>
 
       <div className="users-toolbar">
@@ -586,7 +466,7 @@ export default function GestionarUsuariosView() {
         <div className="user-modal-backdrop" onClick={closeFormModal}>
           <div className="user-modal" onClick={(event) => event.stopPropagation()}>
             <div className="user-modal-header">
-              <h2>{editingUserId ? 'Editar usuario' : 'Crear usuario'}</h2>
+              <h2>Editar usuario</h2>
               <button type="button" onClick={closeFormModal} disabled={saving}>×</button>
             </div>
 
@@ -651,46 +531,12 @@ export default function GestionarUsuariosView() {
                 </div>
               )}
 
-              <label>
-                Rol *
-                <select
-                  value={form.id_role}
-                  onChange={(e) => update({ id_role: e.target.value })}
-                  disabled={saving}
-                >
-                  <option value="">Selecciona un rol</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>{role.nombre}</option>
-                  ))}
-                </select>
-                {fieldErrors.id_role && <small className="field-error">{fieldErrors.id_role}</small>}
-              </label>
-
-              <label>
-                Area (opcional)
-                <select
-                  value={form.id_area}
-                  onChange={(e) => update({ id_area: e.target.value })}
-                  disabled={saving}
-                >
-                  <option value="">Selecciona un area</option>
-                  {areas.map((area) => (
-                    <option key={area.id} value={area.id}>{area.nombre}</option>
-                  ))}
-                </select>
-              </label>
-
-
               <div className="user-form-actions">
                 <button type="button" className="secondary-btn" onClick={closeFormModal} disabled={saving}>
                   Cancelar
                 </button>
                 <button type="submit" className="secondary-btn" disabled={isSubmitDisabled}>
-                  {saving
-                    ? 'Guardando...'
-                    : editingUserId
-                      ? 'Actualizar usuario'
-                      : 'Crear usuario'}
+                  {saving ? 'Guardando...' : 'Actualizar usuario'}
                 </button>
               </div>
             </form>
@@ -742,68 +588,6 @@ export default function GestionarUsuariosView() {
         </div>
       )}
 
-      {showAreasModal && (
-        <div className="user-modal-backdrop" onClick={closeAreasModal}>
-          <div className="user-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="user-modal-header">
-              <h2>Agregar área</h2>
-              <button type="button" onClick={closeAreasModal} disabled={saving}>×</button>
-            </div>
-
-            {error && <p className="user-error">{error}</p>}
-            {success && <p className="user-success">{success}</p>}
-
-            <form className="manage-users-form" onSubmit={submitArea}>
-              <label>
-                Nombre del área *
-                <input
-                  type="text"
-                  value={areaForm?.nombre || ''}
-                  onChange={(e) => {
-                    const newValue = e.target.value
-                    console.log('Input cambió a:', newValue)
-                    setAreaForm(prev => {
-                      const updated = { ...prev, nombre: newValue }
-                      console.log('Nuevo areaForm:', updated)
-                      return updated
-                    })
-                    setAreaFieldErrors({})
-                    setError('')
-                  }}
-                  disabled={saving}
-                  placeholder="Ej: Almacén, Compras, etc."
-                />
-                {areaFieldErrors.nombre && <small className="field-error">{areaFieldErrors.nombre}</small>}
-              </label>
-
-              <label>
-                Descripción (opcional)
-                <textarea
-                  value={areaForm?.descripcion || ''}
-                  onChange={(e) => {
-                    const newValue = e.target.value
-                    setAreaForm(prev => ({ ...prev, descripcion: newValue }))
-                    setAreaFieldErrors({})
-                    setError('')
-                  }}
-                  disabled={saving}
-                  placeholder="Descripción del área"
-                  rows={3}
-                />
-              </label>
-
-              <div className="user-form-actions">
-                <button type="button" className="secondary-btn" onClick={closeAreasModal} disabled={saving}>
-                  Cancelar
-                </button>
-                <button type="submit" className="primary-btn" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Crear área'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </section>
   )
 }
