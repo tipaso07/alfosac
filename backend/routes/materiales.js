@@ -458,7 +458,6 @@ module.exports = function(app, deps) {
     let client;
     try {
       client = await pool.connect();
-    try {
       const materialId = Number(req.params.id || 0);
       if (!Number.isInteger(materialId) || materialId <= 0) {
         return res.status(400).json({ error: 'ID de material invalido' });
