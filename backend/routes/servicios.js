@@ -371,7 +371,6 @@ module.exports = function(app, deps) {
     try {
       client = await pool.connect();
 
-    try {
       if (schemaMeta.serviciosColumns.size === 0) {
         return res.status(400).json({ error: 'La tabla servicios no esta disponible' });
       }
