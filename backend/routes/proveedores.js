@@ -140,8 +140,9 @@ module.exports = function(app, deps) {
   });
 
   app.post('/api/proveedores', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const {
         razon_social, nombre, ruc, direccion, distrito, correo,
         persona_responsable, telefono, condiciones_pago, banco,
@@ -251,10 +252,10 @@ module.exports = function(app, deps) {
       const created = await pool.query('SELECT * FROM proveedores WHERE id = $1', [result.rows[0].id]);
       res.status(201).json(created.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
@@ -419,8 +420,9 @@ module.exports = function(app, deps) {
   });
 
   app.put('/api/proveedores/:id', authMiddleware, requirePermissions('GESTIONAR_PROVEEDORES'), async (req, res) => {
-    const client = await pool.connect();
+    let client;
     try {
+      client = await pool.connect();
       const id = Number(req.params.id || 0);
       if (!id) {
         return res.status(400).json({ error: 'ID invalido' });
@@ -529,10 +531,10 @@ module.exports = function(app, deps) {
       const updated = await pool.query('SELECT * FROM proveedores WHERE id = $1', [id]);
       res.json(updated.rows[0]);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK');
       res.status(500).json({ error: error.message });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
