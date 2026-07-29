@@ -118,7 +118,6 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
     if (!normalizedStage) return false
     if (!isPendingFlowStage(normalizedStage) && normalizedStage !== 'PENDIENTE') return false
     if (currentUserPendingStages.size === 0) {
-      if (!currentUserApprovalStage) return false
       return normalizedStage === currentUserApprovalStage || normalizedStage === 'PENDIENTE'
     }
     return currentUserPendingStages.has(normalizedStage)
@@ -327,7 +326,7 @@ export default function GestionarComprasView({ compras = [], currentUserRoleId =
                 </ul>
               </div>
 
-              {view.actions && canApproveCompra(compra) && (
+              {view.actions && currentUserApprovalStage && canApproveCompra(compra) && (
                 <div className="purchase-manage-actions">
                   <button className="btn-approve" onClick={() => onChangeEstado(compra.id, 'APROBADA')}>Aprobar</button>
                   <button className="btn-reject" onClick={() => onChangeEstado(compra.id, 'RECHAZADA')}>Rechazar</button>
